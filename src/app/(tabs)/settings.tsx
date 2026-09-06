@@ -988,7 +988,7 @@ export default function SettingsScreen() {
           </View>
 
           <View style={{ alignItems: 'center', marginTop: 8 }}>
-            <Text style={styles.versionText}>Rupeo {t('version')} 2.0.6</Text>
+            <Text style={styles.versionText}>Rupeo {t('version')} 2.0.7</Text>
           </View>
         </View>
       </ScrollView>

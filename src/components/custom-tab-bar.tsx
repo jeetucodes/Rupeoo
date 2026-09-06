@@ -66,7 +66,7 @@ interface TabItemProps {
   t?: any;
 }
 
-function FabTabItem({ onPress }: TabItemProps) {
+function FabTabItem({ onPress, isActive }: TabItemProps) {
   const [scaleAnim] = useState(() => new Animated.Value(1));
   const [pulseAnim] = useState(() => new Animated.Value(1));
 
@@ -129,7 +129,7 @@ function FabTabItem({ onPress }: TabItemProps) {
               },
             ]}
           />
-          <View style={styles.fabInner}>
+          <View style={[styles.fabInner, isActive && { backgroundColor: '#FFCA28', transform: [{ scale: 1.05 }] }]}>
             <Ionicons name="add" size={32} color="#1C1C1E" />
           </View>
         </Animated.View>

@@ -1,5 +1,6 @@
 import React from 'react';
-import { Image, View } from 'react-native';
+import { View } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 
 interface Props {
@@ -130,9 +131,12 @@ export default function CategoryIcon({ categoryName, iconName, color = '#6B7280'
 
   if (imageUrl && !imageError) {
     return (
-      <Image
+      <ExpoImage
         source={{ uri: imageUrl }}
-        style={[{ width: size * 1.2, height: size * 1.2, resizeMode: 'contain' }, style]}
+        style={[{ width: size * 1.25, height: size * 1.25 }, style]}
+        contentFit="contain"
+        cachePolicy="memory-disk"
+        transition={150}
         onError={() => setImageError(true)}
       />
     );

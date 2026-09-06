@@ -424,21 +424,22 @@ export default function ReportsScreen() {
     const insights: string[] = [];
 
     if (savingsRate >= 25) {
-      insights.push(`🎯 Great job! You are saving ${savingsRate}% of your income, comfortably beating the standard 20% benchmark.`);
+      insights.push(`🎯 Wealth Builder: Saving ${savingsRate}% of income comfortably beats the standard 20% golden benchmark.`);
     } else if (income > 0 && savingsRate < 10) {
-      insights.push(`⚠️ Your current savings rate is ${savingsRate}%. Try trimming non-essential spends to build a safety fund.`);
+      insights.push(`⚠️ Tight Margin: Current savings rate is ${savingsRate}%. Focus on trimming non-essential lifestyle spends.`);
     } else if (income === 0 && expense > 0) {
-      insights.push(`💡 You have ${curr}${expense.toLocaleString('en-IN')} in expenses recorded with no registered income for this period.`);
+      insights.push(`💡 Cash Outflow: ${curr}${expense.toLocaleString('en-IN')} in expenses recorded with no registered income.`);
     }
 
     if (categoryBreakdown.length > 0) {
       const top = categoryBreakdown[0];
-      insights.push(`🏷️ "${top.name}" is your highest ${categoryType} category at ${curr}${top.amount.toLocaleString('en-IN')} (${top.percentage}% share).`);
+      const annualProjected = Math.round(top.amount * 12);
+      insights.push(`🏷️ Top Outflow: "${top.name}" takes ${top.percentage}% (${curr}${top.amount.toLocaleString('en-IN')}). Trimming 10% saves ~${curr}${Math.round(annualProjected * 0.1).toLocaleString('en-IN')}/year!`);
     }
 
     if (paymentModesSplit.length > 0) {
       const primaryMode = paymentModesSplit[0];
-      insights.push(`💳 ${primaryMode.mode} is your most active payment method (${primaryMode.percentage}% of all expenses).`);
+      insights.push(`💳 Primary Channel: ${primaryMode.mode} powers ${primaryMode.percentage}% of all your transactions.`);
     }
 
     return { score, rating, color, insights };
@@ -641,6 +642,35 @@ export default function ReportsScreen() {
       projectedSpend,
     };
   }, [transactions, period, metrics]);
+
+  // Safe-to-Spend Daily Budget & Projection
+  const safeToSpend = useMemo(() => {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+    const totalDaysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+    const currentDay = Math.max(1, now.getDate());
+    const remainingDays = Math.max(1, totalDaysInMonth - currentDay + 1);
+
+    const availablePool = Math.max(0, metrics.income - metrics.expense);
+    const dailySafeLimit = metrics.income > 0 ? Math.round(availablePool / remainingDays) : 0;
+
+    const burnRatePerDay = Math.round(metrics.expense / currentDay);
+    const projectedMonthEndSpend = Math.round(burnRatePerDay * totalDaysInMonth);
+    const projectedDifference = metrics.income > 0 ? metrics.income - projectedMonthEndSpend : 0;
+    const isProjectedDeficit = metrics.income > 0 && projectedMonthEndSpend > metrics.income;
+
+    return {
+      remainingDays,
+      totalDaysInMonth,
+      currentDay,
+      dailySafeLimit,
+      projectedMonthEndSpend,
+      projectedDifference,
+      isProjectedDeficit,
+      burnRatePerDay,
+    };
+  }, [metrics]);
 
   // 50 / 30 / 20 Budget Rule Breakdown
   const rule503020 = useMemo(() => {
@@ -1933,6 +1963,30 @@ export default function ReportsScreen() {
                 </Text>
               </View>
             </View>
+
+            {/* Safe-to-Spend Daily Allowance Banner */}
+            <View style={styles.safeToSpendBanner}>
+              <View style={styles.safeToSpendLeft}>
+                <View style={styles.safeToSpendIconWrap}>
+                  <Ionicons name="shield-checkmark" size={16} color="#059669" />
+                </View>
+                <View>
+                  <Text style={styles.safeToSpendTitle}>Safe Daily Budget</Text>
+                  <Text style={styles.safeToSpendSub}>{safeToSpend.remainingDays} days remaining this month</Text>
+                </View>
+              </View>
+              <View style={styles.safeToSpendRight}>
+                <Text style={styles.safeToSpendValue}>
+                  {safeToSpend.dailySafeLimit > 0 ? `${curr}${safeToSpend.dailySafeLimit.toLocaleString('en-IN')}` : `${curr}${metrics.dailyAvg.toLocaleString('en-IN')}`}
+                  <Text style={styles.safeToSpendPerDay}>/day</Text>
+                </Text>
+                <View style={[styles.safeToSpendPill, safeToSpend.isProjectedDeficit ? styles.safeToSpendPillWarning : styles.safeToSpendPillSafe]}>
+                  <Text style={[styles.safeToSpendPillText, safeToSpend.isProjectedDeficit ? styles.safeToSpendTextWarning : styles.safeToSpendTextSafe]}>
+                    {safeToSpend.isProjectedDeficit ? 'Pace Warning' : 'Safe Pace'}
+                  </Text>
+                </View>
+              </View>
+            </View>
           </View>
 
           {/* 50 / 30 / 20 FINANCIAL BUDGET HEALTH RULE */}
@@ -2021,6 +2075,30 @@ export default function ReportsScreen() {
             {/* Health Score Gauge Bar */}
             <View style={styles.healthScoreTrack}>
               <View style={[styles.healthScoreFill, { width: `${financialHealth.score}%`, backgroundColor: financialHealth.color }]} />
+            </View>
+
+            {/* Financial Vitality Tri-Metric KPIs */}
+            <View style={styles.vitalityPillRow}>
+              <View style={styles.vitalityItem}>
+                <Text style={styles.vitalityItemLabel}>Savings Rate</Text>
+                <Text style={[styles.vitalityItemVal, { color: metrics.savingsRate >= 20 ? '#10B981' : metrics.savingsRate >= 10 ? '#F59E0B' : '#EF4444' }]}>
+                  {metrics.savingsRate}%
+                </Text>
+              </View>
+              <View style={styles.vitalityDivider} />
+              <View style={styles.vitalityItem}>
+                <Text style={styles.vitalityItemLabel}>Burn Ratio</Text>
+                <Text style={[styles.vitalityItemVal, { color: metrics.income > 0 && metrics.expense / metrics.income <= 0.75 ? '#10B981' : '#EF4444' }]}>
+                  {metrics.income > 0 ? `${Math.round((metrics.expense / metrics.income) * 100)}%` : '100%'}
+                </Text>
+              </View>
+              <View style={styles.vitalityDivider} />
+              <View style={styles.vitalityItem}>
+                <Text style={styles.vitalityItemLabel}>Needs Share</Text>
+                <Text style={styles.vitalityItemVal}>
+                  {rule503020.needsPct}%
+                </Text>
+              </View>
             </View>
 
             {/* Dynamic AI Insights Bullet Points */}
@@ -2186,7 +2264,9 @@ export default function ReportsScreen() {
                         </View>
                         <View style={styles.categoryBottomRow}>
                           <Text style={styles.categoryPercentText}>{cat.percentage}% of total {categoryType}</Text>
-                          <Text style={styles.categoryTxnCount}>{cat.count} txns • View Details →</Text>
+                          <Text style={styles.categoryTxnCount}>
+                            {cat.count} txns • Avg {curr}{Math.round(cat.amount / Math.max(cat.count, 1)).toLocaleString('en-IN')}
+                          </Text>
                         </View>
                       </View>
                     </TouchableOpacity>
@@ -3190,6 +3270,38 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: 3,
   },
+  vitalityPillRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    marginBottom: 12,
+  },
+  vitalityItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  vitalityItemLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#64748B',
+    textTransform: 'uppercase',
+    letterSpacing: 0.2,
+  },
+  vitalityItemVal: {
+    fontSize: 13.5,
+    fontWeight: '900',
+    color: '#0F172A',
+    marginTop: 2,
+  },
+  vitalityDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: '#E2E8F0',
+    marginHorizontal: 6,
+  },
   aiInsightsList: {
     gap: 8,
   },
@@ -3747,6 +3859,77 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#94A3B8',
     marginTop: 2,
+  },
+  safeToSpendBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    borderRadius: 14,
+    padding: 12,
+    marginTop: 10,
+  },
+  safeToSpendLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  safeToSpendIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#DCFCE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 9,
+  },
+  safeToSpendTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#065F46',
+  },
+  safeToSpendSub: {
+    fontSize: 10.5,
+    color: '#047857',
+    marginTop: 1,
+    fontWeight: '500',
+  },
+  safeToSpendRight: {
+    alignItems: 'flex-end',
+  },
+  safeToSpendValue: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#065F46',
+  },
+  safeToSpendPerDay: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#047857',
+  },
+  safeToSpendPill: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 8,
+    marginTop: 2,
+  },
+  safeToSpendPillSafe: {
+    backgroundColor: '#DCFCE7',
+  },
+  safeToSpendPillWarning: {
+    backgroundColor: '#FEE2E2',
+  },
+  safeToSpendPillText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+  },
+  safeToSpendTextSafe: {
+    color: '#16A34A',
+  },
+  safeToSpendTextWarning: {
+    color: '#DC2626',
   },
 
   // 50/30/20 RULE

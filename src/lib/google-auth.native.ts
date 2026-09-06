@@ -36,12 +36,20 @@ export async function promptGoogleSignIn(): Promise<UserCredential> {
     return await signInWithCredential(auth, credential);
   } catch (err: any) {
     const code = err?.code;
+    const message = err?.message;
+    console.error('[GoogleAuth] Native Sign-In Error Details:', {
+      code,
+      message,
+      nativeError: err,
+      stringified: JSON.stringify(err, Object.getOwnPropertyNames(err || {})),
+    });
+
     if (code === 'SIGN_IN_CANCELLED' || code === '12501') {
       throw new Error('Google sign-in was cancelled.');
     }
     if (code === 'DEVELOPER_ERROR' || code === '10') {
       throw new Error(
-        `Google Sign-In is not configured for ${Platform.OS}. Add the app SHA-1 and Android OAuth client in Firebase Console, then rebuild the app.`
+        `Google Sign-In is not configured for ${Platform.OS} (Error Code 10: DEVELOPER_ERROR). Check SHA-1 fingerprints in Firebase Console & Google Cloud Console. Details: ${message || ''}`
       );
     }
     if (code === 'PLAY_SERVICES_NOT_AVAILABLE') {

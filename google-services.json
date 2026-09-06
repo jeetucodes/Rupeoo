@@ -22,6 +22,14 @@
           }
         },
         {
+          "client_id": "26927139619-n3tm2v2qf19e4fvp1ovf26fovthfukrt.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.innovatexlabs.paisewaise",
+            "certificate_hash": "edbc9b7c931ba15a761ee19b64095a0c1ff6ce42"
+          }
+        },
+        {
           "client_id": "26927139619-sotioonpetpaltjbe20fqn06trj4ksei.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {

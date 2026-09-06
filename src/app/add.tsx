@@ -13,14 +13,21 @@ import {
   Animated,
   Easing,
   StatusBar,
-  Alert,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image as ExpoImage } from 'expo-image';
 import { insertTransaction, getUserCategories, CategoryItem, defaultCategories } from '@/lib/database';
+import {
+  QuickPresetItem,
+  PRESET_ICONS,
+  DEFAULT_QUICK_COMBOS_EXPENSE,
+  DEFAULT_QUICK_COMBOS_INCOME,
+  fetchCustomPresets,
+  saveCustomPresetItem,
+  fetchHiddenPresetIds,
+} from '@/lib/quickPresets';
 import { useAuth } from '@/context/AuthContext';
 import { showTransactionSaveAd, preloadTransactionSaveAd } from '@/lib/ads';
 import { useTranslation } from '@/lib/i18n';
@@ -32,11 +39,12 @@ import { formatTime12Hour, getLocalDateString, getRelativeDateString } from '@/l
 import Toast from 'react-native-toast-message';
 import { playTransactionSuccessSound } from '@/lib/sound';
 
-// High-res 3D Sugary / Fluent Animated Icons
+// High-res 3D Fluent Emojis
 const ICONS_3D = {
   expense: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Money%20with%20Wings.png',
   income: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Money%20Bag.png',
-  checkmark: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Symbols/Check%20Mark%20Button.png',
+  sparkles: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Activities/Sparkles.png',
+  fire: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Travel%20and%20places/Fire.png',
   upi: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Travel%20and%20places/High%20Voltage.png',
   cash: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Dollar%20Banknote.png',
   card: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Credit%20Card.png',
@@ -46,263 +54,24 @@ const ICONS_3D = {
   camera: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Camera.png',
   gallery: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Framed%20Picture.png',
   memo: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Memo.png',
-  party: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Activities/Party%20Popper.png',
-  sparkles: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Activities/Sparkles.png',
-  fire: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Travel%20and%20places/Fire.png',
 };
-
-const PAYMENT_MODES = [
-  { id: 'UPI', label: 'UPI', icon3d: ICONS_3D.upi, color: '#7C3AED', tag: 'Fast' },
-  { id: 'Cash', label: 'Cash', icon3d: ICONS_3D.cash, color: '#16A34A', tag: 'Paper' },
-  { id: 'Card', label: 'Card', icon3d: ICONS_3D.card, color: '#2563EB', tag: 'Bank' },
-  { id: 'Bank', label: 'Bank', icon3d: ICONS_3D.bank, color: '#D97706', tag: 'NEFT' },
-];
 
 const QUICK_AMOUNTS = [50, 100, 200, 500, 1000, 2000];
 
-import {
-  QuickPresetItem,
-  PRESET_ICONS,
-  DEFAULT_QUICK_COMBOS_EXPENSE,
-  DEFAULT_QUICK_COMBOS_INCOME,
-  fetchCustomPresets,
-  saveCustomPresetItem,
-  removeCustomPresetItem,
-  fetchHiddenPresetIds,
-} from '@/lib/quickPresets';
-
-const QUICK_TILES_EXPENSE = [
-  {
-    id: 'chai',
-    label: 'Chai & Snacks',
-    category: 'Food',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Food/Hot%20Beverage.png',
-    color: '#D97706',
-  },
-  {
-    id: 'food',
-    label: 'Food & Dining',
-    category: 'Food',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Food/Pizza.png',
-    color: '#EA580C',
-  },
-  {
-    id: 'groceries',
-    label: 'Groceries',
-    category: 'Groceries',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Shopping%20Cart.png',
-    color: '#16A34A',
-  },
-  {
-    id: 'petrol',
-    label: 'Petrol & Fuel',
-    category: 'Transport',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Travel%20and%20places/Fuel%20Pump.png',
-    color: '#DC2626',
-  },
-  {
-    id: 'cab',
-    label: 'Cab & Auto',
-    category: 'Transport',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Travel%20and%20places/Taxi.png',
-    color: '#CA8A04',
-  },
-  {
-    id: 'recharge',
-    label: 'Recharge / Bills',
-    category: 'Bills',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Mobile%20Phone.png',
-    color: '#2563EB',
-  },
-  {
-    id: 'shopping',
-    label: 'Shopping',
-    category: 'Shopping',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Shopping%20Bags.png',
-    color: '#9333EA',
-  },
-  {
-    id: 'medicines',
-    label: 'Medicines',
-    category: 'Health',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Pill.png',
-    color: '#059669',
-  },
+const PAYMENT_MODES = [
+  { id: 'UPI', label: 'UPI', icon3d: ICONS_3D.upi, color: '#7C3AED' },
+  { id: 'Cash', label: 'Cash', icon3d: ICONS_3D.cash, color: '#16A34A' },
+  { id: 'Card', label: 'Card', icon3d: ICONS_3D.card, color: '#2563EB' },
+  { id: 'Bank', label: 'Bank', icon3d: ICONS_3D.bank, color: '#D97706' },
 ];
 
-const QUICK_TILES_INCOME = [
-  {
-    id: 'salary',
-    label: 'Salary Credit',
-    category: 'Salary',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Briefcase.png',
-    color: '#10B981',
-  },
-  {
-    id: 'business',
-    label: 'Business Sales',
-    category: 'Business',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Chart%20Increasing.png',
-    color: '#059669',
-  },
-  {
-    id: 'freelance',
-    label: 'Freelance / Gig',
-    category: 'Freelance',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Laptop.png',
-    color: '#0EA5E9',
-  },
-  {
-    id: 'cashback',
-    label: 'Cashback / Gift',
-    category: 'Cashback',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Activities/Wrapped%20Gift.png',
-    color: '#F59E0B',
-  },
-  {
-    id: 'investments',
-    label: 'Dividends / Stock',
-    category: 'Investments',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Bar%20Chart.png',
-    color: '#8B5CF6',
-  },
-  {
-    id: 'other_income',
-    label: 'Other Income',
-    category: 'Income',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Money%20Bag.png',
-    color: '#64748B',
-  },
-];
-
-
-const EXPENSE_SUGGESTIONS = [
-  {
-    label: 'Chai & Snacks',
-    category: 'Food',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Food/Hot%20Beverage.png',
-  },
-  {
-    label: 'Food & Dining',
-    category: 'Food',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Food/Pizza.png',
-  },
-  {
-    label: 'Groceries / Mart',
-    category: 'Groceries',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Shopping%20Cart.png',
-  },
-  {
-    label: 'Petrol & Fuel',
-    category: 'Transport',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Travel%20and%20places/Fuel%20Pump.png',
-  },
-  {
-    label: 'Cab & Auto',
-    category: 'Transport',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Travel%20and%20places/Taxi.png',
-  },
-  {
-    label: 'Phone Recharge',
-    category: 'Bills',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Mobile%20Phone.png',
-  },
-  {
-    label: 'House Rent',
-    category: 'Bills',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Travel%20and%20places/House.png',
-  },
-  {
-    label: 'Shopping',
-    category: 'Shopping',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Shopping%20Bags.png',
-  },
-  {
-    label: 'Medicines',
-    category: 'Health',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Pill.png',
-  },
-];
-
-const INCOME_SUGGESTIONS = [
-  {
-    label: 'Salary Credit',
-    category: 'Salary',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Briefcase.png',
-  },
-  {
-    label: 'Freelance & Gig',
-    category: 'Freelance',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Laptop.png',
-  },
-  {
-    label: 'Business Sales',
-    category: 'Business',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Chart%20Increasing.png',
-  },
-  {
-    label: 'Cashback / Bonus',
-    category: 'Income',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Activities/Wrapped%20Gift.png',
-  },
-  {
-    label: 'Dividends / Stock',
-    category: 'Investments',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Bar%20Chart.png',
-  },
-];
-
-const INCOME_CATEGORY_ITEMS = [
-  {
-    name: 'Salary',
-    color: '#10B981',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Briefcase.png',
-  },
-  {
-    name: 'Business',
-    color: '#059669',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Chart%20Increasing.png',
-  },
-  {
-    name: 'Freelance',
-    color: '#0EA5E9',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Laptop.png',
-  },
-  {
-    name: 'Investments',
-    color: '#8B5CF6',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Bar%20Chart.png',
-  },
-  {
-    name: 'Cashback',
-    color: '#F59E0B',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Activities/Wrapped%20Gift.png',
-  },
-  {
-    name: 'Rental',
-    color: '#EC4899',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Travel%20and%20places/House.png',
-  },
-  {
-    name: 'Bonus',
-    color: '#FCD34D',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Activities/Trophy.png',
-  },
-  {
-    name: 'Dividends',
-    color: '#6366F1',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Coin.png',
-  },
-  {
-    name: 'Income',
-    color: '#10B981',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Money%20Bag.png',
-  },
-  {
-    name: 'Other',
-    color: '#64748B',
-    iconUrl: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Package.png',
-  },
+const DEFAULT_INCOME_CATEGORIES = [
+  { name: 'Salary', icon: 'briefcase', color: '#10B981' },
+  { name: 'Business', icon: 'trending-up', color: '#059669' },
+  { name: 'Freelance', icon: 'laptop', color: '#0EA5E9' },
+  { name: 'Investments', icon: 'bar-chart', color: '#8B5CF6' },
+  { name: 'Income', icon: 'wallet', color: '#10B981' },
+  { name: 'Other', icon: 'cube', color: '#64748B' },
 ];
 
 export default function AddExpenseScreen() {
@@ -311,15 +80,15 @@ export default function AddExpenseScreen() {
   const { t } = useTranslation();
   const curr = settings?.currency === 'INR' ? '₹' : (settings?.currency || '₹');
 
+  const [type, setType] = useState<'debit' | 'credit'>('debit');
   const [amount, setAmount] = useState('');
   const [merchant, setMerchant] = useState('');
   const [description, setDescription] = useState('');
-  const [type, setType] = useState<'debit' | 'credit'>('debit');
   const [category, setCategory] = useState('Food');
   const [paymentMode, setPaymentMode] = useState('UPI');
-  const [entryMode, setEntryMode] = useState<'quick' | 'detailed'>('quick');
-  const [selectedTileId, setSelectedTileId] = useState<string>('chai');
-  const [savedMerchant, setSavedMerchant] = useState<string>('');
+  const [categories, setCategories] = useState<CategoryItem[]>(defaultCategories);
+
+  // 1-Tap Presets
   const [customPresets, setCustomPresets] = useState<QuickPresetItem[]>([]);
   const [hiddenPresetIds, setHiddenPresetIds] = useState<string[]>([]);
   const [presetModalOpen, setPresetModalOpen] = useState(false);
@@ -328,11 +97,11 @@ export default function AddExpenseScreen() {
   const [newPresetCategory, setNewPresetCategory] = useState('Food');
   const [newPresetType, setNewPresetType] = useState<'debit' | 'credit'>('debit');
   const [newPresetIconUrl, setNewPresetIconUrl] = useState(PRESET_ICONS[0].url);
-  const [categories, setCategories] = useState<CategoryItem[]>(defaultCategories);
+
+  // Optional extra details
   const [showMoreOptions, setShowMoreOptions] = useState(false);
   const [receiptImage, setReceiptImage] = useState<string | null>(null);
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
-  const scrollViewRef = useRef<ScrollView>(null);
 
   // Date management
   const todayStr = getLocalDateString();
@@ -342,17 +111,17 @@ export default function AddExpenseScreen() {
   const [isSaving, setIsSaving] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
+  const [savedDetails, setSavedDetails] = useState({ amount: '', merchant: '', category: '', paymentMode: '' });
 
-  // Orchestrated Luxury Success animations
+  // Animation refs
   const successScale = useRef(new Animated.Value(0.3)).current;
   const successOpacity = useRef(new Animated.Value(0)).current;
   const successRingScale = useRef(new Animated.Value(0.6)).current;
   const successRingOpacity = useRef(new Animated.Value(1)).current;
   const successCheckScale = useRef(new Animated.Value(0.1)).current;
-  const successCheckRotate = useRef(new Animated.Value(0)).current;
-  const successBurst = useRef(new Animated.Value(0)).current;
   const successContentY = useRef(new Animated.Value(20)).current;
   const successTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrollViewRef = useRef<ScrollView>(null);
 
   useEffect(() => {
     return () => {
@@ -360,7 +129,6 @@ export default function AddExpenseScreen() {
     };
   }, []);
 
-  // Preload full-screen interstitial ad early so it is ready immediately on save
   useEffect(() => {
     if (!isPremium) {
       preloadTransactionSaveAd();
@@ -384,7 +152,12 @@ export default function AddExpenseScreen() {
     };
   }, []);
 
-  useEffect(() => {
+  const loadData = useCallback(() => {
+    Promise.all([fetchCustomPresets(), fetchHiddenPresetIds()]).then(([custom, hidden]) => {
+      setCustomPresets(custom);
+      setHiddenPresetIds(hidden);
+    }).catch(console.error);
+
     if (user?.uid) {
       getUserCategories(user.uid)
         .then((cats) => {
@@ -394,25 +167,33 @@ export default function AddExpenseScreen() {
         })
         .catch(console.error);
     }
-  }, [user]);
+  }, [user?.uid]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   useFocusEffect(
     useCallback(() => {
-      Promise.all([fetchCustomPresets(), fetchHiddenPresetIds()]).then(([custom, hidden]) => {
-        setCustomPresets(custom);
-        setHiddenPresetIds(hidden);
-      });
-      if (user?.uid) {
-        getUserCategories(user.uid)
-          .then((cats) => {
-            if (cats && cats.length > 0) {
-              setCategories(cats);
-            }
-          })
-          .catch(console.error);
-      }
-    }, [user?.uid])
+      loadData();
+    }, [loadData])
   );
+
+  const isExpense = type === 'debit';
+  const themeColor = isExpense ? '#EF4444' : '#10B981';
+
+  // Compute Active 1-Tap Presets
+  const activePresets = (
+    isExpense
+      ? [
+          ...customPresets.filter((p) => p.type === 'debit' || !p.type),
+          ...DEFAULT_QUICK_COMBOS_EXPENSE,
+        ]
+      : [
+          ...customPresets.filter((p) => p.type === 'credit'),
+          ...DEFAULT_QUICK_COMBOS_INCOME,
+        ]
+  ).filter((p) => !hiddenPresetIds.includes(p.id));
 
   const handleAmountChange = (val: string) => {
     const filtered = val.replace(/[^0-9.]/g, '');
@@ -429,30 +210,13 @@ export default function AddExpenseScreen() {
     setAmount((current + val).toString());
   };
 
-  const applyQuickSuggestion = (item: { label: string; category: string }) => {
-    setMerchant(item.label);
-    if (item.category) {
-      setCategory(item.category);
-    }
-  };
-
-  const handleQuickTileSelect = (item: { id: string; label: string; category: string }) => {
-    setSelectedTileId(item.id);
-    setCategory(item.category);
-    setMerchant(item.label);
-  };
-
-  const handleQuickComboSelect = (combo: QuickPresetItem) => {
+  // 1-Tap Preset selection: sets Amount, Category, and Merchant in 1 click!
+  const handleQuickPresetSelect = (combo: QuickPresetItem) => {
     setAmount(combo.amount);
     setCategory(combo.category);
     setMerchant(combo.label);
-    if (combo.tileId) {
-      setSelectedTileId(combo.tileId);
-    } else {
-      const match = (isExpense ? QUICK_TILES_EXPENSE : QUICK_TILES_INCOME).find(
-        (t) => t.category.toLowerCase() === combo.category.toLowerCase()
-      );
-      if (match) setSelectedTileId(match.id);
+    if (combo.type && combo.type !== type) {
+      setType(combo.type);
     }
   };
 
@@ -542,11 +306,7 @@ export default function AddExpenseScreen() {
       return;
     }
 
-    const defaultMerchant = isExpense
-      ? (QUICK_TILES_EXPENSE.find((t) => t.id === selectedTileId)?.label || category || 'Expense')
-      : (QUICK_TILES_INCOME.find((t) => t.id === selectedTileId)?.label || category || 'Income');
-
-    const finalMerchant = merchant.trim() || defaultMerchant;
+    const finalMerchant = merchant.trim() || category || (isExpense ? 'Expense' : 'Income');
 
     try {
       setIsSaving(true);
@@ -567,7 +327,12 @@ export default function AddExpenseScreen() {
         receipt_image: receiptImage || null,
       });
 
-      setSavedMerchant(finalMerchant);
+      setSavedDetails({
+        amount: numAmount.toString(),
+        merchant: finalMerchant,
+        category: type === 'credit' && category === 'Food' ? 'Income' : category,
+        paymentMode,
+      });
 
       Keyboard.dismiss();
       playTransactionSuccessSound().catch(() => {});
@@ -580,18 +345,11 @@ export default function AddExpenseScreen() {
       successContentY.setValue(20);
 
       Animated.parallel([
-        // Emerald circle spring pop
         Animated.spring(successScale, { toValue: 1, friction: 5, tension: 120, useNativeDriver: true }),
         Animated.timing(successOpacity, { toValue: 1, duration: 180, useNativeDriver: true }),
-
-        // Soft ambient halo ring expansion
         Animated.timing(successRingScale, { toValue: 1.6, duration: 750, easing: Easing.out(Easing.ease), useNativeDriver: true }),
         Animated.timing(successRingOpacity, { toValue: 0, duration: 750, easing: Easing.out(Easing.ease), useNativeDriver: true }),
-
-        // White tick mark pop & lock
         Animated.spring(successCheckScale, { toValue: 1, friction: 3.5, tension: 130, delay: 60, useNativeDriver: true }),
-
-        // Content reveal slide
         Animated.spring(successContentY, { toValue: 0, friction: 7, tension: 85, delay: 100, useNativeDriver: true }),
       ]).start();
 
@@ -609,20 +367,9 @@ export default function AddExpenseScreen() {
     }
   };
 
-  const isExpense = type === 'debit';
-  const themeColor = isExpense ? '#EF4444' : '#10B981';
-  const suggestions = isExpense ? EXPENSE_SUGGESTIONS : INCOME_SUGGESTIONS;
-  const activePresets = (
-    isExpense
-      ? [
-          ...customPresets.filter((p) => p.type === 'debit' || !p.type),
-          ...DEFAULT_QUICK_COMBOS_EXPENSE,
-        ]
-      : [
-          ...customPresets.filter((p) => p.type === 'credit'),
-          ...DEFAULT_QUICK_COMBOS_INCOME,
-        ]
-  ).filter((p) => !hiddenPresetIds.includes(p.id));
+  const displayCategories = isExpense
+    ? categories
+    : DEFAULT_INCOME_CATEGORIES;
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
@@ -631,54 +378,22 @@ export default function AddExpenseScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={{ flex: 1 }}
       >
-        {/* TOP BAR */}
+        {/* CLEAN TOP HEADER */}
         <View style={styles.header}>
           <TouchableOpacity
             onPress={() => safeGoBack(router)}
             style={styles.closeBtn}
             activeOpacity={0.7}
+            accessibilityLabel="Close"
           >
-            <Ionicons name="close" size={20} color="#0F172A" />
+            <Ionicons name="close" size={22} color="#0F172A" />
           </TouchableOpacity>
 
-          {/* SEGMENTED SWITCH: QUICK vs DETAILED */}
-          <View style={styles.modeSegment}>
-            <TouchableOpacity
-              style={[styles.modeTab, entryMode === 'quick' && styles.modeTabActive]}
-              onPress={() => setEntryMode('quick')}
-              activeOpacity={0.8}
-            >
-              <Ionicons
-                name="flash"
-                size={13}
-                color={entryMode === 'quick' ? '#D97706' : '#64748B'}
-                style={{ marginRight: 4 }}
-              />
-              <Text style={[styles.modeTabText, entryMode === 'quick' && styles.modeTabTextActive]}>
-                Quick Add
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.modeTab, entryMode === 'detailed' && styles.modeTabActive]}
-              onPress={() => setEntryMode('detailed')}
-              activeOpacity={0.8}
-            >
-              <Ionicons
-                name="options-outline"
-                size={13}
-                color={entryMode === 'detailed' ? '#2563EB' : '#64748B'}
-                style={{ marginRight: 4 }}
-              />
-              <Text style={[styles.modeTabText, entryMode === 'detailed' && styles.modeTabTextActive]}>
-                Detailed
-              </Text>
-            </TouchableOpacity>
-          </View>
+          <Text style={styles.headerTitle}>Add Transaction</Text>
 
           <TouchableOpacity
             onPress={() => router.push('/categories')}
-            style={styles.catsHeaderBtn}
+            style={styles.headerCatsBtn}
             activeOpacity={0.7}
           >
             <Ionicons name="grid-outline" size={18} color="#64748B" />
@@ -689,12 +404,12 @@ export default function AddExpenseScreen() {
           ref={scrollViewRef}
           contentContainerStyle={[
             styles.content,
-            { paddingBottom: keyboardHeight > 0 ? keyboardHeight + 130 : 150 },
+            { paddingBottom: keyboardHeight > 0 ? keyboardHeight + 110 : 130 },
           ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* 3D TACTILE EXPENSE / INCOME SWITCH */}
+          {/* 3D EXPENSE / INCOME SWITCH */}
           <View style={styles.typeSwitchWrap}>
             <TouchableOpacity
               style={[
@@ -703,8 +418,9 @@ export default function AddExpenseScreen() {
               ]}
               onPress={() => {
                 setType('debit');
-                setCategory('Food');
-                setSelectedTileId('chai');
+                if (category === 'Salary' || category === 'Business' || category === 'Freelance') {
+                  setCategory('Food');
+                }
               }}
               activeOpacity={0.85}
             >
@@ -712,13 +428,9 @@ export default function AddExpenseScreen() {
                 source={{ uri: ICONS_3D.expense }}
                 style={{ width: 22, height: 22, marginRight: 8 }}
                 contentFit="contain"
+                cachePolicy="memory-disk"
               />
-              <Text
-                style={[
-                  styles.typeBtnText,
-                  isExpense && styles.typeBtnTextActive,
-                ]}
-              >
+              <Text style={[styles.typeBtnText, isExpense && styles.typeBtnExpenseTextActive]}>
                 Expense
               </Text>
             </TouchableOpacity>
@@ -731,7 +443,6 @@ export default function AddExpenseScreen() {
               onPress={() => {
                 setType('credit');
                 setCategory('Salary');
-                setSelectedTileId('salary');
               }}
               activeOpacity={0.85}
             >
@@ -739,36 +450,25 @@ export default function AddExpenseScreen() {
                 source={{ uri: ICONS_3D.income }}
                 style={{ width: 22, height: 22, marginRight: 8 }}
                 contentFit="contain"
+                cachePolicy="memory-disk"
               />
-              <Text
-                style={[
-                  styles.typeBtnText,
-                  !isExpense && styles.typeBtnTextActive,
-                ]}
-              >
+              <Text style={[styles.typeBtnText, !isExpense && styles.typeBtnIncomeTextActive]}>
                 Income
               </Text>
             </TouchableOpacity>
           </View>
 
-          {/* HERO AMOUNT CARD WITH 3D AMBIENT AURA */}
+          {/* AMOUNT INPUT CARD */}
           <View style={styles.amountCard}>
-            <View style={styles.amountHeaderRow}>
-              <View
-                style={[
-                  styles.typeBadgePill,
-                  { backgroundColor: isExpense ? '#FEF2F2' : '#ECFDF5', borderColor: isExpense ? '#FECACA' : '#A7F3D0' },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.typeBadgeText,
-                    { color: isExpense ? '#DC2626' : '#059669' },
-                  ]}
-                >
-                  {isExpense ? '💸 MONEY SPENT' : '💰 MONEY RECEIVED'}
-                </Text>
-              </View>
+            <View
+              style={[
+                styles.amountBadge,
+                { backgroundColor: isExpense ? '#FEF2F2' : '#ECFDF5', borderColor: isExpense ? '#FECACA' : '#A7F3D0' },
+              ]}
+            >
+              <Text style={[styles.amountBadgeText, { color: isExpense ? '#DC2626' : '#059669' }]}>
+                {isExpense ? '💸 MONEY SPENT' : '💰 MONEY RECEIVED'}
+              </Text>
             </View>
 
             <View style={styles.amountInputRow}>
@@ -785,20 +485,20 @@ export default function AddExpenseScreen() {
               />
             </View>
 
-            {/* QUICK AMOUNT 3D CHIPS */}
+            {/* QUICK AMOUNT CHIPS */}
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.quickAmountsWrap}
+              contentContainerStyle={styles.quickAmountsRow}
             >
               {QUICK_AMOUNTS.map((q) => (
                 <TouchableOpacity
                   key={q}
-                  style={styles.quickPill}
+                  style={styles.quickAmountPill}
                   onPress={() => addQuickAmount(q)}
                   activeOpacity={0.7}
                 >
-                  <Text style={styles.quickPillText}>+{curr}{q}</Text>
+                  <Text style={styles.quickAmountPillText}>+{curr}{q}</Text>
                 </TouchableOpacity>
               ))}
               {amount !== '' && (
@@ -807,600 +507,380 @@ export default function AddExpenseScreen() {
                   onPress={() => setAmount('')}
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="backspace-outline" size={14} color="#EF4444" style={{ marginRight: 4 }} />
+                  <Ionicons name="backspace-outline" size={14} color="#EF4444" style={{ marginRight: 3 }} />
                   <Text style={styles.clearPillText}>Clear</Text>
                 </TouchableOpacity>
               )}
             </ScrollView>
           </View>
 
-          {entryMode === 'quick' ? (
-            <>
-              {/* ⚡ 1-TAP QUICK COMBOS */}
-              <View style={styles.quickCombosCard}>
-                <View style={styles.combosHeaderRow}>
-                  <View style={styles.fieldHeader}>
-                    <ExpoImage
-                      source={{ uri: ICONS_3D.sparkles }}
-                      style={{ width: 18, height: 18, marginRight: 6 }}
-                      contentFit="contain"
-                    />
-                    <Text style={styles.fieldTitle}>⚡ 1-Tap Quick Presets</Text>
-                  </View>
+          {/* ⚡ 1-TAP QUICK PRESETS (Sets Amount + Category + Note in 1 Tap!) */}
+          <View style={styles.sectionCard}>
+            <View style={styles.sectionHeaderRowBetween}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <ExpoImage
+                  source={{ uri: ICONS_3D.sparkles }}
+                  style={{ width: 18, height: 18, marginRight: 6 }}
+                  contentFit="contain"
+                  cachePolicy="memory-disk"
+                />
+                <Text style={styles.sectionTitle}>⚡ 1-Tap Presets</Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <TouchableOpacity
+                  style={styles.addPresetBtn}
+                  onPress={() => {
+                    setNewPresetType(type);
+                    setNewPresetCategory(category || (isExpense ? 'Food' : 'Salary'));
+                    setPresetModalOpen(true);
+                  }}
+                  activeOpacity={0.75}
+                >
+                  <Ionicons name="add" size={14} color="#B45309" style={{ marginRight: 2 }} />
+                  <Text style={styles.addPresetBtnText}>Add</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => router.push('/categories')} activeOpacity={0.7}>
+                  <Text style={styles.manageLinkText}>Manage</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.presetsScroll}
+            >
+              {activePresets.map((combo) => {
+                const isSelected =
+                  amount === combo.amount &&
+                  merchant.toLowerCase() === combo.label.toLowerCase() &&
+                  category.toLowerCase() === combo.category.toLowerCase();
+
+                return (
                   <TouchableOpacity
-                    style={styles.addPresetHeaderBtn}
-                    onPress={() => {
-                      setNewPresetType(type);
-                      setNewPresetCategory(category || (isExpense ? 'Food' : 'Salary'));
-                      setPresetModalOpen(true);
-                    }}
+                    key={combo.id || combo.label + combo.amount}
+                    style={[styles.presetChip, isSelected && styles.presetChipActive]}
+                    onPress={() => handleQuickPresetSelect(combo)}
                     activeOpacity={0.75}
                   >
-                    <Ionicons name="add" size={15} color="#B45309" style={{ marginRight: 2 }} />
-                    <Text style={styles.addPresetHeaderText}>Add</Text>
-                  </TouchableOpacity>
-                </View>
-
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.combosScroll}
-                >
-                  {activePresets.map((combo) => (
-                    <TouchableOpacity
-                      key={combo.id || combo.label + combo.amount}
-                      style={[
-                        styles.comboChip,
-                        combo.isCustom && styles.comboChipCustom,
-                      ]}
-                      onPress={() => handleQuickComboSelect(combo)}
-                      activeOpacity={0.75}
-                    >
-                      <ExpoImage
-                        source={{ uri: combo.iconUrl }}
-                        style={{ width: 24, height: 24, marginRight: 6 }}
-                        contentFit="contain"
-                      />
-                      <View>
-                        <Text style={styles.comboLabel} numberOfLines={1}>{combo.label}</Text>
-                        <Text style={styles.comboAmount}>{curr}{combo.amount}</Text>
+                    <ExpoImage
+                      source={{ uri: combo.iconUrl }}
+                      style={{ width: 26, height: 26, marginRight: 8 }}
+                      contentFit="contain"
+                      cachePolicy="memory-disk"
+                    />
+                    <View>
+                      <Text style={[styles.presetLabel, isSelected && styles.presetLabelActive]} numberOfLines={1}>
+                        {combo.label}
+                      </Text>
+                      <Text style={[styles.presetAmount, isSelected && styles.presetAmountActive]}>
+                        {curr}{combo.amount}
+                      </Text>
+                    </View>
+                    {isSelected && (
+                      <View style={styles.presetCheckmark}>
+                        <Ionicons name="checkmark" size={10} color="#FFFFFF" />
                       </View>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              </View>
-
-              {/* QUICK CATEGORY 1-TAP GRID */}
-              <View style={styles.card}>
-                <View style={styles.fieldHeader}>
-                  <ExpoImage
-                    source={{ uri: ICONS_3D.fire }}
-                    style={{ width: 18, height: 18, marginRight: 6 }}
-                    contentFit="contain"
-                  />
-                  <Text style={styles.fieldTitle}>
-                    {isExpense ? 'Select What You Spent On' : 'Select Income Source'}
-                  </Text>
-                </View>
-
-                <View style={styles.quickGrid}>
-                  {(isExpense ? QUICK_TILES_EXPENSE : QUICK_TILES_INCOME).map((tile) => {
-                    const isSelected = selectedTileId === tile.id;
-                    return (
-                      <TouchableOpacity
-                        key={tile.id}
-                        style={[
-                          styles.quickGridTile,
-                          isSelected && [
-                            styles.quickGridTileSelected,
-                            { borderColor: tile.color },
-                          ],
-                        ]}
-                        onPress={() => handleQuickTileSelect(tile)}
-                        activeOpacity={0.75}
-                      >
-                        <View
-                          style={[
-                            styles.quickTileIconWrap,
-                            { backgroundColor: tile.color + '18' },
-                            isSelected && { backgroundColor: tile.color + '35' },
-                          ]}
-                        >
-                          <ExpoImage
-                            source={{ uri: tile.iconUrl }}
-                            style={{ width: 28, height: 28 }}
-                            contentFit="contain"
-                          />
-                        </View>
-                        <Text
-                          style={[
-                            styles.quickTileLabel,
-                            isSelected && { color: '#0F172A', fontWeight: '900' },
-                          ]}
-                          numberOfLines={1}
-                        >
-                          {tile.label}
-                        </Text>
-                        {isSelected && (
-                          <View style={[styles.tileCheckDot, { backgroundColor: tile.color }]}>
-                            <Ionicons name="checkmark" size={10} color="#FFFFFF" />
-                          </View>
-                        )}
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </View>
-
-              {/* COMPACT PAYMENT VIA ROW */}
-              <View style={styles.card}>
-                <View style={styles.fieldHeader}>
-                  <ExpoImage
-                    source={{ uri: ICONS_3D.card }}
-                    style={{ width: 18, height: 18, marginRight: 6 }}
-                    contentFit="contain"
-                  />
-                  <Text style={styles.fieldTitle}>Payment Via</Text>
-                </View>
-                <View style={styles.compactPaymentRow}>
-                  {PAYMENT_MODES.map((pm) => {
-                    const isSelected = paymentMode === pm.id;
-                    return (
-                      <TouchableOpacity
-                        key={pm.id}
-                        style={[
-                          styles.compactPaymentPill,
-                          isSelected && styles.compactPaymentPillSelected,
-                        ]}
-                        onPress={() => setPaymentMode(pm.id)}
-                        activeOpacity={0.75}
-                      >
-                        <ExpoImage
-                          source={{ uri: pm.icon3d }}
-                          style={{ width: 18, height: 18, marginRight: 6 }}
-                          contentFit="contain"
-                        />
-                        <Text
-                          style={[
-                            styles.compactPaymentText,
-                            isSelected && styles.compactPaymentTextSelected,
-                          ]}
-                        >
-                          {pm.label}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </View>
-
-              {/* PURPOSE / NOTE (AUTO-FILLED, EDITABLE) */}
-              <View style={styles.card}>
-                <View style={styles.fieldHeader}>
-                  <ExpoImage
-                    source={{ uri: ICONS_3D.receipt }}
-                    style={{ width: 18, height: 18, marginRight: 6 }}
-                    contentFit="contain"
-                  />
-                  <Text style={styles.fieldTitle}>Purpose / Note (Auto-Filled)</Text>
-                </View>
-                <View style={styles.quickPurposeInputRow}>
-                  <TextInput
-                    style={styles.quickPurposeInput}
-                    value={merchant}
-                    onChangeText={setMerchant}
-                    placeholder={category || 'e.g. Chai, Petrol, Groceries'}
-                    placeholderTextColor="#94A3B8"
-                  />
-                  {merchant !== '' && (
-                    <TouchableOpacity onPress={() => setMerchant('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                      <Ionicons name="close-circle" size={18} color="#94A3B8" />
-                    </TouchableOpacity>
-                  )}
-                </View>
-              </View>
-
-              {/* SWITCH TO DETAILED HINT */}
-              <TouchableOpacity
-                style={styles.switchToDetailedHint}
-                onPress={() => setEntryMode('detailed')}
-                activeOpacity={0.75}
-              >
-                <Ionicons name="options-outline" size={16} color="#4F46E5" style={{ marginRight: 6 }} />
-                <Text style={styles.switchToDetailedText}>
-                  Need receipt photos, dates or notes? <Text style={styles.switchToDetailedLink}>Switch to Detailed →</Text>
-                </Text>
-              </TouchableOpacity>
-            </>
-          ) : (
-            <>
-              {/* 1-TAP 3D SUGARY SMART SUGGESTIONS */}
-              <View style={styles.card}>
-                <View style={styles.fieldHeader}>
-                  <ExpoImage
-                    source={{ uri: ICONS_3D.sparkles }}
-                    style={{ width: 18, height: 18, marginRight: 6 }}
-                    contentFit="contain"
-                  />
-                  <Text style={styles.fieldTitle}>1-Tap Quick Fill</Text>
-                </View>
-
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.suggestionsScroll}
-                >
-                  {suggestions.map((item) => {
-                    const isMatch = merchant.toLowerCase() === item.label.toLowerCase();
-                    return (
-                      <TouchableOpacity
-                        key={item.label}
-                        style={[
-                          styles.suggestionPill,
-                          isMatch && styles.suggestionPillActive,
-                        ]}
-                        onPress={() => applyQuickSuggestion(item)}
-                        activeOpacity={0.75}
-                      >
-                        <ExpoImage
-                          source={{ uri: item.iconUrl }}
-                          style={{ width: 22, height: 22, marginRight: 6 }}
-                          contentFit="contain"
-                        />
-                        <Text
-                          style={[
-                            styles.suggestionPillText,
-                            isMatch && styles.suggestionPillTextActive,
-                          ]}
-                        >
-                          {item.label}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-
-                {/* Custom Merchant / Note Title Input */}
-                <View style={styles.titleInputWrap}>
-                  <ExpoImage
-                    source={{ uri: ICONS_3D.receipt }}
-                    style={{ width: 20, height: 20, marginRight: 8 }}
-                    contentFit="contain"
-                  />
-                  <TextInput
-                    style={styles.mainTitleInput}
-                    placeholder={isExpense ? 'What did you spend on? (e.g. Swiggy, Fuel, Jio)' : 'Source of income? (e.g. Salary, Client project)'}
-                    placeholderTextColor="#94A3B8"
-                    value={merchant}
-                    onChangeText={setMerchant}
-                  />
-                </View>
-              </View>
-
-              {/* 3D PAYMENT MODES SELECTOR */}
-              <View style={styles.card}>
-                <View style={styles.fieldHeader}>
-                  <ExpoImage
-                    source={{ uri: ICONS_3D.card }}
-                    style={{ width: 18, height: 18, marginRight: 6 }}
-                    contentFit="contain"
-                  />
-                  <Text style={styles.fieldTitle}>Payment Mode</Text>
-                </View>
-
-                <View style={styles.paymentModesRow}>
-                  {PAYMENT_MODES.map((pm) => {
-                    const isSelected = paymentMode === pm.id;
-                    return (
-                      <TouchableOpacity
-                        key={pm.id}
-                        style={[
-                          styles.paymentModePill,
-                          isSelected && styles.paymentModePillSelected,
-                        ]}
-                        onPress={() => setPaymentMode(pm.id)}
-                        activeOpacity={0.75}
-                      >
-                        <ExpoImage
-                          source={{ uri: pm.icon3d }}
-                          style={{ width: 24, height: 24, marginBottom: 4 }}
-                          contentFit="contain"
-                        />
-                        <Text
-                          style={[
-                            styles.paymentModeText,
-                            isSelected && styles.paymentModeTextSelected,
-                          ]}
-                        >
-                          {pm.label}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </View>
-
-              {/* CATEGORY SELECTOR */}
-              <View style={styles.card}>
-                <View style={styles.categoryHeader}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <ExpoImage
-                      source={{ uri: ICONS_3D.fire }}
-                      style={{ width: 18, height: 18, marginRight: 6 }}
-                      contentFit="contain"
-                    />
-                    <Text style={styles.fieldTitle}>Category</Text>
-                  </View>
-                  <TouchableOpacity onPress={() => router.push('/categories')} activeOpacity={0.7}>
-                    <Text style={styles.addCategoryLink}>+ New Category</Text>
+                    )}
                   </TouchableOpacity>
-                </View>
+                );
+              })}
+            </ScrollView>
+          </View>
 
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.categoriesScroll}
+          {/* CATEGORIES SELECTION */}
+          <View style={styles.sectionCard}>
+            <View style={styles.sectionHeaderRowBetween}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <ExpoImage
+                  source={{ uri: ICONS_3D.fire }}
+                  style={{ width: 18, height: 18, marginRight: 6 }}
+                  contentFit="contain"
+                  cachePolicy="memory-disk"
+                />
+                <Text style={styles.sectionTitle}>Category</Text>
+              </View>
+              <TouchableOpacity onPress={() => router.push('/categories')} activeOpacity={0.7}>
+                <Text style={styles.manageLinkText}>+ Manage</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.categoriesScroll}
+            >
+              {displayCategories.map((cat) => {
+                const isSelected = category.toLowerCase() === cat.name.toLowerCase();
+                const catColor = cat.color || '#3B82F6';
+                return (
+                  <TouchableOpacity
+                    key={cat.name}
+                    style={[
+                      styles.categoryChip,
+                      isSelected && {
+                        borderColor: catColor,
+                        backgroundColor: catColor + '15',
+                      },
+                    ]}
+                    onPress={() => setCategory(cat.name)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.catIconWrap, { backgroundColor: catColor + '20' }]}>
+                      <CategoryIcon
+                        categoryName={cat.name}
+                        iconName={cat.icon}
+                        size={20}
+                        color={catColor}
+                      />
+                    </View>
+                    <Text
+                      style={[
+                        styles.categoryChipText,
+                        isSelected && { color: '#0F172A', fontWeight: '800' },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {cat.name}
+                    </Text>
+                    {isSelected && (
+                      <View style={[styles.checkDot, { backgroundColor: catColor }]}>
+                        <Ionicons name="checkmark" size={10} color="#FFFFFF" />
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+
+          {/* NOTE / PURPOSE INPUT */}
+          <View style={styles.sectionCard}>
+            <View style={styles.sectionHeaderRow}>
+              <ExpoImage
+                source={{ uri: ICONS_3D.memo }}
+                style={{ width: 18, height: 18, marginRight: 6 }}
+                contentFit="contain"
+                cachePolicy="memory-disk"
+              />
+              <Text style={styles.sectionTitle}>Note / Description</Text>
+            </View>
+            <View style={styles.inputWrap}>
+              <TextInput
+                style={styles.textInput}
+                placeholder={isExpense ? 'What was this for? (e.g. Chai, Petrol, Grocery)' : 'Income source (e.g. Client work, Bonus)'}
+                placeholderTextColor="#94A3B8"
+                value={merchant}
+                onChangeText={setMerchant}
+              />
+              {merchant !== '' && (
+                <TouchableOpacity onPress={() => setMerchant('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Ionicons name="close-circle" size={18} color="#94A3B8" />
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+
+          {/* PAYMENT MODE */}
+          <View style={styles.sectionCard}>
+            <View style={styles.sectionHeaderRow}>
+              <ExpoImage
+                source={{ uri: ICONS_3D.card }}
+                style={{ width: 18, height: 18, marginRight: 6 }}
+                contentFit="contain"
+                cachePolicy="memory-disk"
+              />
+              <Text style={styles.sectionTitle}>{isExpense ? 'Payment Via' : 'Received In'}</Text>
+            </View>
+            <View style={styles.paymentRow}>
+              {PAYMENT_MODES.map((pm) => {
+                const isSelected = paymentMode === pm.id;
+                return (
+                  <TouchableOpacity
+                    key={pm.id}
+                    style={[
+                      styles.paymentPill,
+                      isSelected && {
+                        borderColor: pm.color,
+                        backgroundColor: pm.color + '15',
+                      },
+                    ]}
+                    onPress={() => setPaymentMode(pm.id)}
+                    activeOpacity={0.75}
+                  >
+                    <ExpoImage
+                      source={{ uri: pm.icon3d }}
+                      style={{ width: 22, height: 22, marginRight: 6 }}
+                      contentFit="contain"
+                      cachePolicy="memory-disk"
+                    />
+                    <Text
+                      style={[
+                        styles.paymentPillText,
+                        isSelected && { color: pm.color, fontWeight: '800' },
+                      ]}
+                    >
+                      {pm.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+
+          {/* MORE OPTIONS ACCORDION (Date, Receipt photo, Remarks) */}
+          <TouchableOpacity
+            style={styles.moreOptionsToggle}
+            onPress={() => {
+              const next = !showMoreOptions;
+              setShowMoreOptions(next);
+              if (next) {
+                setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 150);
+              }
+            }}
+            activeOpacity={0.75}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <ExpoImage
+                source={{ uri: ICONS_3D.calendar }}
+                style={{ width: 18, height: 18, marginRight: 8 }}
+                contentFit="contain"
+                cachePolicy="memory-disk"
+              />
+              <Text style={styles.moreOptionsText}>
+                {showMoreOptions ? 'Hide Extra Details' : '+ Add Bill Photo or Change Date'}
+              </Text>
+            </View>
+            <Ionicons
+              name={showMoreOptions ? 'chevron-up' : 'chevron-down'}
+              size={16}
+              color="#94A3B8"
+            />
+          </TouchableOpacity>
+
+          {showMoreOptions && (
+            <View style={styles.sectionCard}>
+              {/* Date selection */}
+              <View style={styles.sectionHeaderRow}>
+                <Ionicons name="calendar-outline" size={16} color="#64748B" style={{ marginRight: 6 }} />
+                <Text style={styles.sectionTitle}>Transaction Date</Text>
+              </View>
+              <View style={styles.dateRow}>
+                <TouchableOpacity
+                  style={[styles.datePill, date === todayStr && styles.datePillActive]}
+                  onPress={() => setDate(todayStr)}
+                  activeOpacity={0.7}
                 >
-                  {isExpense ? (
-                    categories.map((cat) => {
-                      const isSelected = category.toLowerCase() === cat.name.toLowerCase();
-                      const catColor = cat.color || '#3B82F6';
-                      return (
-                        <TouchableOpacity
-                          key={cat.id || cat.name}
-                          style={[
-                            styles.categoryChip,
-                            isSelected && {
-                              borderColor: catColor,
-                              backgroundColor: catColor + '18',
-                              shadowColor: catColor,
-                              shadowOpacity: 0.25,
-                              shadowOffset: { width: 0, height: 2 },
-                              shadowRadius: 6,
-                              elevation: 2,
-                            },
-                          ]}
-                          onPress={() => setCategory(cat.name)}
-                          activeOpacity={0.7}
-                        >
-                          <View
-                            style={[
-                              styles.catIconWrap,
-                              { backgroundColor: catColor + '20' },
-                            ]}
-                          >
-                            <CategoryIcon
-                              categoryName={cat.name}
-                              iconName={cat.icon}
-                              size={16}
-                              color={catColor}
-                            />
-                          </View>
-                          <Text
-                            style={[
-                              styles.categoryChipText,
-                              isSelected && { color: '#0F172A', fontWeight: '900' },
-                            ]}
-                          >
-                            {cat.name}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })
-                  ) : (
-                    INCOME_CATEGORY_ITEMS.map((incItem) => {
-                      const isSelected = category.toLowerCase() === incItem.name.toLowerCase();
-                      return (
-                        <TouchableOpacity
-                          key={incItem.name}
-                          style={[
-                            styles.categoryChip,
-                            isSelected && {
-                              borderColor: incItem.color,
-                              backgroundColor: incItem.color + '18',
-                              shadowColor: incItem.color,
-                              shadowOpacity: 0.3,
-                              shadowOffset: { width: 0, height: 2 },
-                              shadowRadius: 6,
-                              elevation: 3,
-                            },
-                          ]}
-                          onPress={() => setCategory(incItem.name)}
-                          activeOpacity={0.7}
-                        >
-                          <View style={[styles.catIconWrap, { backgroundColor: incItem.color + '20' }]}>
-                            <ExpoImage
-                              source={{ uri: incItem.iconUrl }}
-                              style={{ width: 16, height: 16 }}
-                              contentFit="contain"
-                            />
-                          </View>
-                          <Text
-                            style={[
-                              styles.categoryChipText,
-                              isSelected && { color: '#0F172A', fontWeight: '900' },
-                            ]}
-                          >
-                            {incItem.name}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })
-                  )}
-                </ScrollView>
+                  <Text style={[styles.datePillText, date === todayStr && styles.datePillTextActive]}>
+                    Today
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.datePill, date === yesterdayStr && styles.datePillActive]}
+                  onPress={() => setDate(yesterdayStr)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.datePillText, date === yesterdayStr && styles.datePillTextActive]}>
+                    Yesterday
+                  </Text>
+                </TouchableOpacity>
+
+                <TextInput
+                  style={styles.customDateInput}
+                  value={date}
+                  onChangeText={setDate}
+                  placeholder="YYYY-MM-DD"
+                  placeholderTextColor="#94A3B8"
+                />
               </View>
 
-              {/* OPTIONAL DETAILS (DATE, RECEIPT, NOTE) */}
-              <TouchableOpacity
-                style={styles.moreOptionsToggle}
-                onPress={() => {
-                  const next = !showMoreOptions;
-                  setShowMoreOptions(next);
-                  if (next) {
-                    setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 150);
-                  }
-                }}
-                activeOpacity={0.75}
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <ExpoImage
-                    source={{ uri: ICONS_3D.memo }}
-                    style={{ width: 18, height: 18, marginRight: 8 }}
-                    contentFit="contain"
-                  />
-                  <Text style={styles.moreOptionsText}>
-                    {showMoreOptions ? 'Hide Extra Details' : '+ Add Date, Screenshot or Note'}
-                  </Text>
-                </View>
-                <Ionicons
-                  name={showMoreOptions ? 'chevron-up' : 'chevron-down'}
-                  size={16}
-                  color="#94A3B8"
+              <View style={styles.divider} />
+
+              {/* Bill / Receipt photo */}
+              <View style={styles.sectionHeaderRow}>
+                <ExpoImage
+                  source={{ uri: ICONS_3D.receipt }}
+                  style={{ width: 18, height: 18, marginRight: 6 }}
+                  contentFit="contain"
+                  cachePolicy="memory-disk"
                 />
-              </TouchableOpacity>
+                <Text style={styles.sectionTitle}>Bill / Receipt Photo</Text>
+              </View>
 
-              {showMoreOptions && (
-                <View style={styles.card}>
-                  {/* Date */}
-                  <View style={styles.fieldHeader}>
+              {receiptImage ? (
+                <View style={styles.receiptAttachedBox}>
+                  <TouchableOpacity
+                    style={styles.receiptThumbRow}
+                    onPress={() => setPreviewModalOpen(true)}
+                    activeOpacity={0.8}
+                  >
+                    <ExpoImage source={{ uri: receiptImage }} style={styles.receiptThumb} contentFit="cover" />
+                    <View style={{ flex: 1, marginLeft: 10 }}>
+                      <Text style={styles.receiptAttachedTitle}>Receipt Attached</Text>
+                      <Text style={styles.receiptAttachedSub}>Tap to preview</Text>
+                    </View>
+                    <Ionicons name="eye-outline" size={20} color="#2563EB" />
+                  </TouchableOpacity>
+
+                  <View style={styles.receiptActionsRow}>
+                    <TouchableOpacity style={styles.receiptActionBtn} onPress={pickImage}>
+                      <Ionicons name="swap-horizontal" size={14} color="#2563EB" style={{ marginRight: 4 }} />
+                      <Text style={styles.receiptActionText}>Replace</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.receiptActionBtn}
+                      onPress={() => setReceiptImage(null)}
+                    >
+                      <Ionicons name="trash-outline" size={14} color="#EF4444" style={{ marginRight: 4 }} />
+                      <Text style={[styles.receiptActionText, { color: '#EF4444' }]}>Remove</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.photoButtonsRow}>
+                  <TouchableOpacity style={styles.photoBtn} onPress={pickImage} activeOpacity={0.7}>
                     <ExpoImage
-                      source={{ uri: ICONS_3D.calendar }}
-                      style={{ width: 18, height: 18, marginRight: 6 }}
+                      source={{ uri: ICONS_3D.gallery }}
+                      style={{ width: 20, height: 20, marginRight: 6 }}
                       contentFit="contain"
+                      cachePolicy="memory-disk"
                     />
-                    <Text style={styles.fieldTitle}>Date</Text>
-                  </View>
-                  <View style={styles.datePillsRow}>
-                    <TouchableOpacity
-                      style={[styles.datePill, date === todayStr && styles.datePillActive]}
-                      onPress={() => setDate(todayStr)}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={[styles.datePillText, date === todayStr && styles.datePillTextActive]}>
-                        Today
-                      </Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={[styles.datePill, date === yesterdayStr && styles.datePillActive]}
-                      onPress={() => setDate(yesterdayStr)}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={[styles.datePillText, date === yesterdayStr && styles.datePillTextActive]}>
-                        Yesterday
-                      </Text>
-                    </TouchableOpacity>
-
-                    <TextInput
-                      style={styles.customDateInput}
-                      value={date}
-                      onChangeText={setDate}
-                      placeholder="YYYY-MM-DD"
-                      placeholderTextColor="#94A3B8"
-                    />
-                  </View>
-
-                  <View style={styles.innerDivider} />
-
-                  {/* Screenshot Proof */}
-                  <View style={styles.fieldHeader}>
+                    <Text style={styles.photoBtnText}>Gallery Photo</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.photoBtn} onPress={takePhoto} activeOpacity={0.7}>
                     <ExpoImage
                       source={{ uri: ICONS_3D.camera }}
-                      style={{ width: 18, height: 18, marginRight: 6 }}
+                      style={{ width: 20, height: 20, marginRight: 6 }}
                       contentFit="contain"
+                      cachePolicy="memory-disk"
                     />
-                    <Text style={styles.fieldTitle}>Payment Screenshot / Bill</Text>
-                  </View>
-
-                  {receiptImage ? (
-                    <View style={styles.proofPreviewCard}>
-                      <TouchableOpacity
-                        style={styles.proofThumbRow}
-                        onPress={() => setPreviewModalOpen(true)}
-                        activeOpacity={0.8}
-                      >
-                        <ExpoImage source={{ uri: receiptImage }} style={styles.proofThumbnail} contentFit="cover" />
-                        <View style={{ flex: 1, marginLeft: 10 }}>
-                          <Text style={styles.proofAttachedText}>Screenshot Attached</Text>
-                          <Text style={styles.proofSubText}>Tap to view full screen</Text>
-                        </View>
-                        <Ionicons name="eye-outline" size={18} color="#2563EB" />
-                      </TouchableOpacity>
-
-                      <View style={styles.proofActionRow}>
-                        <TouchableOpacity style={styles.proofActionBtn} onPress={pickImage}>
-                          <Ionicons name="swap-horizontal" size={14} color="#2563EB" style={{ marginRight: 4 }} />
-                          <Text style={styles.proofActionText}>Replace</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={styles.proofActionBtn}
-                          onPress={() => setReceiptImage(null)}
-                        >
-                          <Ionicons name="trash-outline" size={14} color="#EF4444" style={{ marginRight: 4 }} />
-                          <Text style={[styles.proofActionText, { color: '#EF4444' }]}>Remove</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  ) : (
-                    <View style={styles.attachButtonsRow}>
-                      <TouchableOpacity style={styles.attachBtn} onPress={pickImage} activeOpacity={0.7}>
-                        <ExpoImage
-                          source={{ uri: ICONS_3D.gallery }}
-                          style={{ width: 20, height: 20, marginRight: 6 }}
-                          contentFit="contain"
-                        />
-                        <Text style={styles.attachBtnText}>Upload Photo</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={styles.attachBtn} onPress={takePhoto} activeOpacity={0.7}>
-                        <ExpoImage
-                          source={{ uri: ICONS_3D.camera }}
-                          style={{ width: 20, height: 20, marginRight: 6 }}
-                          contentFit="contain"
-                        />
-                        <Text style={styles.attachBtnText}>Take Camera</Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
-
-                  <View style={styles.innerDivider} />
-
-                  {/* Extra Note */}
-                  <View style={styles.fieldHeader}>
-                    <ExpoImage
-                      source={{ uri: ICONS_3D.memo }}
-                      style={{ width: 18, height: 18, marginRight: 6 }}
-                      contentFit="contain"
-                    />
-                    <Text style={styles.fieldTitle}>Note / Tags</Text>
-                  </View>
-                  <TextInput
-                    style={styles.noteInput}
-                    placeholder="Add tags, splits, or remarks..."
-                    placeholderTextColor="#94A3B8"
-                    value={description}
-                    onChangeText={setDescription}
-                    multiline
-                  />
+                    <Text style={styles.photoBtnText}>Take Camera</Text>
+                  </TouchableOpacity>
                 </View>
               )}
 
-              {/* SWITCH TO QUICK HINT */}
-              <TouchableOpacity
-                style={styles.switchToDetailedHint}
-                onPress={() => setEntryMode('quick')}
-                activeOpacity={0.75}
-              >
-                <Ionicons name="flash" size={16} color="#D97706" style={{ marginRight: 6 }} />
-                <Text style={styles.switchToDetailedText}>
-                  Want faster 2-tap adding? <Text style={[styles.switchToDetailedLink, { color: '#B45309' }]}>Switch to Quick Add ⚡</Text>
-                </Text>
-              </TouchableOpacity>
-            </>
+              <View style={styles.divider} />
+
+              {/* Extra remarks */}
+              <View style={styles.sectionHeaderRow}>
+                <Ionicons name="chatbox-outline" size={15} color="#64748B" style={{ marginRight: 6 }} />
+                <Text style={styles.sectionTitle}>Extra Remarks / Tags</Text>
+              </View>
+              <TextInput
+                style={styles.remarksInput}
+                placeholder="Remarks, splits, reference #..."
+                placeholderTextColor="#94A3B8"
+                value={description}
+                onChangeText={setDescription}
+                multiline
+              />
+            </View>
           )}
         </ScrollView>
 
-        {/* BOTTOM SAVE BUTTON WITH GLOWING GRADIENT */}
-        <View style={styles.footerContainer}>
+        {/* BOTTOM FIXED SAVE BUTTON */}
+        <View style={styles.footer}>
           <TouchableOpacity
             style={[styles.saveBtn, (!amount || parseFloat(amount) <= 0) && styles.saveBtnDisabled]}
             onPress={handleSave}
@@ -1419,26 +899,26 @@ export default function AddExpenseScreen() {
             >
               <ExpoImage
                 source={{ uri: isExpense ? ICONS_3D.expense : ICONS_3D.income }}
-                style={{ width: 24, height: 24, marginRight: 10 }}
+                style={{ width: 22, height: 22, marginRight: 8 }}
                 contentFit="contain"
+                cachePolicy="memory-disk"
               />
               <Text style={styles.saveBtnText}>
                 {isSaving
                   ? 'Saving Transaction...'
-                  : `${entryMode === 'quick' ? '⚡ Quick Save' : 'Save'} ${isExpense ? 'Expense' : 'Income'} ${amount ? `• ${curr}${amount}` : ''}`}
+                  : `Save ${isExpense ? 'Expense' : 'Income'} ${amount ? `• ${curr}${amount}` : ''}`}
               </Text>
             </LinearGradient>
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
 
-      {/* MINIMALISTIC FULLSCREEN SUCCESS TICK ANIMATION */}
+      {/* FULLSCREEN SUCCESS TICK ANIMATION */}
       <Modal visible={showSaveSuccess} transparent={false} animationType="fade" statusBarTranslucent onRequestClose={() => {}}>
         <SafeAreaView style={styles.fullscreenSuccessContainer}>
           <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
           
           <View style={styles.fullscreenSuccessCenter}>
-            {/* Soft Ambient Halo */}
             <Animated.View
               style={[
                 styles.fullscreenSuccessRing,
@@ -1449,7 +929,6 @@ export default function AddExpenseScreen() {
               ]}
             />
 
-            {/* Solid Emerald Checkmark Circle */}
             <Animated.View
               style={[
                 styles.fullscreenCheckCircle,
@@ -1464,7 +943,6 @@ export default function AddExpenseScreen() {
               </Animated.View>
             </Animated.View>
 
-            {/* Minimalist Details Below */}
             <Animated.View
               style={[
                 styles.fullscreenContentWrap,
@@ -1479,16 +957,16 @@ export default function AddExpenseScreen() {
               </Text>
 
               <Text style={styles.fullscreenSuccessAmount}>
-                {curr}{Number(amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                {curr}{Number(savedDetails.amount || amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
               </Text>
 
               <Text style={styles.fullscreenSuccessMerchant} numberOfLines={1}>
-                {savedMerchant || merchant || 'Transaction'}
+                {savedDetails.merchant || merchant || 'Transaction'}
               </Text>
 
               <View style={styles.fullscreenSuccessBadge}>
                 <Text style={styles.fullscreenSuccessBadgeText}>
-                  {paymentMode} • {category}
+                  {savedDetails.paymentMode || paymentMode} • {savedDetails.category || category}
                 </Text>
               </View>
             </Animated.View>
@@ -1496,11 +974,11 @@ export default function AddExpenseScreen() {
         </SafeAreaView>
       </Modal>
 
-      {/* FULLSCREEN RECEIPT PREVIEW MODAL */}
+      {/* RECEIPT PREVIEW MODAL */}
       <Modal visible={previewModalOpen} transparent animationType="fade" onRequestClose={() => setPreviewModalOpen(false)}>
         <View style={styles.previewModalBg}>
           <View style={styles.previewTopBar}>
-            <Text style={styles.previewTitle}>Screenshot Attached</Text>
+            <Text style={styles.previewTitle}>Attached Receipt</Text>
             <TouchableOpacity onPress={() => setPreviewModalOpen(false)} style={styles.previewCloseBtn}>
               <Ionicons name="close" size={24} color="#FFFFFF" />
             </TouchableOpacity>
@@ -1525,7 +1003,6 @@ export default function AddExpenseScreen() {
           style={styles.modalBackdrop}
         >
           <View style={styles.presetModalCard}>
-            {/* Modal Header */}
             <View style={styles.presetModalHeader}>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <ExpoImage
@@ -1574,7 +1051,7 @@ export default function AddExpenseScreen() {
               <Text style={styles.modalInputLabel}>Preset Name / Item</Text>
               <TextInput
                 style={styles.modalTextInput}
-                placeholder="e.g. Chai, Cold Coffee, Gym, Metro, Milk"
+                placeholder="e.g. Chai, Gym, Metro, Milk"
                 placeholderTextColor="#94A3B8"
                 value={newPresetLabel}
                 onChangeText={setNewPresetLabel}
@@ -1599,7 +1076,7 @@ export default function AddExpenseScreen() {
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.modalCatsScroll}>
                 {(newPresetType === 'debit'
                   ? categories.map((c) => c.name)
-                  : ['Salary', 'Business', 'Freelance', 'Cashback', 'Investments', 'Rental', 'Other']
+                  : ['Salary', 'Business', 'Freelance', 'Cashback', 'Investments', 'Other']
                 ).map((catName) => {
                   const isSel = newPresetCategory.toLowerCase() === catName.toLowerCase();
                   return (
@@ -1619,7 +1096,7 @@ export default function AddExpenseScreen() {
               {/* 3D Icon Picker */}
               <Text style={styles.modalInputLabel}>Choose 3D Icon</Text>
               <View style={styles.presetIconGrid}>
-                {PRESET_ICONS.map((ico) => {
+                {PRESET_ICONS.slice(0, 16).map((ico) => {
                   const isSel = newPresetIconUrl === ico.url;
                   return (
                     <TouchableOpacity
@@ -1647,19 +1124,6 @@ export default function AddExpenseScreen() {
                   <Text style={styles.modalSaveText}>Save Preset</Text>
                 </LinearGradient>
               </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.modalManageLinkBtn}
-                onPress={() => {
-                  setPresetModalOpen(false);
-                  router.push('/categories?tab=presets' as any);
-                }}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="options-outline" size={16} color="#64748B" style={{ marginRight: 6 }} />
-                <Text style={styles.modalManageLinkText}>Manage / Delete Presets in Categories</Text>
-                <Ionicons name="chevron-forward" size={14} color="#94A3B8" />
-              </TouchableOpacity>
             </ScrollView>
           </View>
         </KeyboardAvoidingView>
@@ -1678,7 +1142,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 12,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#F1F5F9',
@@ -1691,7 +1155,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  catsHeaderBtn: {
+  headerTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  headerCatsBtn: {
     width: 36,
     height: 36,
     borderRadius: 18,
@@ -1699,253 +1168,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-
-  // MODE SEGMENTED CONTROL
-  modeSegment: {
-    flexDirection: 'row',
-    backgroundColor: '#F1F5F9',
-    borderRadius: 16,
-    padding: 3,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  modeTab: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 13,
-  },
-  modeTabActive: {
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000000',
-    shadowOpacity: 0.08,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  modeTabText: {
-    fontSize: 12.5,
-    fontWeight: '700',
-    color: '#64748B',
-  },
-  modeTabTextActive: {
-    color: '#0F172A',
-    fontWeight: '900',
-  },
-
-  // QUICK COMBOS
-  quickCombosCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 22,
-    padding: 14,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#F1F5F9',
-    shadowColor: '#64748B',
-    shadowOpacity: 0.05,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  combosHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  addPresetHeaderBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FEF3C7',
-    paddingHorizontal: 11,
-    paddingVertical: 5,
-    borderRadius: 20,
-    borderWidth: 1.5,
-    borderColor: '#FCD34D',
-  },
-  addPresetHeaderText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#B45309',
-  },
-  combosScroll: {
-    flexDirection: 'row',
-    gap: 8,
-    paddingVertical: 2,
-  },
-  comboChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1.5,
-    borderColor: '#E2E8F0',
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-  },
-  comboChipCustom: {
-    borderColor: '#FDE68A',
-    backgroundColor: '#FFFDF5',
-  },
-  comboEmoji: {
-    fontSize: 20,
-  },
-  comboLabel: {
-    fontSize: 11.5,
-    fontWeight: '700',
-    color: '#334155',
-  },
-  comboAmount: {
-    fontSize: 12.5,
-    fontWeight: '900',
-    color: '#0F172A',
-  },
-
-  // QUICK GRID
-  quickGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    marginTop: 6,
-    justifyContent: 'space-between',
-  },
-  quickGridTile: {
-    width: '22.5%',
-    backgroundColor: '#F8FAFC',
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderColor: '#E2E8F0',
-    paddingVertical: 10,
-    paddingHorizontal: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
-  },
-  quickGridTileSelected: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 2,
-    shadowColor: '#000000',
-    shadowOpacity: 0.08,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  quickTileIconWrap: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 5,
-  },
-  quickTileLabel: {
-    fontSize: 10.5,
-    fontWeight: '700',
-    color: '#475569',
-    textAlign: 'center',
-  },
-  tileCheckDot: {
-    position: 'absolute',
-    top: 4,
-    right: 4,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  // COMPACT PAYMENT MODES
-  compactPaymentRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  compactPaymentPill: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1.5,
-    borderColor: '#E2E8F0',
-    paddingVertical: 9,
-    borderRadius: 14,
-  },
-  compactPaymentPillSelected: {
-    backgroundColor: '#0F172A',
-    borderColor: '#0F172A',
-    shadowColor: '#0F172A',
-    shadowOpacity: 0.2,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  compactPaymentText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#475569',
-  },
-  compactPaymentTextSelected: {
-    color: '#FFFFFF',
-    fontWeight: '900',
-  },
-
-  // QUICK PURPOSE INPUT
-  quickPurposeInputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1.5,
-    borderColor: '#E2E8F0',
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-  },
-  quickPurposeInput: {
-    flex: 1,
-    fontSize: 13.5,
-    fontWeight: '700',
-    color: '#0F172A',
-    paddingVertical: 6,
-  },
-
-  // SWITCH TO DETAILED HINT
-  switchToDetailedHint: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#EEF2FF',
-    borderWidth: 1,
-    borderColor: '#C7D2FE',
-    borderRadius: 16,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    marginBottom: 16,
-  },
-  switchToDetailedText: {
-    fontSize: 12,
-    color: '#4338CA',
-    fontWeight: '600',
-  },
-  switchToDetailedLink: {
-    fontWeight: '900',
-    color: '#3730A3',
-  },
-  saveBtnDisabled: {
-    opacity: 0.55,
-  },
-
   content: {
-    paddingHorizontal: 16,
-    paddingTop: 14,
+    padding: 16,
   },
-
-  // 3D TACTILE TYPE SWITCH
   typeSwitchWrap: {
     flexDirection: 'row',
     backgroundColor: '#E2E8F0',
-    borderRadius: 18,
+    borderRadius: 14,
     padding: 4,
     marginBottom: 14,
   },
@@ -1955,236 +1184,222 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 10,
-    borderRadius: 14,
+    borderRadius: 11,
   },
   typeBtnExpenseActive: {
-    backgroundColor: '#EF4444',
-    shadowColor: '#EF4444',
-    shadowOpacity: 0.35,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 8,
-    elevation: 4,
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#DC2626',
+    shadowOpacity: 0.12,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
+    elevation: 2,
   },
   typeBtnIncomeActive: {
-    backgroundColor: '#10B981',
-    shadowColor: '#10B981',
-    shadowOpacity: 0.35,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 8,
-    elevation: 4,
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#059669',
+    shadowOpacity: 0.12,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
+    elevation: 2,
   },
   typeBtnText: {
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: '600',
     color: '#64748B',
   },
-  typeBtnTextActive: {
-    color: '#FFFFFF',
-    fontWeight: '900',
+  typeBtnExpenseTextActive: {
+    color: '#DC2626',
+    fontWeight: '800',
+  },
+  typeBtnIncomeTextActive: {
+    color: '#059669',
+    fontWeight: '800',
   },
 
-  // AMOUNT CARD
+  // Amount Card
   amountCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 24,
+    borderRadius: 20,
     padding: 18,
     alignItems: 'center',
-    marginBottom: 12,
-    shadowColor: '#64748B',
-    shadowOpacity: 0.08,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.04,
     shadowOffset: { width: 0, height: 4 },
     shadowRadius: 10,
-    elevation: 3,
-    borderWidth: 1,
-    borderColor: '#F1F5F9',
+    elevation: 2,
   },
-  amountHeaderRow: {
-    marginBottom: 6,
-  },
-  typeBadgePill: {
+  amountBadge: {
     paddingHorizontal: 12,
-    paddingVertical: 4,
+    paddingVertical: 5,
     borderRadius: 12,
     borderWidth: 1,
+    marginBottom: 8,
   },
-  typeBadgeText: {
-    fontSize: 10.5,
-    fontWeight: '900',
-    letterSpacing: 0.5,
+  amountBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.6,
   },
   amountInputRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    marginVertical: 4,
   },
   currencyPrefix: {
-    fontSize: 36,
+    fontSize: 34,
     fontWeight: '900',
-    marginRight: 6,
+    marginRight: 4,
   },
   hugeAmountInput: {
-    fontSize: 46,
+    fontSize: 44,
     fontWeight: '900',
-    minWidth: 90,
+    minWidth: 120,
     textAlign: 'center',
     paddingVertical: 0,
   },
-  quickAmountsWrap: {
+  quickAmountsRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    paddingTop: 14,
     gap: 8,
-    marginTop: 14,
-    paddingHorizontal: 4,
   },
-  quickPill: {
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1.5,
-    borderColor: '#E2E8F0',
-    paddingHorizontal: 13,
+  quickAmountPill: {
+    paddingHorizontal: 12,
     paddingVertical: 7,
-    borderRadius: 14,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
-  quickPillText: {
-    fontSize: 13,
-    fontWeight: '800',
+  quickAmountPillText: {
+    fontSize: 12,
+    fontWeight: '700',
     color: '#334155',
   },
   clearPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FEE2E2',
-    borderWidth: 1.5,
-    borderColor: '#FECACA',
-    paddingHorizontal: 11,
+    paddingHorizontal: 10,
     paddingVertical: 7,
-    borderRadius: 14,
+    backgroundColor: '#FEF2F2',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#FECACA',
   },
   clearPillText: {
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '700',
     color: '#EF4444',
   },
 
-  // COMMON CARD
-  card: {
+  // Section Cards
+  sectionCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 22,
-    padding: 16,
+    borderRadius: 18,
+    padding: 14,
     marginBottom: 12,
-    shadowColor: '#64748B',
-    shadowOpacity: 0.06,
-    shadowOffset: { width: 0, height: 3 },
-    shadowRadius: 8,
-    elevation: 2,
     borderWidth: 1,
     borderColor: '#F1F5F9',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.03,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
+    elevation: 1,
   },
-  fieldHeader: {
+  sectionHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 10,
   },
-  fieldTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#334155',
-  },
-  suggestionsScroll: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 12,
-  },
-  suggestionPill: {
+  sectionHeaderRowBetween: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-    borderRadius: 14,
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  sectionTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  manageLinkText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#3B82F6',
+  },
+  addPresetBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    backgroundColor: '#FEF3C7',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  addPresetBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#B45309',
+  },
+
+  // Presets
+  presetsScroll: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  presetChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 12,
     paddingVertical: 8,
+    borderRadius: 14,
+    backgroundColor: '#F8FAFC',
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
   },
-  suggestionPillActive: {
-    backgroundColor: '#EFF6FF',
-    borderColor: '#3B82F6',
-    shadowColor: '#3B82F6',
-    shadowOpacity: 0.2,
+  presetChipActive: {
+    backgroundColor: '#FEF3C7',
+    borderColor: '#F59E0B',
+    shadowColor: '#F59E0B',
+    shadowOpacity: 0.15,
     shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
+    shadowRadius: 6,
+    elevation: 2,
   },
-  suggestionPillText: {
+  presetLabel: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#475569',
+    color: '#334155',
   },
-  suggestionPillTextActive: {
-    color: '#1D4ED8',
-    fontWeight: '900',
+  presetLabelActive: {
+    color: '#B45309',
+    fontWeight: '800',
   },
-  titleInputWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderColor: '#E2E8F0',
-    paddingHorizontal: 14,
-    paddingVertical: 4,
+  presetAmount: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748B',
   },
-  mainTitleInput: {
-    flex: 1,
-    paddingVertical: 10,
-    fontSize: 14,
+  presetAmountActive: {
+    color: '#B45309',
     fontWeight: '700',
-    color: '#0F172A',
   },
-
-  // PAYMENT MODES
-  paymentModesRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  paymentModePill: {
-    flex: 1,
+  presetCheckmark: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: '#F59E0B',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1.5,
-    borderColor: '#E2E8F0',
-    paddingVertical: 10,
-    borderRadius: 16,
-  },
-  paymentModePillSelected: {
-    backgroundColor: '#0F172A',
-    borderColor: '#0F172A',
-    shadowColor: '#0F172A',
-    shadowOpacity: 0.25,
-    shadowOffset: { width: 0, height: 3 },
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  paymentModeText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#475569',
-  },
-  paymentModeTextSelected: {
-    color: '#FFFFFF',
-    fontWeight: '900',
+    marginLeft: 6,
   },
 
-  // CATEGORIES
-  categoryHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  addCategoryLink: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#2563EB',
-  },
+  // Categories
   categoriesScroll: {
     flexDirection: 'row',
     gap: 8,
@@ -2192,234 +1407,272 @@ const styles = StyleSheet.create({
   categoryChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-    borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 8,
+    borderRadius: 14,
+    backgroundColor: '#F8FAFC',
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
   },
   catIconWrap: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 6,
+    marginRight: 7,
   },
   categoryChipText: {
-    fontSize: 13,
-    fontWeight: '700',
+    fontSize: 12,
+    fontWeight: '600',
     color: '#475569',
   },
+  checkDot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 6,
+  },
 
-  // MORE OPTIONS TOGGLE
+  // Note Input
+  inputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 12,
+  },
+  textInput: {
+    flex: 1,
+    fontSize: 14,
+    color: '#0F172A',
+    paddingVertical: 10,
+  },
+
+  // Payment Modes
+  paymentRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  paymentPill: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+  },
+  paymentPillText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+
+  // More Options Accordion
   moreOptionsToggle: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#FFFFFF',
+    paddingVertical: 12,
     paddingHorizontal: 16,
-    paddingVertical: 13,
-    borderRadius: 18,
+    borderRadius: 14,
+    backgroundColor: '#EEF2FF',
+    borderWidth: 1,
+    borderColor: '#E0E7FF',
     marginBottom: 12,
-    borderWidth: 1.5,
-    borderColor: '#E2E8F0',
   },
   moreOptionsText: {
     fontSize: 13,
-    fontWeight: '800',
-    color: '#475569',
+    fontWeight: '700',
+    color: '#4F46E5',
   },
-  datePillsRow: {
+  dateRow: {
     flexDirection: 'row',
-    alignItems: 'center',
     gap: 8,
   },
   datePill: {
-    backgroundColor: '#F1F5F9',
     paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 12,
+    borderRadius: 10,
+    backgroundColor: '#F1F5F9',
     borderWidth: 1,
-    borderColor: 'transparent',
+    borderColor: '#E2E8F0',
   },
   datePillActive: {
-    backgroundColor: '#0F172A',
+    backgroundColor: '#EEF2FF',
+    borderColor: '#6366F1',
   },
   datePillText: {
     fontSize: 12,
-    fontWeight: '700',
-    color: '#475569',
+    fontWeight: '600',
+    color: '#64748B',
   },
   datePillTextActive: {
-    color: '#FFFFFF',
+    color: '#4F46E5',
     fontWeight: '800',
   },
   customDateInput: {
     flex: 1,
     backgroundColor: '#F8FAFC',
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: 10,
     fontSize: 12,
-    fontWeight: '700',
     color: '#0F172A',
   },
-  innerDivider: {
+  divider: {
     height: 1,
     backgroundColor: '#F1F5F9',
     marginVertical: 12,
   },
-  attachButtonsRow: {
+  photoButtonsRow: {
     flexDirection: 'row',
     gap: 10,
   },
-  attachBtn: {
+  photoBtn: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1.5,
-    borderColor: '#E2E8F0',
     paddingVertical: 10,
-    borderRadius: 14,
+    backgroundColor: '#EFF6FF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
   },
-  attachBtnText: {
-    fontSize: 12.5,
-    fontWeight: '800',
-    color: '#334155',
+  photoBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#2563EB',
   },
-  proofPreviewCard: {
+  receiptAttachedBox: {
     backgroundColor: '#F8FAFC',
-    borderRadius: 14,
+    borderRadius: 12,
     padding: 10,
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
-  proofThumbRow: {
+  receiptThumbRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  proofThumbnail: {
+  receiptThumb: {
     width: 44,
     height: 44,
     borderRadius: 8,
+    backgroundColor: '#E2E8F0',
   },
-  proofAttachedText: {
-    fontSize: 12.5,
-    fontWeight: '800',
+  receiptAttachedTitle: {
+    fontSize: 13,
+    fontWeight: '700',
     color: '#0F172A',
   },
-  proofSubText: {
+  receiptAttachedSub: {
     fontSize: 11,
     color: '#64748B',
   },
-  proofActionRow: {
+  receiptActionsRow: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
     gap: 12,
     marginTop: 8,
     paddingTop: 6,
     borderTopWidth: 1,
-    borderTopColor: '#E2E8F0',
+    borderTopColor: '#F1F5F9',
   },
-  proofActionBtn: {
+  receiptActionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  proofActionText: {
-    fontSize: 11.5,
+  receiptActionText: {
+    fontSize: 12,
     fontWeight: '700',
     color: '#2563EB',
   },
-  noteInput: {
+  remarksInput: {
     backgroundColor: '#F8FAFC',
-    borderRadius: 14,
-    borderWidth: 1.5,
+    borderRadius: 10,
+    borderWidth: 1,
     borderColor: '#E2E8F0',
-    padding: 12,
-    fontSize: 13,
+    padding: 10,
+    fontSize: 12,
     color: '#0F172A',
-    minHeight: 56,
-    textAlignVertical: 'top',
+    minHeight: 50,
   },
 
-  // FOOTER SAVE BUTTON
-  footerContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
+  // Footer Save
+  footer: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: 18,
-    paddingVertical: 12,
     borderTopWidth: 1,
     borderTopColor: '#F1F5F9',
-    shadowColor: '#000000',
-    shadowOpacity: 0.1,
-    shadowOffset: { width: 0, height: -4 },
-    shadowRadius: 10,
-    elevation: 8,
   },
   saveBtn: {
-    borderRadius: 20,
+    borderRadius: 16,
     overflow: 'hidden',
-    shadowColor: '#000000',
+    shadowColor: '#000',
     shadowOpacity: 0.15,
     shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 8,
+    shadowRadius: 10,
     elevation: 4,
+  },
+  saveBtnDisabled: {
+    opacity: 0.45,
+    shadowOpacity: 0,
+    elevation: 0,
   },
   saveBtnGradient: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 16,
+    paddingVertical: 15,
   },
   saveBtnText: {
     fontSize: 16,
-    fontWeight: '900',
+    fontWeight: '800',
     color: '#FFFFFF',
-    letterSpacing: -0.3,
+    letterSpacing: 0.2,
   },
 
-  // LUXURY SUCCESS OVERLAY
+  // Fullscreen Success Modal
   fullscreenSuccessContainer: {
     flex: 1,
     backgroundColor: '#FFFFFF',
-    alignItems: 'center',
     justifyContent: 'center',
+    alignItems: 'center',
   },
   fullscreenSuccessCenter: {
     alignItems: 'center',
     justifyContent: 'center',
-    width: '100%',
-    paddingHorizontal: 24,
   },
   fullscreenSuccessRing: {
     position: 'absolute',
-    top: -12,
-    width: 124,
-    height: 124,
-    borderRadius: 62,
-    backgroundColor: '#D1FAE5',
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
   },
   fullscreenCheckCircle: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: 90,
+    height: 90,
+    borderRadius: 45,
     backgroundColor: '#10B981',
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#10B981',
-    shadowOpacity: 0.35,
-    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowOffset: { width: 0, height: 8 },
     shadowRadius: 16,
-    elevation: 6,
+    elevation: 8,
   },
   fullscreenContentWrap: {
     alignItems: 'center',
@@ -2427,7 +1680,7 @@ const styles = StyleSheet.create({
   },
   fullscreenSuccessTitle: {
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '600',
     color: '#64748B',
     marginBottom: 6,
   },
@@ -2435,72 +1688,68 @@ const styles = StyleSheet.create({
     fontSize: 36,
     fontWeight: '900',
     color: '#0F172A',
-    letterSpacing: -0.8,
-    marginBottom: 8,
+    marginBottom: 4,
   },
   fullscreenSuccessMerchant: {
     fontSize: 16,
     fontWeight: '700',
     color: '#334155',
-    marginBottom: 10,
-    textAlign: 'center',
+    marginBottom: 14,
   },
   fullscreenSuccessBadge: {
-    backgroundColor: '#F1F5F9',
     paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
+    backgroundColor: '#F1F5F9',
   },
   fullscreenSuccessBadgeText: {
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '600',
     color: '#64748B',
   },
 
-  // PREVIEW MODAL
+  // Preview Modal
   previewModalBg: {
     flex: 1,
     backgroundColor: '#000000',
-    paddingTop: 40,
   },
   previewTopBar: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 50,
     paddingHorizontal: 20,
-    paddingVertical: 10,
+    paddingBottom: 16,
   },
   previewTitle: {
     color: '#FFFFFF',
     fontSize: 16,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   previewCloseBtn: {
-    padding: 8,
+    padding: 6,
   },
   previewImgContainer: {
     flex: 1,
-    alignItems: 'center',
     justifyContent: 'center',
+    alignItems: 'center',
   },
   previewFullImg: {
     width: '100%',
-    height: '100%',
+    height: '80%',
   },
 
-  // PRESET MODAL
+  // Preset Modal
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    backgroundColor: 'rgba(15, 23, 42, 0.6)',
     justifyContent: 'flex-end',
   },
   presetModalCard: {
     backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingHorizontal: 20,
-    paddingTop: 18,
-    paddingBottom: Platform.OS === 'ios' ? 36 : 24,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
     maxHeight: '85%',
   },
   presetModalHeader: {
@@ -2508,13 +1757,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 16,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
   },
   presetModalTitle: {
-    fontSize: 16,
-    fontWeight: '900',
+    fontSize: 17,
+    fontWeight: '800',
     color: '#0F172A',
   },
   modalCloseBtn: {
@@ -2528,197 +1774,132 @@ const styles = StyleSheet.create({
   presetTypeRow: {
     flexDirection: 'row',
     backgroundColor: '#F1F5F9',
-    borderRadius: 14,
-    padding: 3,
+    borderRadius: 12,
+    padding: 4,
     marginBottom: 14,
   },
   presetTypeBtn: {
     flex: 1,
-    paddingVertical: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 11,
+    paddingVertical: 8,
+    borderRadius: 9,
   },
   presetTypeBtnActiveExpense: {
-    backgroundColor: '#EF4444',
+    backgroundColor: '#FEF2F2',
   },
   presetTypeBtnActiveIncome: {
-    backgroundColor: '#10B981',
+    backgroundColor: '#ECFDF5',
   },
   presetTypeBtnText: {
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '600',
     color: '#64748B',
   },
   presetTypeBtnTextActive: {
-    color: '#FFFFFF',
-    fontWeight: '900',
+    color: '#0F172A',
+    fontWeight: '800',
   },
   modalInputLabel: {
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '700',
     color: '#475569',
+    marginTop: 10,
     marginBottom: 6,
-    marginTop: 4,
   },
   modalTextInput: {
     backgroundColor: '#F8FAFC',
-    borderRadius: 14,
-    borderWidth: 1.5,
+    borderRadius: 12,
+    borderWidth: 1,
     borderColor: '#E2E8F0',
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 14,
-    fontWeight: '700',
     color: '#0F172A',
-    marginBottom: 12,
   },
   modalAmountRow: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F8FAFC',
-    borderRadius: 14,
-    borderWidth: 1.5,
+    borderRadius: 12,
+    borderWidth: 1,
     borderColor: '#E2E8F0',
-    paddingHorizontal: 14,
-    marginBottom: 12,
+    paddingHorizontal: 12,
   },
   modalCurrPrefix: {
-    fontSize: 18,
-    fontWeight: '900',
-    color: '#D97706',
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#64748B',
     marginRight: 6,
   },
   modalAmountInput: {
     flex: 1,
-    paddingVertical: 10,
     fontSize: 16,
-    fontWeight: '900',
+    fontWeight: '700',
     color: '#0F172A',
+    paddingVertical: 10,
   },
   modalCatsScroll: {
     flexDirection: 'row',
     gap: 8,
     paddingVertical: 4,
-    marginBottom: 12,
   },
   modalCatChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: 12,
     backgroundColor: '#F1F5F9',
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
   modalCatChipActive: {
-    backgroundColor: '#0F172A',
-    borderColor: '#0F172A',
+    backgroundColor: '#EEF2FF',
+    borderColor: '#6366F1',
   },
   modalCatChipText: {
     fontSize: 12,
-    fontWeight: '700',
-    color: '#475569',
+    fontWeight: '600',
+    color: '#64748B',
   },
   modalCatChipTextActive: {
-    color: '#FFFFFF',
+    color: '#4F46E5',
     fontWeight: '800',
   },
   presetIconGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 10,
-    marginBottom: 18,
-    marginTop: 4,
+    paddingVertical: 6,
   },
   presetIconCell: {
     width: 44,
     height: 44,
-    borderRadius: 14,
+    borderRadius: 12,
     backgroundColor: '#F8FAFC',
-    borderWidth: 1.5,
+    borderWidth: 1,
     borderColor: '#E2E8F0',
     alignItems: 'center',
     justifyContent: 'center',
   },
   presetIconCellActive: {
     backgroundColor: '#FEF3C7',
-    borderColor: '#D97706',
-    borderWidth: 2,
-    transform: [{ scale: 1.08 }],
+    borderColor: '#F59E0B',
   },
   modalSaveBtn: {
-    borderRadius: 18,
+    borderRadius: 14,
     overflow: 'hidden',
-    marginTop: 6,
+    marginTop: 18,
     marginBottom: 10,
   },
   modalSaveGradient: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 14,
+    paddingVertical: 12,
   },
   modalSaveText: {
-    fontSize: 15,
-    fontWeight: '900',
+    fontSize: 14,
+    fontWeight: '800',
     color: '#FFFFFF',
-  },
-
-  // MANAGE ADDED PRESETS IN MODAL
-  managePresetsSection: {
-    marginTop: 18,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#F1F5F9',
-  },
-  managePresetsSectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  managePresetsSectionTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#334155',
-  },
-  customPresetRowItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  customPresetItemTitle: {
-    fontSize: 13.5,
-    fontWeight: '800',
-    color: '#0F172A',
-  },
-  customPresetItemSub: {
-    fontSize: 11.5,
-    fontWeight: '600',
-    color: '#64748B',
-    marginTop: 2,
-  },
-  modalManageLinkBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    marginTop: 14,
-  },
-  modalManageLinkText: {
-    flex: 1,
-    fontSize: 12.5,
-    fontWeight: '700',
-    color: '#475569',
   },
 });
