@@ -2,7 +2,7 @@
   "expo": {
     "name": "Rupeo",
     "slug": "PaiseWaise",
-    "version": "2.0.8",
+    "version": "2.0.9",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "rupeo",
@@ -80,9 +80,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "cb31241e-b1c9-4392-96a1-31db17645d8d"
+        "projectId": "318513cc-7259-4286-bc06-00cf798b1cf9"
       }
     },
-    "owner": "jeetukeapp"
+    "owner": "jeetucodes"
   }
 }
