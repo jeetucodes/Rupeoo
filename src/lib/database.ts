@@ -26,6 +26,7 @@ export interface CategoryItem {
   icon: string;
   color: string;
   isCustom?: boolean;
+  type?: 'debit' | 'credit' | 'all';
 }
 
 export const defaultCategories: CategoryItem[] = [

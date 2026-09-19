@@ -553,13 +553,10 @@ export default function TransactionsScreen() {
     setMinAmount('');
     setMaxAmount('');
     setFilterPaymentMode('All');
-    setStartDate('');
-    setEndDate('');
-    setPeriod('This Month');
   };
 
   const hasActiveAdvancedFilters =
-    filterPaymentMode !== 'All' || minAmount !== '' || maxAmount !== '' || period !== 'This Month' || startDate !== '' || endDate !== '';
+    filterPaymentMode !== 'All' || minAmount !== '' || maxAmount !== '';
 
   const getCategoryMeta = (catName: string) => {
     const cat = categories.find(c => c.name.toLowerCase() === (catName || '').toLowerCase());
@@ -631,24 +628,21 @@ export default function TransactionsScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar barStyle="dark-content" backgroundColor="#F1F5F9" />
-
       {/* Header */}
       <View style={styles.header}>
         <View>
           <Text style={styles.headerTitle}>{t('transactions')}</Text>
-          <Text style={styles.headerSubtitle}>{filteredList.length} total records</Text>
+          <Text style={styles.headerSubtitle}>{filteredList.length} {t('total_records')}</Text>
         </View>
 
         <View style={styles.headerActions}>
-
-
           <TouchableOpacity
             style={styles.addShortcutBtn}
             onPress={() => router.push('/add')}
             activeOpacity={0.8}
           >
             <Ionicons name="add" size={18} color="#1C1C1E" />
-            <Text style={styles.addShortcutText}>Add</Text>
+            <Text style={styles.addShortcutText}>{t('add')}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -669,7 +663,7 @@ export default function TransactionsScreen() {
         {/* Simple Minimal Cashflow Summary Card */}
         <View style={styles.cashflowSimpleCard}>
           <View style={styles.cashflowSimpleCol}>
-            <Text style={styles.cashflowSimpleLabel}>Inflow</Text>
+            <Text style={styles.cashflowSimpleLabel}>{t('inflow')}</Text>
             <Text
               style={[styles.cashflowSimpleValue, { color: '#16A34A' }]}
               numberOfLines={1}
@@ -682,7 +676,7 @@ export default function TransactionsScreen() {
           <View style={styles.cashflowSimpleDivider} />
 
           <View style={styles.cashflowSimpleCol}>
-            <Text style={styles.cashflowSimpleLabel}>Outflow</Text>
+            <Text style={styles.cashflowSimpleLabel}>{t('outflow')}</Text>
             <Text
               style={[styles.cashflowSimpleValue, { color: '#DC2626' }]}
               numberOfLines={1}
@@ -695,7 +689,7 @@ export default function TransactionsScreen() {
           <View style={styles.cashflowSimpleDivider} />
 
           <View style={styles.cashflowSimpleCol}>
-            <Text style={styles.cashflowSimpleLabel}>Net</Text>
+            <Text style={styles.cashflowSimpleLabel}>{t('net')}</Text>
             <Text
               style={[
                 styles.cashflowSimpleValue,
@@ -714,7 +708,7 @@ export default function TransactionsScreen() {
           <Ionicons name="search" size={18} color="#94A3B8" style={{ marginRight: 8 }} />
           <TextInput
             style={[styles.searchInput, { color: '#1C1C1E' }]}
-            placeholder="Search merchant, category, notes..."
+            placeholder={t('search_tx_placeholder')}
             placeholderTextColor="#94A3B8"
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -740,14 +734,14 @@ export default function TransactionsScreen() {
         {/* Advanced Filters Panel */}
         {showAdvancedFilters && (
           <View style={styles.advancedFilterCard}>
-            <Text style={styles.filterTitle}>Payment Method</Text>
+            <Text style={styles.filterTitle}>{t('payment_method')}</Text>
             <View style={styles.filterChipRow}>
               {[
-                { id: 'All', label: 'All', icon: 'apps' },
+                { id: 'All', label: t('filter_all'), icon: 'apps' },
                 { id: 'UPI', label: 'UPI', icon: 'flash', color: '#7C3AED' },
-                { id: 'Cash', label: 'Cash', icon: 'cash', color: '#16A34A' },
-                { id: 'Card', label: 'Card', icon: 'card', color: '#2563EB' },
-                { id: 'Bank', label: 'Bank', icon: 'business', color: '#D97706' },
+                { id: 'Cash', label: t('cash'), icon: 'cash', color: '#16A34A' },
+                { id: 'Card', label: t('card'), icon: 'card', color: '#2563EB' },
+                { id: 'Bank', label: t('bank'), icon: 'business', color: '#D97706' },
               ].map(m => {
                 const isSelected = filterPaymentMode === m.id;
                 return (
@@ -779,12 +773,12 @@ export default function TransactionsScreen() {
               })}
             </View>
 
-            <Text style={styles.filterTitle}>Amount Range ({curr})</Text>
+            <Text style={styles.filterTitle}>{t('amount_range')} ({curr})</Text>
             <View style={styles.amountRangeRow}>
               <TextInput
                 style={[styles.rangeInput, { color: '#1C1C1E' }]}
-                placeholder="Min Amount"
-                placeholderTextColor="#9CA3AF"
+                placeholder={t('min_amount')}
+                placeholderTextColor="#94A3B8"
                 keyboardType="numeric"
                 value={minAmount}
                 onChangeText={setMinAmount}
@@ -792,16 +786,92 @@ export default function TransactionsScreen() {
               <Text style={{ marginHorizontal: 8, color: '#9CA3AF', fontWeight: '700' }}>-</Text>
               <TextInput
                 style={[styles.rangeInput, { color: '#1C1C1E' }]}
-                placeholder="Max Amount"
-                placeholderTextColor="#9CA3AF"
+                placeholder={t('max_amount')}
+                placeholderTextColor="#94A3B8"
                 keyboardType="numeric"
                 value={maxAmount}
                 onChangeText={setMaxAmount}
               />
             </View>
 
-            {/* Custom Date Range Picker when Period is Custom Range */}
-            <Text style={[styles.filterTitle, { marginTop: 12 }]}>Date Range</Text>
+            {hasActiveAdvancedFilters && (
+              <TouchableOpacity style={styles.resetBtn} onPress={resetFilters}>
+                <Ionicons name="refresh" size={14} color="#EF4444" style={{ marginRight: 4 }} />
+                <Text style={styles.resetBtnText}>{t('reset_advanced_filters')}</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+
+        {/* Type Switcher Pills */}
+        <View style={styles.typeSwitcherRow}>
+          {(['all', 'debit', 'credit'] as const).map(ty => (
+            <TouchableOpacity
+              key={ty}
+              style={[styles.typeTab, filterType === ty && styles.typeTabActive]}
+              onPress={() => setFilterType(ty)}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.typeTabText, filterType === ty && styles.typeTabTextActive]}>
+                {ty === 'all' ? t('all_transactions_tab') : ty === 'debit' ? t('expenses_tab') : t('income_tab')}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* Period Dropdown Button */}
+        <View style={{ marginHorizontal: 20, marginBottom: period === 'Custom' ? 8 : 12 }}>
+          <TouchableOpacity
+            style={[
+              styles.dropdownButton,
+              period === 'Custom' && { borderColor: '#BFDBFE', backgroundColor: '#F0F7FF' }
+            ]}
+            onPress={() => setShowPeriodModal(true)}
+            activeOpacity={0.7}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+              <Ionicons 
+                name={period === 'Custom' ? "calendar" : "calendar-outline"} 
+                size={16} 
+                color={period === 'Custom' ? '#2563EB' : '#4B5563'} 
+              />
+              <Text style={[styles.dropdownButtonText, period === 'Custom' && { color: '#1D4ED8', fontWeight: '800' }]} numberOfLines={1}>
+                {period === 'Custom'
+                  ? (startDate && endDate
+                      ? `${startDate}  →  ${endDate}`
+                      : startDate
+                      ? `${t('from_date')} ${startDate}`
+                      : endDate
+                      ? `${t('to_date')} ${endDate}`
+                      : t('custom_date_range'))
+                  : (period === 'This Month' ? t('this_month') : period === 'Last 3 Months' ? t('last_3_months') : period === 'Last 6 Months' ? t('last_6_months') : period === 'All' ? t('all') : period)}
+              </Text>
+            </View>
+            <Ionicons name="chevron-down" size={16} color={period === 'Custom' ? '#2563EB' : '#4B5563'} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Custom Date Range Picker when Period is Custom Range */}
+        {period === 'Custom' && (
+          <View style={styles.customDateCard}>
+            <View style={styles.customDateCardHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Ionicons name="calendar-outline" size={14} color="#2563EB" />
+                <Text style={styles.customDateCardTitle}>{t('pick_date_range')}</Text>
+              </View>
+              {(startDate !== '' || endDate !== '') && (
+                <TouchableOpacity
+                  onPress={() => {
+                    setStartDate('');
+                    setEndDate('');
+                  }}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Text style={styles.customDateClearBtn}>{t('clear_dates')}</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
             <View style={styles.datePickerRow}>
               {Platform.OS === 'web' ? (
                 <>
@@ -848,24 +918,53 @@ export default function TransactionsScreen() {
               ) : (
                 <>
                   <TouchableOpacity
-                    style={[styles.rangeInput, { flex: 1, marginRight: 8 }]}
+                    style={[
+                      styles.rangeInput,
+                      {
+                        flex: 1,
+                        marginRight: 8,
+                        borderColor: startDate ? '#2563EB' : '#E5E7EB',
+                        backgroundColor: startDate ? '#EFF6FF' : '#F9FAFB',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                      }
+                    ]}
                     onPress={() => setShowStartPicker(true)}
                     activeOpacity={0.7}
                   >
-                    <Ionicons name="calendar-outline" size={16} color={startDate ? '#1C1C1E' : '#9CA3AF'} style={{ marginRight: 6 }} />
+                    <Ionicons
+                      name="calendar-outline"
+                      size={16}
+                      color={startDate ? '#2563EB' : '#9CA3AF'}
+                      style={{ marginRight: 6 }}
+                    />
                     <Text style={{ color: startDate ? '#1C1C1E' : '#9CA3AF', fontSize: 13, fontWeight: '600' }}>
-                      {startDate || "From Date"}
+                      {startDate || t('from_date')}
                     </Text>
                   </TouchableOpacity>
                   
                   <TouchableOpacity
-                    style={[styles.rangeInput, { flex: 1 }]}
+                    style={[
+                      styles.rangeInput,
+                      {
+                        flex: 1,
+                        borderColor: endDate ? '#2563EB' : '#E5E7EB',
+                        backgroundColor: endDate ? '#EFF6FF' : '#F9FAFB',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                      }
+                    ]}
                     onPress={() => setShowEndPicker(true)}
                     activeOpacity={0.7}
                   >
-                    <Ionicons name="calendar-outline" size={16} color={endDate ? '#1C1C1E' : '#9CA3AF'} style={{ marginRight: 6 }} />
+                    <Ionicons
+                      name="calendar-outline"
+                      size={16}
+                      color={endDate ? '#2563EB' : '#9CA3AF'}
+                      style={{ marginRight: 6 }}
+                    />
                     <Text style={{ color: endDate ? '#1C1C1E' : '#9CA3AF', fontSize: 13, fontWeight: '600' }}>
-                      {endDate || "To Date"}
+                      {endDate || t('to_date')}
                     </Text>
                   </TouchableOpacity>
                 </>
@@ -905,43 +1004,8 @@ export default function TransactionsScreen() {
                 />
               )}
             </View>
-
-            {hasActiveAdvancedFilters && (
-              <TouchableOpacity style={styles.resetBtn} onPress={resetFilters}>
-                <Ionicons name="refresh" size={14} color="#EF4444" style={{ marginRight: 4 }} />
-                <Text style={styles.resetBtnText}>Reset Advanced Filters</Text>
-              </TouchableOpacity>
-            )}
           </View>
         )}
-
-        {/* Type Switcher Pills */}
-        <View style={styles.typeSwitcherRow}>
-          {(['all', 'debit', 'credit'] as const).map(ty => (
-            <TouchableOpacity
-              key={ty}
-              style={[styles.typeTab, filterType === ty && styles.typeTabActive]}
-              onPress={() => setFilterType(ty)}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.typeTabText, filterType === ty && styles.typeTabTextActive]}>
-                {ty === 'all' ? 'All Transactions' : ty === 'debit' ? 'Expenses' : 'Income'}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* Period Dropdown Button */}
-        <View style={{ marginHorizontal: 20, marginBottom: 12 }}>
-          <TouchableOpacity
-            style={styles.dropdownButton}
-            onPress={() => setShowPeriodModal(true)}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.dropdownButtonText}>{period}</Text>
-            <Ionicons name="chevron-down" size={16} color="#4B5563" />
-          </TouchableOpacity>
-        </View>
 
         {/* Period Selection Modal */}
         <Modal
@@ -956,7 +1020,7 @@ export default function TransactionsScreen() {
             onPress={() => setShowPeriodModal(false)}
           >
             <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>Select Period</Text>
+              <Text style={styles.modalTitle}>{t('select_period')}</Text>
               {(['All', 'This Month', 'Last 3 Months', 'Last 6 Months', 'Custom'] as const).map(p => (
                 <TouchableOpacity
                   key={p}
@@ -964,11 +1028,14 @@ export default function TransactionsScreen() {
                   onPress={() => {
                     setPeriod(p);
                     setShowPeriodModal(false);
+                    if (p === 'Custom' && !startDate && Platform.OS !== 'web') {
+                      setTimeout(() => setShowStartPicker(true), 350);
+                    }
                   }}
                   activeOpacity={0.7}
                 >
                   <Text style={[styles.modalOptionText, period === p && styles.modalOptionTextActive]}>
-                    {p}
+                    {p === 'This Month' ? t('this_month') : p === 'Last 3 Months' ? t('last_3_months') : p === 'Last 6 Months' ? t('last_6_months') : p === 'All' ? t('all') : t('custom_date_range')}
                   </Text>
                   {period === p && <Ionicons name="checkmark" size={20} color="#FFD740" />}
                 </TouchableOpacity>
@@ -979,8 +1046,8 @@ export default function TransactionsScreen() {
 
         {/* Transactions List Header */}
         <View style={styles.listHeaderRow}>
-          <Text style={styles.listHeaderTitle}>Transaction History</Text>
-          <Text style={styles.listHeaderCount}>{filteredList.length} items</Text>
+          <Text style={styles.listHeaderTitle}>{t('transaction_history')}</Text>
+          <Text style={styles.listHeaderCount}>{filteredList.length} {t('items_count')}</Text>
         </View>
 
         {/* Grouped Transaction List */}
@@ -989,11 +1056,11 @@ export default function TransactionsScreen() {
             <View style={styles.emptyIconCircle}>
               <Ionicons name="receipt-outline" size={40} color="#9CA3AF" />
             </View>
-            <Text style={styles.emptyTitle}>No Transactions Found</Text>
+            <Text style={styles.emptyTitle}>{t('no_transactions_found')}</Text>
             <Text style={styles.emptySubtitle}>
               {searchQuery || selectedCategory !== 'All' || filterType !== 'all'
-                ? 'Try adjusting your search or filters.'
-                : 'Start tracking your daily expenses and income effortlessly.'}
+                ? t('no_tx_adjust_filters')
+                : t('start_tracking_msg')}
             </Text>
             <TouchableOpacity
               style={styles.addEmptyBtn}
@@ -1001,7 +1068,7 @@ export default function TransactionsScreen() {
               activeOpacity={0.8}
             >
               <Ionicons name="add-circle" size={18} color="#1C1C1E" style={{ marginRight: 6 }} />
-              <Text style={styles.addEmptyBtnText}>Add Transaction</Text>
+              <Text style={styles.addEmptyBtnText}>{t('add_transaction')}</Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -1418,6 +1485,36 @@ const styles = StyleSheet.create({
   modalOptionTextActive: {
     color: '#1C1C1E',
     fontWeight: '800',
+  },
+  customDateCard: {
+    marginHorizontal: 20,
+    marginBottom: 14,
+    backgroundColor: '#ffffff',
+    borderRadius: 20,
+    padding: 14,
+    borderWidth: 1.5,
+    borderColor: '#DBEAFE',
+    shadowColor: '#2563EB',
+    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  customDateCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  customDateCardTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#1E293B',
+  },
+  customDateClearBtn: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#EF4444',
   },
   customDateRow: {
     flexDirection: 'row',

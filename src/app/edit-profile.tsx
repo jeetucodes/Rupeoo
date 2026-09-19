@@ -379,7 +379,7 @@ export default function EditProfileScreen() {
                 style={[styles.fieldInput, { color: '#1C1C1E' }]}
                 value={phone}
                 onChangeText={setPhone}
-                placeholder="+91 98765 43210"
+                placeholder="+91 00000 00000"
                 placeholderTextColor="#9CA3AF"
                 keyboardType="phone-pad"
               />

@@ -16,7 +16,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
-import { getCategoryTotals, deleteAllTransactions, saveStartingBalance, saveUserSettings, UserSettings } from '@/lib/database';
+import { getCategoryTotals, deleteAllTransactions, saveStartingBalance, saveUserSettings, UserSettings, getAllTransactions } from '@/lib/database';
+import { getLocalMonthString } from '@/lib/dateUtils';
+import { generateAndShareTransactionStatementPDF, formatMonthDisplay } from '@/lib/statementPdf';
 import { useTranslation } from '@/lib/i18n';
 import { deleteUser, reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth';
 import { doc, deleteDoc } from 'firebase/firestore';
@@ -32,6 +34,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Image as ExpoImage } from 'expo-image';
 import { restorePurchases, getPlanDisplayName } from '@/lib/iap';
 import { HelpSupportModal } from '@/components/help-support-modal';
+import { requestGooglePlayReview, openPlayStorePageDirectly } from '@/lib/review';
+import { GooglePlayReviewModal } from '@/components/GooglePlayReviewModal';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -249,6 +253,7 @@ export default function SettingsScreen() {
   const [showCurrencyModal, setShowCurrencyModal] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
   const [showSupportModal, setShowSupportModal] = useState(false);
+  const [showReviewModal, setShowReviewModal] = useState(false);
 
   const handleRestorePurchases = async () => {
     if (!user?.uid) return;
@@ -282,6 +287,125 @@ export default function SettingsScreen() {
   };
 
   const selectedCurrencyObj = ALL_CURRENCIES.find(c => c.symbol === settings?.currency || c.code === settings?.currency);
+  const curr = selectedCurrencyObj?.symbol || settings?.currency || '₹';
+
+  // ---- Statement PDF State ------------------------------------------------
+  const [showStatementModal, setShowStatementModal] = useState(false);
+  const [statementPeriodMode, setStatementPeriodMode] = useState<'all' | 'month'>('all');
+  const [statementMonth, setStatementMonth] = useState<string>(getLocalMonthString());
+  const [statementTypeFilter, setStatementTypeFilter] = useState<'all' | 'debit' | 'credit'>('all');
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [statementTransactions, setStatementTransactions] = useState<any[]>([]);
+  const [availableMonths, setAvailableMonths] = useState<string[]>([]);
+
+  const openStatementModal = async () => {
+    if (!user?.uid) return;
+    try {
+      const txs = await getAllTransactions(user.uid);
+      setStatementTransactions(txs);
+
+      // Extract unique months from transactions plus current month
+      const currentM = getLocalMonthString();
+      const monthSet = new Set<string>();
+      monthSet.add(currentM);
+
+      const now = new Date();
+      now.setMonth(now.getMonth() - 1);
+      const lastM = getLocalMonthString(now);
+      monthSet.add(lastM);
+
+      txs.forEach((t: any) => {
+        if (t.date && typeof t.date === 'string' && t.date.length >= 7) {
+          const m = t.date.slice(0, 7);
+          if (/^\d{4}-\d{2}$/.test(m)) {
+            monthSet.add(m);
+          }
+        }
+      });
+
+      const sortedMonths = Array.from(monthSet).sort((a, b) => b.localeCompare(a));
+      setAvailableMonths(sortedMonths);
+      setStatementMonth(currentM);
+      setStatementPeriodMode('all');
+      setStatementTypeFilter('all');
+      setShowStatementModal(true);
+    } catch (err) {
+      console.error('Error preparing statement:', err);
+    }
+  };
+
+  const previewTransactions = useMemo(() => {
+    let list = [...statementTransactions];
+    if (statementPeriodMode === 'month' && statementMonth) {
+      list = list.filter(tx => tx.date && tx.date.startsWith(statementMonth));
+    }
+    if (statementTypeFilter !== 'all') {
+      list = list.filter(tx => (tx.type || 'debit').toLowerCase() === statementTypeFilter);
+    }
+    return list;
+  }, [statementTransactions, statementPeriodMode, statementMonth, statementTypeFilter]);
+
+  const previewStats = useMemo(() => {
+    let income = 0;
+    let expense = 0;
+    previewTransactions.forEach(tx => {
+      const amt = Math.abs(Number(tx.amount) || 0);
+      const type = (tx.type || 'debit').toLowerCase();
+      if (type === 'credit' || type === 'income') {
+        income += amt;
+      } else {
+        expense += amt;
+      }
+    });
+    return {
+      count: previewTransactions.length,
+      income,
+      expense,
+      net: income - expense,
+    };
+  }, [previewTransactions]);
+
+  const handleGenerateStatementPdf = async () => {
+    if (!user) return;
+    setIsGeneratingPdf(true);
+    try {
+      const res = await generateAndShareTransactionStatementPDF({
+        userName: user.displayName || 'Rupeo User',
+        userEmail: user.email || '',
+        periodMode: statementPeriodMode,
+        monthStr: statementMonth,
+        typeFilter: statementTypeFilter,
+        curr,
+        transactions: statementTransactions,
+      });
+
+      if (res.success) {
+        setShowStatementModal(false);
+        Toast.show({
+          type: 'success',
+          text1: 'Statement PDF Generated! 📑',
+          text2: `${res.count} transactions exported with official Rupeo branding`,
+          visibilityTime: 4000,
+        });
+      } else {
+        Toast.show({
+          type: 'error',
+          text1: 'Statement Failed ❌',
+          text2: res.error || 'No transactions found to generate statement.',
+          visibilityTime: 4000,
+        });
+      }
+    } catch (err: any) {
+      Toast.show({
+        type: 'error',
+        text1: 'PDF Generation Error ❌',
+        text2: err?.message || 'Failed to create statement PDF.',
+        visibilityTime: 4000,
+      });
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
 
   const refreshData = () => {
     if (user?.uid) {
@@ -508,8 +632,6 @@ export default function SettingsScreen() {
     return d.toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' });
   };
 
-  const curr = useMemo(() => (settings?.currency === 'INR' ? '₹' : settings?.currency || '₹'), [settings?.currency]);
-
   if (!user) {
     return (
       <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
@@ -543,7 +665,7 @@ export default function SettingsScreen() {
             <View style={styles.header}>
               <View>
                 <Text style={styles.title}>{t('profile')}</Text>
-                <Text style={styles.subtitle}>Account & App Preferences</Text>
+                <Text style={styles.subtitle}>{t('account_app_preferences')}</Text>
               </View>
             </View>
           </SafeAreaView>
@@ -556,7 +678,7 @@ export default function SettingsScreen() {
             onPress={() => router.push('/edit-profile')}
             activeOpacity={0.85}
             accessibilityRole="button"
-            accessibilityLabel="Edit profile"
+            accessibilityLabel={t('edit_profile_btn')}
           >
             <View style={styles.profileCard}>
               <View style={{ marginBottom: 12 }}>
@@ -575,7 +697,7 @@ export default function SettingsScreen() {
 
               <View style={styles.editProfilePill}>
                 <Ionicons name="pencil" size={12} color="#3B82F6" style={{ marginRight: 4 }} />
-                <Text style={styles.editProfilePillText}>Edit Profile</Text>
+                <Text style={styles.editProfilePillText}>{t('edit_profile_btn')}</Text>
               </View>
 
               <View style={styles.statsRow}>
@@ -590,14 +712,14 @@ export default function SettingsScreen() {
                   <Text style={styles.statValue}>
                     {curr} {Number((user as any)?.startingBalance || 0).toLocaleString('en-IN')}
                   </Text>
-                  <Text style={styles.statLabel}>Starting Bal</Text>
+                  <Text style={styles.statLabel}>{t('starting_bal_short')}</Text>
                 </View>
                 <View style={styles.statDivider} />
                 <View style={styles.statItem}>
                   <Text style={[styles.statValue, { color: '#10B981' }]}>
-                    Active
+                    {t('account_active')}
                   </Text>
-                  <Text style={styles.statLabel}>Account</Text>
+                  <Text style={styles.statLabel}>{t('account_label')}</Text>
                 </View>
               </View>
             </View>
@@ -606,7 +728,7 @@ export default function SettingsScreen() {
           {/* Subscription & Membership (Remotely Controlled by Admin via Firestore) */}
           {appConfig?.showSubscriptions !== false && (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Subscription & Membership</Text>
+              <Text style={styles.sectionTitle}>{t('subscription_membership')}</Text>
               {isPremium ? (
                 <LinearGradient
                   colors={['#061A14', '#064E3B', '#0B132B']}
@@ -618,11 +740,11 @@ export default function SettingsScreen() {
                   <View style={styles.proCompactHeader}>
                     <View style={styles.proCompactBadge}>
                       <Ionicons name="shield-checkmark" size={13} color="#34D399" />
-                      <Text style={styles.proCompactBadgeText}>RUPEO PRO</Text>
+                      <Text style={styles.proCompactBadgeText}>{t('rupeo_pro')}</Text>
                     </View>
                     <View style={styles.proActiveIndicatorV2}>
                       <View style={styles.proActiveDotV2} />
-                      <Text style={styles.proActiveStatusTextV2}>Active</Text>
+                      <Text style={styles.proActiveStatusTextV2}>{t('account_active')}</Text>
                     </View>
                   </View>
 
@@ -638,15 +760,15 @@ export default function SettingsScreen() {
                   <View style={styles.proCompactPerksRow}>
                     <View style={styles.proCompactPerk}>
                       <Ionicons name="checkmark-circle" size={13} color="#34D399" />
-                      <Text style={styles.proCompactPerkText}>100% Ad-Free</Text>
+                      <Text style={styles.proCompactPerkText}>{t('ad_free')}</Text>
                     </View>
                     <View style={styles.proCompactPerk}>
                       <Ionicons name="checkmark-circle" size={13} color="#34D399" />
-                      <Text style={styles.proCompactPerkText}>Unlimited PDFs</Text>
+                      <Text style={styles.proCompactPerkText}>{t('unlimited_pdfs')}</Text>
                     </View>
                     <View style={styles.proCompactPerk}>
                       <Ionicons name="checkmark-circle" size={13} color="#34D399" />
-                      <Text style={styles.proCompactPerkText}>Reminders</Text>
+                      <Text style={styles.proCompactPerkText}>{t('reminders_perk')}</Text>
                     </View>
                   </View>
 
@@ -657,10 +779,10 @@ export default function SettingsScreen() {
                       onPress={() => router.push('/premium')}
                       activeOpacity={0.85}
                       accessibilityRole="button"
-                      accessibilityLabel="Change Plan"
+                      accessibilityLabel={t('change_plan')}
                     >
                       <Ionicons name="swap-horizontal" size={14} color="#FFFFFF" style={{ marginRight: 5 }} />
-                      <Text style={styles.proCompactBtnText}>Change Plan</Text>
+                      <Text style={styles.proCompactBtnText}>{t('change_plan')}</Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity
@@ -669,14 +791,14 @@ export default function SettingsScreen() {
                       disabled={isRestoring}
                       activeOpacity={0.8}
                       accessibilityRole="button"
-                      accessibilityLabel="Sync Purchases"
+                      accessibilityLabel={t('sync')}
                     >
                       {isRestoring ? (
                         <ActivityIndicator size="small" color="#94A3B8" />
                       ) : (
                         <>
                           <Ionicons name="refresh-outline" size={14} color="#94A3B8" style={{ marginRight: 4 }} />
-                          <Text style={styles.proCompactSyncText}>Sync</Text>
+                          <Text style={styles.proCompactSyncText}>{t('sync')}</Text>
                         </>
                       )}
                     </TouchableOpacity>
@@ -693,21 +815,21 @@ export default function SettingsScreen() {
                   <View style={styles.proCompactHeader}>
                     <View style={styles.proBadgeGoldCompact}>
                       <Ionicons name="sparkles" size={12} color="#F59E0B" />
-                      <Text style={styles.proBadgeGoldTextCompact}>RUPEO PRO</Text>
+                      <Text style={styles.proBadgeGoldTextCompact}>{t('rupeo_pro')}</Text>
                     </View>
                     <View style={styles.proPriceTagCompact}>
-                      <Text style={styles.proPriceTextCompact}>From ₹66/mo</Text>
+                      <Text style={styles.proPriceTextCompact}>{t('from_price_mo')}</Text>
                       <View style={styles.proSavePillCompact}>
-                        <Text style={styles.proSavePillTextCompact}>33% OFF</Text>
+                        <Text style={styles.proSavePillTextCompact}>{t('discount_off')}</Text>
                       </View>
                     </View>
                   </View>
 
                   {/* Headline */}
                   <View style={styles.proCompactBody}>
-                    <Text style={styles.proCompactTitle}>Upgrade to Pro</Text>
+                    <Text style={styles.proCompactTitle}>{t('upgrade_to_pro')}</Text>
                     <Text style={styles.proCompactDesc} numberOfLines={1}>
-                      Ad-free, unlimited PDF reports, reminders & custom categories
+                      {t('pro_features_desc')}
                     </Text>
                   </View>
 
@@ -715,15 +837,15 @@ export default function SettingsScreen() {
                   <View style={styles.proCompactPerksRow}>
                     <View style={styles.proFeaturePill}>
                       <Ionicons name="ban" size={11} color="#EF4444" />
-                      <Text style={styles.proFeaturePillText}>Ad-Free</Text>
+                      <Text style={styles.proFeaturePillText}>{t('ad_free')}</Text>
                     </View>
                     <View style={styles.proFeaturePill}>
                       <Ionicons name="document-text" size={11} color="#38BDF8" />
-                      <Text style={styles.proFeaturePillText}>Unlimited PDFs</Text>
+                      <Text style={styles.proFeaturePillText}>{t('unlimited_pdfs')}</Text>
                     </View>
                     <View style={styles.proFeaturePill}>
                       <Ionicons name="notifications" size={11} color="#FBBF24" />
-                      <Text style={styles.proFeaturePillText}>Reminders</Text>
+                      <Text style={styles.proFeaturePillText}>{t('reminders_perk')}</Text>
                     </View>
                   </View>
 
@@ -734,7 +856,7 @@ export default function SettingsScreen() {
                       onPress={() => router.push('/premium')}
                       activeOpacity={0.88}
                       accessibilityRole="button"
-                      accessibilityLabel="Upgrade to Rupeo Pro"
+                      accessibilityLabel={t('upgrade_now')}
                     >
                       <LinearGradient
                         colors={['#F59E0B', '#D97706']}
@@ -743,7 +865,7 @@ export default function SettingsScreen() {
                         style={styles.proUpgradeGradientCompact}
                       >
                         <Ionicons name="diamond" size={14} color="#0B0F19" style={{ marginRight: 5 }} />
-                        <Text style={styles.proUpgradeBtnTextCompact}>Upgrade Now</Text>
+                        <Text style={styles.proUpgradeBtnTextCompact}>{t('upgrade_now')}</Text>
                         <Ionicons name="arrow-forward" size={13} color="#0B0F19" style={{ marginLeft: 5 }} />
                       </LinearGradient>
                     </TouchableOpacity>
@@ -754,12 +876,12 @@ export default function SettingsScreen() {
                       disabled={isRestoring}
                       activeOpacity={0.8}
                       accessibilityRole="button"
-                      accessibilityLabel="Restore Purchases"
+                      accessibilityLabel={t('restore')}
                     >
                       {isRestoring ? (
                         <ActivityIndicator size="small" color="#94A3B8" />
                       ) : (
-                        <Text style={styles.proCompactSyncText}>Restore</Text>
+                        <Text style={styles.proCompactSyncText}>{t('restore')}</Text>
                       )}
                     </TouchableOpacity>
                   </View>
@@ -770,7 +892,7 @@ export default function SettingsScreen() {
 
           {/* Planning & Categories */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Planning & Expenses</Text>
+            <Text style={styles.sectionTitle}>{t('planning_expenses')}</Text>
             <View style={styles.infoCard}>
               <SettingsRow
                 icon="pie-chart-outline"
@@ -785,8 +907,8 @@ export default function SettingsScreen() {
                 icon="notifications-outline"
                 iconBg="#EEF2FF"
                 iconColor="#4F46E5"
-                label="Bill Reminders & Alerts"
-                value="Recurring subscriptions & payment alerts"
+                label={t('bill_reminders_alerts')}
+                value={t('bill_reminders_alerts_desc')}
                 onPress={() => router.push('/reminders')}
               />
               <View style={styles.infoDivider} />
@@ -803,9 +925,18 @@ export default function SettingsScreen() {
                 icon="wallet-outline"
                 iconBg="#FEF3C7"
                 iconColor="#B45309"
-                label="Update Starting Balance"
-                value={`Current: ${curr}${Number((user as any)?.startingBalance || 0).toLocaleString('en-IN')}`}
+                label={t('update_starting_balance')}
+                value={`${t('current_balance_prefix')} ${curr}${Number((user as any)?.startingBalance || 0).toLocaleString('en-IN')}`}
                 onPress={openStartingBalanceEditor}
+              />
+              <View style={styles.infoDivider} />
+              <SettingsRow
+                icon="qr-code-outline"
+                iconBg="#F3E8FF"
+                iconColor="#7C3AED"
+                label="Split UPI QR Generator"
+                value="Multi-part QR codes below NPCI MDR limits"
+                onPress={() => router.push('/split-qr')}
               />
             </View>
           </View>
@@ -846,16 +977,28 @@ export default function SettingsScreen() {
               <Text style={styles.sectionTitleNoMargin}>{t('data_management')}</Text>
               <View style={styles.securityHeaderBadge}>
                 <Ionicons name="shield-checkmark" size={11} color="#059669" style={{ marginRight: 4 }} />
-                <Text style={styles.securityHeaderBadgeText}>SECURE BACKUPS</Text>
+                <Text style={styles.securityHeaderBadgeText}>{t('secure_backups')}</Text>
               </View>
             </View>
             <View style={styles.infoCard}>
+              <SettingsRow
+                icon="document-text-outline"
+                iconBg="#FEF2F2"
+                iconColor="#DC2626"
+                label={t('statement_pdf')}
+                value={t('statement_pdf_desc')}
+                badgeText="PDF PASSBOOK"
+                badgeBg="#FEF2F2"
+                badgeColor="#DC2626"
+                onPress={openStatementModal}
+              />
+              <View style={styles.infoDivider} />
               <SettingsRow
                 icon="cloud-download-outline"
                 iconBg="#ECFDF5"
                 iconColor="#059669"
                 label={t('export_data')}
-                value="Download full JSON or CSV backup"
+                value={t('export_desc')}
                 badgeText="JSON • CSV"
                 badgeBg="#ECFDF5"
                 badgeColor="#047857"
@@ -867,7 +1010,7 @@ export default function SettingsScreen() {
                 iconBg="#EFF6FF"
                 iconColor="#2563EB"
                 label={t('import_data')}
-                value="Restore transactions from backup file"
+                value={t('import_desc')}
                 badgeText="RESTORE"
                 badgeBg="#EFF6FF"
                 badgeColor="#1D4ED8"
@@ -890,13 +1033,13 @@ export default function SettingsScreen() {
 
           {/* Help & Support */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Help & Support</Text>
+            <Text style={styles.sectionTitle}>{t('help_support')}</Text>
             <TouchableOpacity
               style={styles.supportCard}
               onPress={() => setShowSupportModal(true)}
               activeOpacity={0.85}
               accessibilityRole="button"
-              accessibilityLabel="Contact Rupeo Support"
+              accessibilityLabel={t('help_support')}
             >
               <View style={styles.supportCardContent}>
                 {/* Left: Branded Navy & Gold Icon */}
@@ -910,20 +1053,59 @@ export default function SettingsScreen() {
                 {/* Center: Title, Subtitle, Live Tag */}
                 <View style={styles.supportTextWrap}>
                   <View style={styles.supportTitleRow}>
-                    <Text style={styles.supportCardTitle}>Contact Support</Text>
+                    <Text style={styles.supportCardTitle}>{t('support_desk_faqs')}</Text>
                     <View style={styles.supportLiveBadge}>
                       <View style={styles.supportLiveDot} />
                       <Text style={styles.supportLiveText}>24/7 ACTIVE</Text>
                     </View>
                   </View>
                   <Text style={styles.supportCardDesc}>
-                    Inquiries, live ticket status & assistance
+                    {t('support_desk_desc')}
                   </Text>
                 </View>
 
                 {/* Right: Chevron */}
                 <View style={styles.supportActionBtn}>
                   <Ionicons name="chevron-forward" size={18} color="#0F172A" />
+                </View>
+              </View>
+            </TouchableOpacity>
+          </View>
+
+          {/* Rate & Review Card */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Rate & Review</Text>
+            <TouchableOpacity
+              style={styles.reviewCard}
+              onPress={() => setShowReviewModal(true)}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel="Rate on Google Play"
+            >
+              <View style={styles.supportCardContent}>
+                {/* Left: Gold Star Icon */}
+                <View style={styles.supportIconWrapper}>
+                  <View style={[styles.supportIconBg, { backgroundColor: '#FEF3C7' }]}>
+                    <Ionicons name="star" size={24} color="#D97706" />
+                  </View>
+                </View>
+
+                {/* Center: Title, Subtitle, Rating Tag */}
+                <View style={styles.supportTextWrap}>
+                  <View style={styles.supportTitleRow}>
+                    <Text style={styles.supportCardTitle}>Rate on Google Play</Text>
+                    <View style={[styles.supportLiveBadge, { backgroundColor: '#FEF3C7' }]}>
+                      <Text style={[styles.supportLiveText, { color: '#B45309' }]}>⭐ 5.0 RATING</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.supportCardDesc}>
+                    Enjoying Rupeo? Support our journey with a 5-star review on Play Store!
+                  </Text>
+                </View>
+
+                {/* Right: Open Store Action */}
+                <View style={styles.supportActionBtn}>
+                  <Ionicons name="open-outline" size={18} color="#2563EB" />
                 </View>
               </View>
             </TouchableOpacity>
@@ -960,14 +1142,14 @@ export default function SettingsScreen() {
                 onPress={() => setLogoutModalVisible(true)}
                 activeOpacity={0.7}
                 accessibilityRole="button"
-                accessibilityLabel="Log out"
+                accessibilityLabel={t('log_out')}
               >
                 <View style={styles.dangerIconWrap}>
                   <Ionicons name="log-out-outline" size={20} color="#64748B" />
                 </View>
                 <View style={styles.dangerTextWrap}>
                   <Text style={styles.dangerRowLabel}>{t('log_out')}</Text>
-                  <Text style={styles.dangerRowSub}>Sign out of your account</Text>
+                  <Text style={styles.dangerRowSub}>{t('logout_msg')}</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={16} color="#CBD5E1" />
               </TouchableOpacity>
@@ -988,7 +1170,7 @@ export default function SettingsScreen() {
           </View>
 
           <View style={{ alignItems: 'center', marginTop: 8 }}>
-            <Text style={styles.versionText}>Rupeo {t('version')} 2.0.7</Text>
+            <Text style={styles.versionText}>Rupeo {t('version')} 2.0.8</Text>
           </View>
         </View>
       </ScrollView>
@@ -1129,6 +1311,197 @@ export default function SettingsScreen() {
         <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowExportModal(false)} activeOpacity={0.7}>
           <Text style={styles.cancelBtnText}>{t('cancel')}</Text>
         </TouchableOpacity>
+      </BottomSheetModal>
+
+      {/* Statement PDF Modal */}
+      <BottomSheetModal
+        visible={showStatementModal}
+        onClose={() => setShowStatementModal(false)}
+        title={t('statement_pdf')}
+        icon="document-text"
+        iconBg="#FEF2F2"
+        iconColor="#DC2626"
+        autoHeight={false}
+      >
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
+          <Text style={styles.modalIntroText}>
+            Select your statement duration to export a certified passbook PDF with official Rupeo branding & Google Play Store download info.
+          </Text>
+
+          {/* PERIOD SELECTION PILLS */}
+          <Text style={styles.statementSectionLabel}>STATEMENT PERIOD</Text>
+          <View style={styles.statementPeriodPillRow}>
+            <TouchableOpacity
+              style={[
+                styles.statementPeriodBtn,
+                statementPeriodMode === 'all' && styles.statementPeriodBtnActive,
+              ]}
+              onPress={() => setStatementPeriodMode('all')}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name="infinite"
+                size={16}
+                color={statementPeriodMode === 'all' ? '#0F172A' : '#64748B'}
+                style={{ marginRight: 6 }}
+              />
+              <Text style={[styles.statementPeriodBtnText, statementPeriodMode === 'all' && styles.statementPeriodBtnTextActive]}>
+                All Transactions
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.statementPeriodBtn,
+                statementPeriodMode === 'month' && styles.statementPeriodBtnActive,
+              ]}
+              onPress={() => setStatementPeriodMode('month')}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name="calendar"
+                size={15}
+                color={statementPeriodMode === 'month' ? '#2563EB' : '#64748B'}
+                style={{ marginRight: 6 }}
+              />
+              <Text style={[styles.statementPeriodBtnText, statementPeriodMode === 'month' && styles.statementPeriodBtnTextActive]}>
+                Specific Month
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* MONTH SELECTOR (When 'month' is active) */}
+          {statementPeriodMode === 'month' && (
+            <View style={{ marginBottom: 14 }}>
+              <Text style={styles.statementSubLabel}>SELECT MONTH:</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 4 }}>
+                {availableMonths.map((m) => {
+                  const isSelected = statementMonth === m;
+                  const label = formatMonthDisplay(m);
+                  return (
+                    <TouchableOpacity
+                      key={m}
+                      style={[
+                        styles.monthChip,
+                        isSelected && styles.monthChipActive,
+                      ]}
+                      onPress={() => setStatementMonth(m)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.monthChipText, isSelected && styles.monthChipTextActive]}>
+                        {label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          )}
+
+          {/* TRANSACTION TYPE FILTER PILLS */}
+          <Text style={styles.statementSectionLabel}>TRANSACTION TYPE</Text>
+          <View style={styles.statementFilterPillRow}>
+            {(['all', 'debit', 'credit'] as const).map((typeKey) => {
+              const isSelected = statementTypeFilter === typeKey;
+              const typeLabel = typeKey === 'all' ? 'All Records' : typeKey === 'debit' ? 'Expenses Only' : 'Income Only';
+              const dotColor = typeKey === 'all' ? '#64748B' : typeKey === 'debit' ? '#DC2626' : '#16A34A';
+              return (
+                <TouchableOpacity
+                  key={typeKey}
+                  style={[
+                    styles.typeFilterPill,
+                    isSelected && styles.typeFilterPillActive,
+                  ]}
+                  onPress={() => setStatementTypeFilter(typeKey)}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.typeDot, { backgroundColor: dotColor }]} />
+                  <Text style={[styles.typeFilterText, isSelected && styles.typeFilterTextActive]}>
+                    {typeLabel}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {/* LIVE PREVIEW CARD */}
+          <View style={styles.statementPreviewCard}>
+            <View style={styles.statementPreviewHeader}>
+              <View>
+                <Text style={styles.previewTitle}>
+                  {statementPeriodMode === 'all' ? 'All Transactions (Full Lifetime)' : formatMonthDisplay(statementMonth)}
+                </Text>
+                <Text style={styles.previewCountText}>
+                  {previewStats.count} {previewStats.count === 1 ? 'Transaction' : 'Transactions'} included in PDF
+                </Text>
+              </View>
+              <View style={styles.previewBadge}>
+                <Ionicons name="document-text" size={12} color="#DC2626" style={{ marginRight: 4 }} />
+                <Text style={styles.previewBadgeText}>PDF READY</Text>
+              </View>
+            </View>
+
+            <View style={styles.previewStatsRow}>
+              <View style={styles.previewStatItem}>
+                <Text style={styles.previewStatLabel}>INCOME</Text>
+                <Text style={[styles.previewStatVal, { color: '#16A34A' }]}>
+                  +{curr}{previewStats.income.toLocaleString('en-IN')}
+                </Text>
+              </View>
+              <View style={styles.previewStatItem}>
+                <Text style={styles.previewStatLabel}>EXPENSE</Text>
+                <Text style={[styles.previewStatVal, { color: '#DC2626' }]}>
+                  -{curr}{previewStats.expense.toLocaleString('en-IN')}
+                </Text>
+              </View>
+              <View style={styles.previewStatItem}>
+                <Text style={styles.previewStatLabel}>NET FLOW</Text>
+                <Text style={[styles.previewStatVal, { color: previewStats.net >= 0 ? '#2563EB' : '#DC2626' }]}>
+                  {previewStats.net >= 0 ? '+' : ''}{curr}{previewStats.net.toLocaleString('en-IN')}
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          {/* FEATURE PERKS */}
+          <View style={styles.statementPerksCard}>
+            <View style={styles.perkRow}>
+              <Ionicons name="checkmark-circle" size={15} color="#16A34A" style={{ marginRight: 6 }} />
+              <Text style={styles.perkText}>Rupeo official emblem & verified account header</Text>
+            </View>
+            <View style={styles.perkRow}>
+              <Ionicons name="checkmark-circle" size={15} color="#16A34A" style={{ marginRight: 6 }} />
+              <Text style={styles.perkText}>Complete itemized ledger with date, category & payment mode</Text>
+            </View>
+            <View style={styles.perkRow}>
+              <Ionicons name="checkmark-circle" size={15} color="#16A34A" style={{ marginRight: 6 }} />
+              <Text style={styles.perkText}>Google Play Store download badge & certified passbook footer</Text>
+            </View>
+          </View>
+
+          {/* ACTIONS */}
+          <TouchableOpacity
+            style={[styles.primaryBtn, (isGeneratingPdf || previewStats.count === 0) && styles.btnDisabled]}
+            onPress={handleGenerateStatementPdf}
+            disabled={isGeneratingPdf || previewStats.count === 0}
+            activeOpacity={0.85}
+          >
+            {isGeneratingPdf ? (
+              <ActivityIndicator size="small" color="#1C1C1E" />
+            ) : (
+              <>
+                <Ionicons name="download-outline" size={18} color="#1C1C1E" style={styles.btnIcon} />
+                <Text style={styles.primaryBtnText}>
+                  {previewStats.count === 0 ? 'No Transactions Found' : `Download PDF Statement (${previewStats.count})`}
+                </Text>
+              </>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowStatementModal(false)} activeOpacity={0.7}>
+            <Text style={styles.cancelBtnText}>{t('cancel')}</Text>
+          </TouchableOpacity>
+        </ScrollView>
       </BottomSheetModal>
 
       {/* Import Modal */}
@@ -1410,6 +1783,12 @@ export default function SettingsScreen() {
         loading={isDeletingAccount}
         onConfirm={executeDeleteAccount}
         onCancel={() => setDeleteAccountModalVisible(false)}
+      />
+
+      <GooglePlayReviewModal
+        visible={showReviewModal}
+        userId={user?.uid || ''}
+        onClose={() => setShowReviewModal(false)}
       />
     </View>
   );
@@ -1801,6 +2180,20 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0',
     shadowColor: '#0F172A',
     shadowOpacity: 0.06,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 12,
+    elevation: 3,
+  },
+
+  // Dedicated Rate & Review Card
+  reviewCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1.5,
+    borderColor: '#FEF08A',
+    shadowColor: '#F59E0B',
+    shadowOpacity: 0.1,
     shadowOffset: { width: 0, height: 4 },
     shadowRadius: 12,
     elevation: 3,
@@ -2481,5 +2874,201 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '800',
     color: '#34D399',
+  },
+
+  // STATEMENT PDF MODAL STYLES
+  statementSectionLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginBottom: 8,
+    marginTop: 4,
+  },
+  statementPeriodPillRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 14,
+  },
+  statementPeriodBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+  },
+  statementPeriodBtnActive: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#0F172A',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 3 },
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  statementPeriodBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  statementPeriodBtnTextActive: {
+    color: '#0F172A',
+    fontWeight: '800',
+  },
+  statementSubLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#475569',
+    marginBottom: 6,
+  },
+  monthChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  monthChipActive: {
+    backgroundColor: '#EFF6FF',
+    borderColor: '#3B82F6',
+  },
+  monthChipText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  monthChipTextActive: {
+    color: '#1D4ED8',
+    fontWeight: '800',
+  },
+  statementFilterPillRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+  },
+  typeFilterPill: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 9,
+    paddingHorizontal: 6,
+    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  typeFilterPillActive: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#0F172A',
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  typeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: 6,
+  },
+  typeFilterText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  typeFilterTextActive: {
+    color: '#0F172A',
+    fontWeight: '800',
+  },
+  statementPreviewCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 14,
+    marginBottom: 14,
+  },
+  statementPreviewHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    borderBottomWidth: 1,
+    borderBottomColor: '#EDF2F7',
+    paddingBottom: 10,
+    marginBottom: 10,
+  },
+  previewTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginBottom: 2,
+  },
+  previewCountText: {
+    fontSize: 11.5,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  previewBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF2F2',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FEE2E2',
+  },
+  previewBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#DC2626',
+    letterSpacing: 0.4,
+  },
+  previewStatsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  previewStatItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  previewStatLabel: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#94A3B8',
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  previewStatVal: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  statementPerksCard: {
+    backgroundColor: '#F0FDF4',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#DCFCE7',
+    padding: 12,
+    gap: 8,
+    marginBottom: 16,
+  },
+  perkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  perkText: {
+    fontSize: 11.5,
+    fontWeight: '600',
+    color: '#15803D',
+    flex: 1,
   },
 });

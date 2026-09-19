@@ -195,6 +195,7 @@ export default function RootLayout() {
                   <Stack.Screen name="categories" />
                   <Stack.Screen name="premium" />
                   <Stack.Screen name="reminders" />
+                  <Stack.Screen name="split-qr" />
                   <Stack.Screen name="transaction/[id]" />
                   <Stack.Screen name="(tabs)" />
                   <Stack.Screen 

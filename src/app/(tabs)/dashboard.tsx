@@ -41,6 +41,7 @@ import {
 } from '@/lib/database';
 import { useAuth } from '@/context/AuthContext';
 import { HomeBannerAd } from '@/lib/ads';
+import { checkAndPromptPendingReview, checkFirstTransactionFallback, checkIsReviewPending, hasUserBeenPromptedForReview } from '@/lib/review';
 import { useTranslation } from '@/lib/i18n';
 import CategoryIcon from '@/components/CategoryIcon';
 import PaymentModeIcon from '@/components/PaymentModeIcon';
@@ -49,6 +50,7 @@ import { VipAvatar } from '@/components/VipAvatar';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { ConfirmDialogModal } from '@/components/confirm-dialog-modal';
+import { GooglePlayReviewModal } from '@/components/GooglePlayReviewModal';
 import { formatTime12Hour, getLocalDateString, getLocalMonthString, getRelativeDateString } from '@/lib/dateUtils';
 
 const { width, height } = Dimensions.get('window');
@@ -56,15 +58,15 @@ const { width, height } = Dimensions.get('window');
 const getGreetingInfo = () => {
   const hour = new Date().getHours();
   if (hour >= 5 && hour < 12) {
-    return { text: 'Good morning', icon: 'sunny', color: '#F59E0B' };
+    return { key: 'good_morning', text: 'Good morning', icon: 'sunny', color: '#F59E0B' };
   }
   if (hour >= 12 && hour < 17) {
-    return { text: 'Good afternoon', icon: 'partly-sunny', color: '#F59E0B' };
+    return { key: 'good_afternoon', text: 'Good afternoon', icon: 'partly-sunny', color: '#F59E0B' };
   }
   if (hour >= 17 && hour < 21) {
-    return { text: 'Good evening', icon: 'sunny-outline', color: '#F97316' };
+    return { key: 'good_evening', text: 'Good evening', icon: 'sunny-outline', color: '#F97316' };
   }
-  return { text: 'Good night', icon: 'moon', color: '#8B5CF6' };
+  return { key: 'good_night', text: 'Good night', icon: 'moon', color: '#8B5CF6' };
 };
 
 const formatAmount = (n: number | string) =>
@@ -392,6 +394,10 @@ export default function DashboardScreen() {
   const [billToDelete, setBillToDelete] = useState<RecurringBill | null>(null);
   const [isDeletingBill, setIsDeletingBill] = useState(false);
 
+  // Google Play Review Modal State
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [isExistingUserReview, setIsExistingUserReview] = useState(false);
+
   // Smooth Multi-Phase Pastel Color Flow & Soft Light Gleam for Total Balance Card
   const colorAnim = useRef(new Animated.Value(0)).current;
   const shimmerAnim = useRef(new Animated.Value(0)).current;
@@ -545,6 +551,25 @@ export default function DashboardScreen() {
       import('@/lib/notifications').then(({ sendWelcomeNotification, setupPeriodicSmartNotifications }) => {
         sendWelcomeNotification(user.uid).catch(() => {});
         setupPeriodicSmartNotifications().catch(() => {});
+      }).catch(() => {});
+
+      // Check and show Google Play Review modal if user hasn't reviewed yet
+      checkIsReviewPending(user.uid).then((pending) => {
+        if (pending) {
+          setIsExistingUserReview(false);
+          setTimeout(() => {
+            setShowReviewModal(true);
+          }, 800);
+        } else if (allTxs.length >= 1) {
+          hasUserBeenPromptedForReview(user.uid).then((alreadyPrompted) => {
+            if (!alreadyPrompted) {
+              setIsExistingUserReview(allTxs.length > 1);
+              setTimeout(() => {
+                setShowReviewModal(true);
+              }, 1200);
+            }
+          }).catch(() => {});
+        }
       }).catch(() => {});
     } catch (err) {
       console.error('Failed to load dashboard data', err);
@@ -1039,7 +1064,7 @@ export default function DashboardScreen() {
                 color={greetingInfo.color}
                 style={{ marginRight: 4 }}
               />
-              <Text style={styles.greetingText}>{greetingInfo.text}</Text>
+              <Text style={styles.greetingText}>{t(greetingInfo.key)}</Text>
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Text style={styles.userNameText} numberOfLines={1}>
@@ -1192,8 +1217,8 @@ export default function DashboardScreen() {
               </View>
             </View>
             <View style={styles.todayWidgetTextWrap}>
-              <Text style={styles.todayWidgetLabel}>Spent Today</Text>
-              <Text style={styles.todayWidgetCount}>{todaySummary.count} {todaySummary.count === 1 ? 'Transaction' : 'Transactions'}</Text>
+              <Text style={styles.todayWidgetLabel}>{t('spent_today')}</Text>
+              <Text style={styles.todayWidgetCount}>{todaySummary.count} {todaySummary.count === 1 ? t('transaction') : t('transactions')}</Text>
             </View>
             <View style={styles.todayWidgetDivider} />
             <Text style={styles.todayWidgetAmount}>
@@ -1202,139 +1227,188 @@ export default function DashboardScreen() {
           </View>
         </View>
 
-        {/* PREMIUM ANIMATED UPCOMING BILLS & REMINDERS QUICK WIDGET */}
-        <TouchableOpacity
-          style={styles.billsQuickBtn}
-          onPress={() => router.push('/reminders')}
-          activeOpacity={0.85}
-        >
-          {/* AMBIENT BACKGROUND GRADIENT + MOVING LIGHT SHEEN */}
-          <View style={StyleSheet.absoluteFill} pointerEvents="none">
-            <LinearGradient
-              colors={
-                homeUpcomingBills.length > 0
-                  ? ['#FFF7F7', '#FFFFFF', '#FFF1F2']
-                  : recurringBills.length > 0
-                  ? ['#F8FAFC', '#FFFFFF', '#F0F9FF']
-                  : ['#F8FAFC', '#FFFFFF', '#F1F5F9']
-              }
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={StyleSheet.absoluteFill}
-            />
-            {/* Diagonal ambient shimmer sweep */}
-            <Animated.View
-              style={[
-                styles.billsShimmerBeam,
-                {
-                  transform: [
-                    {
-                      translateX: billsShimmerAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [-180, 420],
-                      }),
-                    },
-                    { rotate: '25deg' },
-                  ],
-                },
-              ]}
-            >
+        {/* QUICK ACCESS: UPCOMING BILLS & SMART QR PAY */}
+        <View style={styles.quickTwoBtnsRow}>
+
+          {/* 1. UPCOMING BILLS CARD */}
+          <TouchableOpacity
+            style={[
+              styles.quickActionTile,
+              homeUpcomingBills.length > 0 ? styles.quickTileAlertBorder : styles.quickTileBillsBorder,
+            ]}
+            onPress={() => router.push('/reminders')}
+            activeOpacity={0.85}
+          >
+            {/* Background gradient — static, no shimmer */}
+            <View style={StyleSheet.absoluteFill} pointerEvents="none">
               <LinearGradient
-                colors={[
-                  'rgba(255, 255, 255, 0)',
+                colors={
                   homeUpcomingBills.length > 0
-                    ? 'rgba(239, 68, 68, 0.12)'
-                    : 'rgba(59, 130, 246, 0.14)',
-                  'rgba(255, 255, 255, 0.55)',
-                  'rgba(255, 255, 255, 0)',
-                ]}
+                    ? ['#FFF0F0', '#FFFFFF']
+                    : ['#EFF6FF', '#FFFFFF']
+                }
                 start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={{ width: 110, height: '240%' }}
+                end={{ x: 1, y: 1 }}
+                style={StyleSheet.absoluteFill}
               />
-            </Animated.View>
-          </View>
+            </View>
 
-          {/* LEFT ICON & TEXT */}
-          <View style={styles.billsQuickLeft}>
-            <Animated.View
-              style={[
-                styles.billsQuickIconWrap,
-                homeUpcomingBills.length > 0 ? styles.billsQuickIconWrapAlert : styles.billsQuickIconWrapNormal,
-                homeUpcomingBills.length > 0 && {
-                  transform: [
-                    {
-                      scale: billsPulseAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [1, 1.08],
-                      }),
-                    },
-                  ],
-                },
-              ]}
-            >
-              <Ionicons
-                name={
-                  homeUpcomingBills.length > 0
-                    ? 'alarm'
-                    : recurringBills.length > 0
-                    ? 'calendar'
-                    : 'calendar-outline'
-                }
-                size={19}
-                color={
-                  homeUpcomingBills.length > 0
-                    ? '#DC2626'
-                    : recurringBills.length > 0
-                    ? '#2563EB'
-                    : '#64748B'
-                }
-              />
-              {homeUpcomingBills.length > 0 && (
-                <View style={styles.billsQuickAlertDot} />
-              )}
-            </Animated.View>
+            {/* Decorative corner orb */}
+            <View style={[styles.tileDecorOrb, {
+              backgroundColor: homeUpcomingBills.length > 0 ? 'rgba(239,68,68,0.06)' : 'rgba(59,130,246,0.06)',
+            }]} />
 
-            <View style={styles.billsQuickTextWrap}>
-              <View style={styles.billsQuickTitleRow}>
-                <Text style={styles.billsQuickTitle}>Upcoming Bills</Text>
-                {homeUpcomingBills.length > 0 ? (
-                  <View style={styles.billsDueBadge}>
-                    <View style={styles.billsDueDot} />
-                    <Text style={styles.billsDueBadgeText}>{homeUpcomingBills.length} Due Soon</Text>
-                  </View>
-                ) : recurringBills.length > 0 ? (
-                  <View style={styles.billsAllPaidBadge}>
-                    <Ionicons name="checkmark-circle" size={11} color="#059669" style={{ marginRight: 2 }} />
-                    <Text style={styles.billsAllPaidBadgeText}>{recurringBills.length} Active</Text>
-                  </View>
-                ) : (
-                  <View style={styles.billsTrackBadge}>
-                    <Ionicons name="flash-outline" size={10} color="#6366F1" style={{ marginRight: 2 }} />
-                    <Text style={styles.billsTrackBadgeText}>Auto Alerts</Text>
-                  </View>
+            {/* Top: 3D Icon + Badge */}
+            <View style={styles.tileHeaderRow}>
+
+              {/* Premium layered icon — Bills */}
+              <View style={[
+                styles.tile3dIconOuter,
+                homeUpcomingBills.length > 0
+                  ? { shadowColor: '#EF4444' }
+                  : { shadowColor: '#3B82F6' },
+              ]}>
+                <LinearGradient
+                  colors={
+                    homeUpcomingBills.length > 0
+                      ? ['#FEE2E2', '#FECACA']
+                      : ['#DBEAFE', '#BFDBFE']
+                  }
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 0, y: 1 }}
+                  style={styles.tile3dIconInner}
+                >
+                  <View style={styles.tile3dIconHighlight} />
+                  <Ionicons
+                    name={
+                      homeUpcomingBills.length > 0
+                        ? 'notifications'
+                        : recurringBills.length > 0
+                        ? 'calendar'
+                        : 'calendar-clear'
+                    }
+                    size={22}
+                    color={
+                      homeUpcomingBills.length > 0 ? '#DC2626' : '#2563EB'
+                    }
+                  />
+                </LinearGradient>
+                {homeUpcomingBills.length > 0 && (
+                  <View style={styles.tile3dAlertDot} />
                 )}
               </View>
 
-              <Text style={styles.billsQuickSubtitle} numberOfLines={1}>
+              {/* Badge */}
+              {homeUpcomingBills.length > 0 ? (
+                <View style={styles.tileDueBadge}>
+                  <View style={styles.billsDueDot} />
+                  <Text style={styles.tileDueBadgeText}>{homeUpcomingBills.length} Due</Text>
+                </View>
+              ) : recurringBills.length > 0 ? (
+                <View style={styles.tilePaidBadge}>
+                  <Ionicons name="checkmark-circle" size={10} color="#059669" style={{ marginRight: 2 }} />
+                  <Text style={styles.tilePaidBadgeText}>{recurringBills.length} Active</Text>
+                </View>
+              ) : (
+                <View style={styles.tileTrackBadge}>
+                  <Ionicons name="flash-outline" size={10} color="#6366F1" style={{ marginRight: 2 }} />
+                  <Text style={styles.tileTrackBadgeText}>{t('auto_alerts')}</Text>
+                </View>
+              )}
+            </View>
+
+            {/* Middle: Amount pill (if due) */}
+            {homeUpcomingBills.length > 0 && (
+              <View style={styles.tileAmountPill}>
+                <Text style={styles.tileAmountPillText}>
+                  {curr}{formatAmount(homeUpcomingBills[0].amount)}
+                </Text>
+                <Text style={styles.tileAmountPillSep}>•</Text>
+                <Text style={[styles.tileAmountPillStatus, { color: '#DC2626' }]}>
+                  {getBillDueStatus(homeUpcomingBills[0].nextDueDate).label}
+                </Text>
+              </View>
+            )}
+
+            {/* Bottom: Title & Subtitle */}
+            <View style={styles.tileTextWrap}>
+              <View style={styles.tileTitleRow}>
+                <Text style={styles.tileTitle} numberOfLines={1}>{t('upcoming_bills')}</Text>
+                <Ionicons name="chevron-forward" size={13} color="#94A3B8" />
+              </View>
+              <Text style={styles.tileSubtitle} numberOfLines={2}>
                 {homeUpcomingBills.length > 0
-                  ? `Next: ${homeUpcomingBills[0].title} • ${curr}${formatAmount(homeUpcomingBills[0].amount)} (${getBillDueStatus(homeUpcomingBills[0].nextDueDate).label})`
+                  ? `${homeUpcomingBills.length > 1 ? homeUpcomingBills.length - 1 + ' more pending' : 'Tap to view & pay'}`
                   : recurringBills.length > 0
                   ? nextFutureBill
-                    ? `Next: ${nextFutureBill.title} • ${curr}${formatAmount(nextFutureBill.amount)} (${getBillDueStatus(nextFutureBill.nextDueDate).label})`
-                    : `✨ All upcoming bills are clear`
-                  : `Track Jio, Airtel, Rent, Tiffin & utility dues`}
+                    ? `Next: ${curr}${formatAmount(nextFutureBill.amount)} • ${getBillDueStatus(nextFutureBill.nextDueDate).label}`
+                    : t('all_bills_clear')
+                  : t('track_dues_desc')}
               </Text>
             </View>
-          </View>
+          </TouchableOpacity>
 
-          {/* RIGHT CHEVRON */}
-          <View style={styles.billsQuickRight}>
-            <View style={styles.billsQuickArrowWrap}>
-              <Ionicons name="chevron-forward" size={15} color="#475569" />
+          {/* 2. SMART QR PAY CARD */}
+          <TouchableOpacity
+            style={[styles.quickActionTile, styles.splitQrTileBorder]}
+            onPress={() => router.push('/split-qr' as any)}
+            activeOpacity={0.85}
+          >
+            {/* Background gradient */}
+            <View style={StyleSheet.absoluteFill} pointerEvents="none">
+              <LinearGradient
+                colors={['#FAF5FF', '#FFFFFF']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={StyleSheet.absoluteFill}
+              />
             </View>
-          </View>
-        </TouchableOpacity>
+
+            {/* Decorative corner orb */}
+            <View style={[styles.tileDecorOrb, { backgroundColor: 'rgba(124,58,237,0.06)' }]} />
+
+            {/* Top: 3D Icon + Badge */}
+            <View style={styles.tileHeaderRow}>
+
+              {/* Premium layered icon — QR Pay */}
+              <View style={[styles.tile3dIconOuter, { shadowColor: '#7C3AED' }]}>
+                <LinearGradient
+                  colors={['#EDE9FE', '#DDD6FE']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 0, y: 1 }}
+                  style={styles.tile3dIconInner}
+                >
+                  <View style={styles.tile3dIconHighlight} />
+                  <Ionicons name="qr-code" size={22} color="#7C3AED" />
+                </LinearGradient>
+              </View>
+
+              <View style={styles.tileQrBadge}>
+                <Ionicons name="shield-checkmark" size={9} color="#7C3AED" style={{ marginRight: 2 }} />
+                <Text style={styles.tileQrBadgeText}>MDR FREE</Text>
+              </View>
+            </View>
+
+            {/* Middle: Feature highlight pill */}
+            <View style={[styles.tileAmountPill, { backgroundColor: '#F3E8FF', borderColor: '#E9D5FF' }]}>
+              <Ionicons name="flash" size={10} color="#7C3AED" style={{ marginRight: 4 }} />
+              <Text style={[styles.tileAmountPillText, { color: '#7C3AED' }]}>UPI Split</Text>
+              <Text style={styles.tileAmountPillSep}>•</Text>
+              <Text style={[styles.tileAmountPillStatus, { color: '#7C3AED' }]}>Instant</Text>
+            </View>
+
+            {/* Bottom: Title & Subtitle */}
+            <View style={styles.tileTextWrap}>
+              <View style={styles.tileTitleRow}>
+                <Text style={styles.tileTitle} numberOfLines={1}>Smart QR Pay</Text>
+                <Ionicons name="chevron-forward" size={13} color="#94A3B8" />
+              </View>
+              <Text style={[styles.tileSubtitle, { color: '#7C3AED' }]} numberOfLines={2}>
+                Max ₹2,000 / QR • Save cards
+              </Text>
+            </View>
+          </TouchableOpacity>
+        </View>
 
         {/* GOOGLE ADMOB HOME BANNER */}
         <HomeBannerAd />
@@ -1416,7 +1490,7 @@ export default function DashboardScreen() {
             <Text style={styles.emptySub}>
               {selectedCategory !== 'All'
                 ? `No transactions found under ${selectedCategory}`
-                : 'Your recent expenses and income will appear here'}
+                : t('recent_expenses_appear')}
             </Text>
             <TouchableOpacity
               style={styles.addFirstBtn}
@@ -1424,7 +1498,7 @@ export default function DashboardScreen() {
               activeOpacity={0.8}
             >
               <Ionicons name="add-circle" size={16} color="#0F172A" style={{ marginRight: 6 }} />
-              <Text style={styles.addFirstBtnText}>Add Transaction</Text>
+              <Text style={styles.addFirstBtnText}>{t('add_transaction')}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -2076,6 +2150,14 @@ export default function DashboardScreen() {
         onConfirm={handleConfirmDeleteBill}
         onCancel={() => setBillToDelete(null)}
       />
+
+      {/* GOOGLE PLAY REVIEW MODAL FOR NEW & EXISTING USERS */}
+      <GooglePlayReviewModal
+        visible={showReviewModal}
+        userId={user?.uid || ''}
+        isExistingUser={isExistingUserReview}
+        onClose={() => setShowReviewModal(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -2462,6 +2544,264 @@ const styles = StyleSheet.create({
     color: '#3B82F6',
     marginRight: 14,
   },
+  quickTwoBtnsRow: {
+    flexDirection: 'row',
+    marginHorizontal: 20,
+    marginBottom: 16,
+    gap: 12,
+  },
+  quickActionTile: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    overflow: 'hidden',
+    position: 'relative',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.07,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 12,
+    elevation: 3,
+    justifyContent: 'space-between',
+    minHeight: 128,
+  },
+  quickTileBillsBorder: {
+    borderColor: '#DBEAFE',
+    shadowColor: '#3B82F6',
+  },
+  quickTileAlertBorder: {
+    borderColor: '#FECACA',
+    shadowColor: '#EF4444',
+  },
+  splitQrTileBorder: {
+    borderColor: '#E9D5FF',
+    shadowColor: '#7C3AED',
+  },
+  tileHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  tileIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    borderWidth: 1,
+  },
+  tileIconWrapBills: {
+    backgroundColor: '#EFF6FF',
+    borderColor: '#BFDBFE',
+    shadowColor: '#3B82F6',
+    shadowOpacity: 0.10,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  tileIconWrapAlert: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+    shadowColor: '#EF4444',
+    shadowOpacity: 0.12,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  tileIconWrapQr: {
+    width: 40,
+    height: 40,
+    borderRadius: 13,
+    backgroundColor: '#F3E8FF',
+    borderColor: '#DDD6FE',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    shadowColor: '#7C3AED',
+    shadowOpacity: 0.10,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  tileAlertDot: {
+    position: 'absolute',
+    top: 7,
+    right: 7,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#EF4444',
+  },
+
+  // 3D Icon system for quick action tiles
+  tileDecorOrb: {
+    position: 'absolute',
+    bottom: -18,
+    right: -18,
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+  },
+  tile3dIconOuter: {
+    position: 'relative',
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowOffset: { width: 0, height: 5 },
+    shadowRadius: 12,
+    shadowOpacity: 0.22,
+    elevation: 5,
+  },
+  tile3dIconInner: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.6)',
+    position: 'relative',
+  },
+  tile3dIconHighlight: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 22,
+    backgroundColor: 'rgba(255,255,255,0.50)',
+    borderTopLeftRadius: 14,
+    borderTopRightRadius: 14,
+  },
+  tile3dAlertDot: {
+    position: 'absolute',
+    top: -3,
+    right: -3,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#EF4444',
+    borderWidth: 2.5,
+    borderColor: '#FFFFFF',
+    shadowColor: '#EF4444',
+    shadowOpacity: 0.5,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  tileAmountPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    alignSelf: 'flex-start',
+    marginBottom: 8,
+    gap: 4,
+  },
+  tileAmountPillText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  tileAmountPillSep: {
+    fontSize: 10,
+    color: '#94A3B8',
+    fontWeight: '600',
+  },
+  tileAmountPillStatus: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  tileDueBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEE2E2',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 7,
+    gap: 3.5,
+  },
+  tileDueBadgeText: {
+    color: '#DC2626',
+    fontSize: 9.5,
+    fontWeight: '800',
+  },
+  tilePaidBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 7,
+  },
+  tilePaidBadgeText: {
+    color: '#15803D',
+    fontSize: 9.5,
+    fontWeight: '800',
+  },
+  tileTrackBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 7,
+  },
+  tileTrackBadgeText: {
+    color: '#6366F1',
+    fontSize: 9,
+    fontWeight: '700',
+  },
+  tileQrBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F3E8FF',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: '#E9D5FF',
+  },
+  tileQrBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#7C3AED',
+    letterSpacing: 0.3,
+  },
+  tileTextWrap: {
+    marginTop: 'auto',
+  },
+  tileTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 3,
+  },
+  tileTitle: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#0F172A',
+    letterSpacing: -0.3,
+    flex: 1,
+  },
+  tileSubtitle: {
+    fontSize: 10.5,
+    fontWeight: '600',
+    color: '#64748B',
+    lineHeight: 15,
+  },
   billsQuickBtn: {
     marginHorizontal: 20,
     marginBottom: 16,
@@ -2481,6 +2821,53 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     shadowRadius: 8,
     elevation: 2,
+  },
+  splitQrQuickBtn: {
+    marginHorizontal: 20,
+    marginBottom: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    paddingVertical: 12,
+    paddingHorizontal: 15,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1.2,
+    borderColor: '#E9D5FF',
+    overflow: 'hidden',
+    position: 'relative',
+    shadowColor: '#7C3AED',
+    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: 3 },
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  splitQrIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#F3E8FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+    borderWidth: 1,
+    borderColor: '#E9D5FF',
+  },
+  splitQrBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F3E8FF',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E9D5FF',
+  },
+  splitQrBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#7C3AED',
+    letterSpacing: 0.4,
   },
   billsShimmerBeam: {
     position: 'absolute',

@@ -352,7 +352,7 @@ export function HelpSupportModal({
                   style={styles.textInputWithIcon}
                   value={phone}
                   onChangeText={setPhone}
-                  placeholder="e.g. +91 9876543210"
+                  placeholder="e.g. +91 00000 00000"
                   placeholderTextColor="#94A3B8"
                   keyboardType="phone-pad"
                 />
