@@ -42,12 +42,13 @@ import Toast from 'react-native-toast-message';
 import { generateAndShareFinancialReportPDF } from '@/lib/pdfReport';
 import { checkPdfExportLimit, incrementPdfExportCount, getPdfExportCount, FREE_PDF_EXPORT_LIMIT } from '@/lib/limits';
 import { useTranslation } from '@/lib/i18n';
+import BudgetArcGauge from '@/components/BudgetArcGauge';
 
 const { width } = Dimensions.get('window');
 const CHART_WIDTH = width - 40;
 
 type PeriodType = 'this_month' | 'last_month' | '3_months' | 'this_year' | 'all';
-type ChartViewType = 'curve' | 'bars' | 'donut';
+type ChartViewType = 'curve' | 'bars' | 'donut' | 'gauge';
 
 export interface TransactionItem {
   id?: string;
@@ -78,6 +79,25 @@ interface TrendPoint {
   expense: number;
   net: number;
 }
+
+// High-res 3D Fluent Emojis for Visual Financial Reports
+const ICONS_3D = {
+  money_bag: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Money%20Bag.png',
+  money_wings: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Money%20with%20Wings.png',
+  chart_up: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Chart%20Increasing.png',
+  bar_chart: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Bar%20Chart.png',
+  sparkles: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Activities/Sparkles.png',
+  fire: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Travel%20and%20places/Fire.png',
+  target: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Activities/Bullseye.png',
+  trophy: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Activities/Trophy.png',
+  star: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Travel%20and%20places/Glowing%20Star.png',
+  shield: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Shield.png',
+  briefcase: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Briefcase.png',
+  beach: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Travel%20and%20places/Beach%20with%20Umbrella.png',
+  zap: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Travel%20and%20places/High%20Voltage.png',
+  card: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Credit%20Card.png',
+  pie: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Food/Pie.png',
+};
 
 const PALETTE = [
   '#F59E0B', '#6366F1', '#10B981', '#EC4899', '#3B82F6',
@@ -1095,6 +1115,7 @@ export default function ReportsScreen() {
         <View style={styles.chartHeaderRow}>
           <View style={{ flex: 1, marginRight: 10 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <ExpoImage source={{ uri: ICONS_3D.sparkles }} style={{ width: 20, height: 20 }} contentFit="contain" />
               <Text style={styles.themeCardTitle}>{t('spending_wave') || 'Spending Wave'}</Text>
               <View style={styles.waveLiveBadge}>
                 <Text style={styles.waveLiveBadgeText}>7-Day Wave</Text>
@@ -1410,6 +1431,7 @@ export default function ReportsScreen() {
         <View style={styles.chartHeaderRow}>
           <View style={{ flex: 1, marginRight: 10 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <ExpoImage source={{ uri: ICONS_3D.bar_chart }} style={{ width: 20, height: 20 }} contentFit="contain" />
               <Text style={styles.themeCardTitle}>{t('cash_flow_trends') || 'Cash Flow Trends'}</Text>
               <View style={styles.trendLiveBadge}>
                 <Text style={styles.trendLiveBadgeText}>6-Month</Text>
@@ -1841,12 +1863,12 @@ export default function ReportsScreen() {
             {/* Header Row: Label Pill (✦ NET SAVINGS) & Savings Rate Badge */}
             <View style={styles.heroTopRow}>
               <View style={styles.heroNetLabelWrap}>
-                <Ionicons name="sparkles" size={12} color="#0F172A" style={{ marginRight: 4 }} />
+                <ExpoImage source={{ uri: ICONS_3D.money_bag }} style={{ width: 16, height: 16, marginRight: 5 }} contentFit="contain" />
                 <Text style={styles.heroNetLabel}>{t('net_savings')}</Text>
               </View>
 
               <View style={styles.heroSavingsBadge}>
-                <Ionicons name="trending-up" size={13} color="#0F172A" style={{ marginRight: 4 }} />
+                <ExpoImage source={{ uri: ICONS_3D.chart_up }} style={{ width: 14, height: 14, marginRight: 4 }} contentFit="contain" />
                 <Text style={styles.heroSavingsBadgeText}>{metrics.savingsRate}% {t('saved_pct')}</Text>
               </View>
             </View>
@@ -1858,13 +1880,11 @@ export default function ReportsScreen() {
               </Text>
             </View>
 
-            {/* Income, Expense & Daily Average Split 3-Card Grid (Mobile Responsive Stacked) */}
+            {/* Income, Expense & Daily Average Split 3-Card Grid */}
             <View style={styles.heroCashflowRow}>
               <View style={styles.heroIncomeCard}>
                 <View style={styles.heroCardHeaderMini}>
-                  <View style={styles.heroIncomeIconCircle}>
-                    <Ionicons name="arrow-up" size={10} color="#16A34A" />
-                  </View>
+                  <ExpoImage source={{ uri: ICONS_3D.money_bag }} style={{ width: 13, height: 13, marginRight: 4 }} contentFit="contain" />
                   <Text style={styles.heroInnerCardLabel} numberOfLines={1}>{t('income')}</Text>
                 </View>
                 <Text style={styles.heroIncomeAmount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>
@@ -1874,9 +1894,7 @@ export default function ReportsScreen() {
 
               <View style={styles.heroExpenseCard}>
                 <View style={styles.heroCardHeaderMini}>
-                  <View style={styles.heroExpenseIconCircle}>
-                    <Ionicons name="arrow-down" size={10} color="#DC2626" />
-                  </View>
+                  <ExpoImage source={{ uri: ICONS_3D.money_wings }} style={{ width: 13, height: 13, marginRight: 4 }} contentFit="contain" />
                   <Text style={styles.heroInnerCardLabel} numberOfLines={1}>{t('expenses')}</Text>
                 </View>
                 <Text style={styles.heroExpenseAmount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>
@@ -1886,9 +1904,7 @@ export default function ReportsScreen() {
 
               <View style={styles.heroDailyCard}>
                 <View style={styles.heroCardHeaderMini}>
-                  <View style={styles.heroDailyIconCircle}>
-                    <Ionicons name="calendar-outline" size={10} color="#6366F1" />
-                  </View>
+                  <ExpoImage source={{ uri: ICONS_3D.target }} style={{ width: 13, height: 13, marginRight: 4 }} contentFit="contain" />
                   <Text style={styles.heroInnerCardLabel} numberOfLines={1}>{t('daily_avg')}</Text>
                 </View>
                 <Text style={styles.heroDailyAmount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>
@@ -1898,107 +1914,164 @@ export default function ReportsScreen() {
             </View>
           </Animated.View>
 
-          {/* MONTH-OVER-MONTH VELOCITY & PACE COMPARISON */}
+          {/* 1. 3D BUDGET ARC GAUGE (WHITE THEME SPEEDOMETER) */}
+          <BudgetArcGauge
+            spent={metrics.expense}
+            limit={settings?.monthlyBudget || (metrics.income > 0 ? metrics.income : metrics.expense * 1.2)}
+            currency={curr}
+            remainingDays={safeToSpend.remainingDays}
+            onEditLimit={() => router.push('/budget')}
+            title="Monthly Budget Arc"
+            theme="light"
+            style={{ marginBottom: 14 }}
+          />
+
+          {/* 2. 3D EXPENSE & INCOME BREAKDOWN (DONUT) */}
+          <View style={styles.chartWrapperCard}>
+            <View style={styles.categoryChartHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <ExpoImage source={{ uri: ICONS_3D.pie }} style={{ width: 20, height: 20 }} contentFit="contain" />
+                <Text style={styles.themeCardTitle}>
+                  {categoryType === 'expense' ? t('expense_breakdown') : t('income_breakdown')}
+                </Text>
+              </View>
+              {selectedCategory && (
+                <TouchableOpacity
+                  style={styles.resetCatBtn}
+                  onPress={() => setSelectedCategory(null)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="close-circle" size={13} color="#64748B" style={{ marginRight: 3 }} />
+                  <Text style={styles.resetCatText}>Reset</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {categoryBreakdown.length > 0 ? (
+              renderCategoryDonut()
+            ) : (
+              <View style={styles.emptyCardBox}>
+                <Ionicons name="pie-chart-outline" size={36} color="#CBD5E1" />
+                <Text style={styles.emptyCardText}>No transactions recorded for this period</Text>
+              </View>
+            )}
+          </View>
+
+          {/* 3. 3D SPENDING WAVE (SMOOTH CURVE) */}
+          {renderSmoothLineGraph()}
+
+          {/* 4. 3D CASH FLOW TRENDS (MONTHLY BARS) */}
+          {renderMonthlyBarChart()}
+
+          {/* 3D FINANCIAL VITALITY & HEALTH SCORE (CLEAN VISUAL GAUGES - ZERO TEXT BULLETS) */}
+          <View style={styles.aiHealthCard}>
+            <View style={styles.aiHealthHeader}>
+              <View style={styles.aiHealthTitleWrap}>
+                <ExpoImage source={{ uri: ICONS_3D.trophy }} style={{ width: 24, height: 24, marginRight: 8 }} contentFit="contain" />
+                <View>
+                  <Text style={styles.aiHealthTitle}>{t('financial_vitality') || 'Financial Vitality'}</Text>
+                  <Text style={styles.aiHealthSub}>AI Health Score</Text>
+                </View>
+              </View>
+              <View style={[styles.healthScoreBadge, { backgroundColor: financialHealth.color + '15', borderColor: financialHealth.color + '40' }]}>
+                <Text style={[styles.healthScoreText, { color: financialHealth.color }]}>
+                  {financialHealth.score}/100 • {financialHealth.rating}
+                </Text>
+              </View>
+            </View>
+
+            {/* Health Score Gauge Bar */}
+            <View style={styles.healthScoreTrack}>
+              <View style={[styles.healthScoreFill, { width: `${financialHealth.score}%`, backgroundColor: financialHealth.color }]} />
+            </View>
+
+            {/* Financial Vitality Tri-Metric KPIs */}
+            <View style={styles.vitalityPillRow}>
+              <View style={styles.vitalityItem}>
+                <Text style={styles.vitalityItemLabel}>Savings</Text>
+                <Text style={[styles.vitalityItemVal, { color: metrics.savingsRate >= 20 ? '#10B981' : metrics.savingsRate >= 10 ? '#F59E0B' : '#EF4444' }]}>
+                  {metrics.savingsRate}%
+                </Text>
+              </View>
+              <View style={styles.vitalityDivider} />
+              <View style={styles.vitalityItem}>
+                <Text style={styles.vitalityItemLabel}>Burn Rate</Text>
+                <Text style={[styles.vitalityItemVal, { color: metrics.income > 0 && metrics.expense / metrics.income <= 0.75 ? '#10B981' : '#EF4444' }]}>
+                  {metrics.income > 0 ? `${Math.round((metrics.expense / metrics.income) * 100)}%` : '100%'}
+                </Text>
+              </View>
+              <View style={styles.vitalityDivider} />
+              <View style={styles.vitalityItem}>
+                <Text style={styles.vitalityItemLabel}>Needs Share</Text>
+                <Text style={styles.vitalityItemVal}>
+                  {rule503020.needsPct}%
+                </Text>
+              </View>
+            </View>
+
+            {/* Crisp 1-Line Key Takeaway Pill */}
+            {financialHealth.insights.length > 0 && (
+              <View style={styles.compactTakeawayPill}>
+                <Ionicons name="sparkles" size={13} color={financialHealth.color} style={{ marginRight: 6 }} />
+                <Text style={styles.compactTakeawayText} numberOfLines={1}>
+                  {financialHealth.insights[0]}
+                </Text>
+              </View>
+            )}
+          </View>
+
+          {/* 3D BUDGET PACE & SAFE DAILY ALLOWANCE (CLEAN VISUALS - MINIMAL TEXT) */}
           <View style={styles.velocityCard}>
             <View style={styles.velocityHeaderRow}>
               <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 6 }}>
-                <View style={styles.velocityIconCircle}>
-                  <Ionicons name="speedometer-outline" size={16} color="#4F46E5" />
-                </View>
+                <ExpoImage source={{ uri: ICONS_3D.target }} style={{ width: 22, height: 22, marginRight: 8 }} contentFit="contain" />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.velocityCardTitle} numberOfLines={1}>{t('spending_velocity')}</Text>
-                  <Text style={styles.velocityCardSub} numberOfLines={1}>
-                    {period === 'this_month' ? t('current_vs_last') : t('comparative_trend')}
-                  </Text>
+                  <Text style={styles.velocityCardTitle} numberOfLines={1}>Safe Daily Budget</Text>
+                  <Text style={styles.velocityCardSub} numberOfLines={1}>{safeToSpend.remainingDays} days remaining</Text>
                 </View>
               </View>
 
-              {prevPeriodMetrics.hasPrevData ? (
-                <View
-                  style={[
-                    styles.velocityPill,
-                    prevPeriodMetrics.isHigher ? styles.velocityPillHigher : styles.velocityPillLower,
-                  ]}
-                >
-                  <Ionicons
-                    name={prevPeriodMetrics.isHigher ? 'trending-up' : 'trending-down'}
-                    size={13}
-                    color={prevPeriodMetrics.isHigher ? '#DC2626' : '#16A34A'}
-                    style={{ marginRight: 3 }}
-                  />
-                  <Text
-                    style={[
-                      styles.velocityPillText,
-                      prevPeriodMetrics.isHigher ? styles.velocityTextHigher : styles.velocityTextLower,
-                    ]}
-                  >
-                    {prevPeriodMetrics.diffPct}% {prevPeriodMetrics.isHigher ? t('more_spending') : t('less_spending')}
-                  </Text>
-                </View>
-              ) : (
-                <View style={styles.velocityPillNeutral}>
-                  <Text style={styles.velocityPillNeutralText}>{t('first_period')}</Text>
-                </View>
-              )}
+              <View style={[styles.safeToSpendPill, safeToSpend.isProjectedDeficit ? styles.safeToSpendPillWarning : styles.safeToSpendPillSafe]}>
+                <Text style={[styles.safeToSpendPillText, safeToSpend.isProjectedDeficit ? styles.safeToSpendTextWarning : styles.safeToSpendTextSafe]}>
+                  {safeToSpend.isProjectedDeficit ? 'Pace Warning' : 'Safe Pace'}
+                </Text>
+              </View>
             </View>
 
             <View style={styles.velocityStatsGrid}>
               <View style={styles.velocityStatBox}>
-                <Text style={styles.velocityStatLabel}>{t('projected_month')}</Text>
-                <Text style={styles.velocityStatValue}>{curr}{prevPeriodMetrics.projectedSpend.toLocaleString('en-IN')}</Text>
-                <Text style={styles.velocityStatHint}>at {curr}{metrics.dailyAvg}/day pace</Text>
+                <Text style={styles.velocityStatLabel}>Safe Daily Spend</Text>
+                <Text style={styles.velocityStatValue}>
+                  {safeToSpend.dailySafeLimit > 0 ? `${curr}${safeToSpend.dailySafeLimit.toLocaleString('en-IN')}` : `${curr}${metrics.dailyAvg.toLocaleString('en-IN')}`}
+                  <Text style={{ fontSize: 12, fontWeight: '600', color: '#64748B' }}>/day</Text>
+                </Text>
+                <Text style={styles.velocityStatHint}>{safeToSpend.remainingDays} days left in cycle</Text>
               </View>
 
               <View style={styles.velocityStatDivider} />
 
               <View style={styles.velocityStatBox}>
-                <Text style={styles.velocityStatLabel}>{t('previous_period')}</Text>
+                <Text style={styles.velocityStatLabel}>Projected Outflow</Text>
                 <Text style={styles.velocityStatValue}>
-                  {curr}{prevPeriodMetrics.prevExpense.toLocaleString('en-IN')}
+                  {curr}{prevPeriodMetrics.projectedSpend.toLocaleString('en-IN')}
                 </Text>
                 <Text style={styles.velocityStatHint}>
                   {prevPeriodMetrics.hasPrevData
-                    ? `${prevPeriodMetrics.isHigher ? '+' : '-'}${curr}${Math.abs(prevPeriodMetrics.diff).toLocaleString('en-IN')} change`
-                    : t('no_prior_data')}
+                    ? `${prevPeriodMetrics.isHigher ? '▲ +' : '▼ -'}${prevPeriodMetrics.diffPct}% vs last mo`
+                    : 'Current Month'}
                 </Text>
-              </View>
-            </View>
-
-            {/* Safe-to-Spend Daily Allowance Banner */}
-            <View style={styles.safeToSpendBanner}>
-              <View style={styles.safeToSpendLeft}>
-                <View style={styles.safeToSpendIconWrap}>
-                  <Ionicons name="shield-checkmark" size={16} color="#059669" />
-                </View>
-                <View>
-                  <Text style={styles.safeToSpendTitle}>Safe Daily Budget</Text>
-                  <Text style={styles.safeToSpendSub}>{safeToSpend.remainingDays} days remaining this month</Text>
-                </View>
-              </View>
-              <View style={styles.safeToSpendRight}>
-                <Text style={styles.safeToSpendValue}>
-                  {safeToSpend.dailySafeLimit > 0 ? `${curr}${safeToSpend.dailySafeLimit.toLocaleString('en-IN')}` : `${curr}${metrics.dailyAvg.toLocaleString('en-IN')}`}
-                  <Text style={styles.safeToSpendPerDay}>/day</Text>
-                </Text>
-                <View style={[styles.safeToSpendPill, safeToSpend.isProjectedDeficit ? styles.safeToSpendPillWarning : styles.safeToSpendPillSafe]}>
-                  <Text style={[styles.safeToSpendPillText, safeToSpend.isProjectedDeficit ? styles.safeToSpendTextWarning : styles.safeToSpendTextSafe]}>
-                    {safeToSpend.isProjectedDeficit ? 'Pace Warning' : 'Safe Pace'}
-                  </Text>
-                </View>
               </View>
             </View>
           </View>
 
-          {/* 50 / 30 / 20 FINANCIAL BUDGET HEALTH RULE */}
+          {/* 3D 50/30/20 BUDGET HEALTH RULE */}
           <View style={styles.ruleCard}>
             <View style={styles.ruleHeaderRow}>
               <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 6 }}>
-                <View style={styles.ruleIconCircle}>
-                  <Ionicons name="pie-chart-outline" size={16} color="#0D9488" />
-                </View>
+                <ExpoImage source={{ uri: ICONS_3D.shield }} style={{ width: 22, height: 22, marginRight: 8 }} contentFit="contain" />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.ruleCardTitle} numberOfLines={1}>{t('budget_rule')}</Text>
-                  <Text style={styles.ruleCardSub} numberOfLines={1}>{t('budget_rule_sub')}</Text>
+                  <Text style={styles.ruleCardTitle} numberOfLines={1}>{t('budget_rule') || '50/30/20 Allocation'}</Text>
+                  <Text style={styles.ruleCardSub} numberOfLines={1}>Needs • Wants • Savings</Text>
                 </View>
               </View>
 
@@ -2026,7 +2099,7 @@ export default function ReportsScreen() {
                 <Text style={styles.rulePillarValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
                   {curr}{rule503020.needsAmt.toLocaleString('en-IN')}
                 </Text>
-                <Text style={styles.rulePillarPct} numberOfLines={1}>{rule503020.needsPct}% of budget</Text>
+                <Text style={styles.rulePillarPct} numberOfLines={1}>{rule503020.needsPct}%</Text>
               </View>
 
               <View style={styles.rulePillarCol}>
@@ -2037,7 +2110,7 @@ export default function ReportsScreen() {
                 <Text style={styles.rulePillarValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
                   {curr}{rule503020.wantsAmt.toLocaleString('en-IN')}
                 </Text>
-                <Text style={styles.rulePillarPct} numberOfLines={1}>{rule503020.wantsPct}% of budget</Text>
+                <Text style={styles.rulePillarPct} numberOfLines={1}>{rule503020.wantsPct}%</Text>
               </View>
 
               <View style={styles.rulePillarCol}>
@@ -2048,151 +2121,17 @@ export default function ReportsScreen() {
                 <Text style={styles.rulePillarValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
                   {curr}{rule503020.savingsAmt.toLocaleString('en-IN')}
                 </Text>
-                <Text style={styles.rulePillarPct} numberOfLines={1}>{rule503020.savingsPct}% saved</Text>
+                <Text style={styles.rulePillarPct} numberOfLines={1}>{rule503020.savingsPct}%</Text>
               </View>
             </View>
           </View>
-
-          {/* SMART AI FINANCIAL HEALTH & ADVISOR CARD */}
-          <View style={styles.aiHealthCard}>
-            <View style={styles.aiHealthHeader}>
-              <View style={styles.aiHealthTitleWrap}>
-                <View style={[styles.aiSparkleIconWrap, { backgroundColor: financialHealth.color + '20' }]}>
-                  <Ionicons name="sparkles" size={15} color={financialHealth.color} />
-                </View>
-                <View>
-                  <Text style={styles.aiHealthTitle}>{t('financial_vitality')}</Text>
-                  <Text style={styles.aiHealthSub}>{t('ai_analysis')}</Text>
-                </View>
-              </View>
-              <View style={[styles.healthScoreBadge, { backgroundColor: financialHealth.color + '15', borderColor: financialHealth.color + '40' }]}>
-                <Text style={[styles.healthScoreText, { color: financialHealth.color }]}>
-                  {financialHealth.score}/100 • {financialHealth.rating}
-                </Text>
-              </View>
-            </View>
-
-            {/* Health Score Gauge Bar */}
-            <View style={styles.healthScoreTrack}>
-              <View style={[styles.healthScoreFill, { width: `${financialHealth.score}%`, backgroundColor: financialHealth.color }]} />
-            </View>
-
-            {/* Financial Vitality Tri-Metric KPIs */}
-            <View style={styles.vitalityPillRow}>
-              <View style={styles.vitalityItem}>
-                <Text style={styles.vitalityItemLabel}>Savings Rate</Text>
-                <Text style={[styles.vitalityItemVal, { color: metrics.savingsRate >= 20 ? '#10B981' : metrics.savingsRate >= 10 ? '#F59E0B' : '#EF4444' }]}>
-                  {metrics.savingsRate}%
-                </Text>
-              </View>
-              <View style={styles.vitalityDivider} />
-              <View style={styles.vitalityItem}>
-                <Text style={styles.vitalityItemLabel}>Burn Ratio</Text>
-                <Text style={[styles.vitalityItemVal, { color: metrics.income > 0 && metrics.expense / metrics.income <= 0.75 ? '#10B981' : '#EF4444' }]}>
-                  {metrics.income > 0 ? `${Math.round((metrics.expense / metrics.income) * 100)}%` : '100%'}
-                </Text>
-              </View>
-              <View style={styles.vitalityDivider} />
-              <View style={styles.vitalityItem}>
-                <Text style={styles.vitalityItemLabel}>Needs Share</Text>
-                <Text style={styles.vitalityItemVal}>
-                  {rule503020.needsPct}%
-                </Text>
-              </View>
-            </View>
-
-            {/* Dynamic AI Insights Bullet Points */}
-            <View style={styles.aiInsightsList}>
-              {financialHealth.insights.map((insight, idx) => (
-                <View key={idx} style={styles.aiInsightRow}>
-                  <View style={styles.aiInsightBullet}>
-                    <Ionicons name="checkmark-circle" size={14} color={financialHealth.color} />
-                  </View>
-                  <Text style={styles.aiInsightText}>{insight}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-
-          {/* CHART VIEW SWITCHER TABS */}
-          <View style={styles.chartViewSwitcher}>
-            <TouchableOpacity
-              style={[styles.chartViewBtn, chartView === 'donut' && styles.chartViewBtnActive]}
-              onPress={() => setChartView('donut')}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="pie-chart" size={13} color={chartView === 'donut' ? '#1C1C1E' : '#64748B'} style={{ marginRight: 4 }} />
-              <Text style={[styles.chartViewText, chartView === 'donut' && styles.chartViewTextActive]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
-                {t('expense_breakdown')}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.chartViewBtn, chartView === 'curve' && styles.chartViewBtnActive]}
-              onPress={() => setChartView('curve')}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="analytics" size={13} color={chartView === 'curve' ? '#1C1C1E' : '#64748B'} style={{ marginRight: 4 }} />
-              <Text style={[styles.chartViewText, chartView === 'curve' && styles.chartViewTextActive]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
-                {t('spending_wave')}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.chartViewBtn, chartView === 'bars' && styles.chartViewBtnActive]}
-              onPress={() => setChartView('bars')}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="bar-chart" size={13} color={chartView === 'bars' ? '#1C1C1E' : '#64748B'} style={{ marginRight: 4 }} />
-              <Text style={[styles.chartViewText, chartView === 'bars' && styles.chartViewTextActive]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
-                {t('cash_flow_trends')}
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* ACTIVE CHART DISPLAY */}
-          {chartView === 'curve' && renderSmoothLineGraph()}
-          {chartView === 'bars' && renderMonthlyBarChart()}
-          {chartView === 'donut' && (
-            <View style={styles.chartWrapperCard}>
-              <View style={styles.categoryChartHeader}>
-                <View>
-                  <Text style={styles.themeCardTitle}>
-                    {categoryType === 'expense' ? t('expense_breakdown') : t('income_breakdown')}
-                  </Text>
-                  <Text style={styles.themeCardSub}>
-                    {selectedCategory ? `Viewing "${selectedCategory}" details` : 'Tap on any slice to inspect category share'}
-                  </Text>
-                </View>
-                {selectedCategory && (
-                  <TouchableOpacity
-                    style={styles.resetCatBtn}
-                    onPress={() => setSelectedCategory(null)}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="close-circle" size={13} color="#64748B" style={{ marginRight: 3 }} />
-                    <Text style={styles.resetCatText}>Reset</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-
-              {categoryBreakdown.length > 0 ? (
-                renderCategoryDonut()
-              ) : (
-                <View style={styles.emptyCardBox}>
-                  <Ionicons name="pie-chart-outline" size={36} color="#CBD5E1" />
-                  <Text style={styles.emptyCardText}>No transactions recorded for this period</Text>
-                </View>
-              )}
-            </View>
-          )}
 
           {/* CATEGORY BREAKDOWN LIST WITH EXPENSE / INCOME TOGGLE */}
           <View style={styles.sectionCard}>
             <View style={styles.sectionHeaderBetween}>
-              <View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+                <ExpoImage source={{ uri: ICONS_3D.pie }} style={{ width: 22, height: 22 }} contentFit="contain" />
                 <Text style={styles.cardHeading}>{t('top_categories')}</Text>
-                <Text style={styles.cardSub}>{t('by_category')}</Text>
               </View>
 
               {/* Expense vs Income Switcher Pills */}
@@ -2279,8 +2218,10 @@ export default function ReportsScreen() {
           {/* PAYMENT MODES SPLIT */}
           {paymentModesSplit.length > 0 && (
             <View style={styles.sectionCard}>
-              <Text style={styles.cardHeading}>{t('payment_split')}</Text>
-              <Text style={styles.cardSub}>{t('how_you_pay')}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 12 }}>
+                <ExpoImage source={{ uri: ICONS_3D.card }} style={{ width: 22, height: 22 }} contentFit="contain" />
+                <Text style={styles.cardHeading}>{t('payment_split')}</Text>
+              </View>
 
               {/* Segmented Bar */}
               <View style={styles.paymentBarContainer}>
@@ -2322,13 +2263,13 @@ export default function ReportsScreen() {
           {/* WEEKEND VS WEEKDAY SPENDING PATTERN */}
           <View style={styles.sectionCard}>
             <View style={styles.sectionHeaderBetween}>
-              <View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+                <ExpoImage source={{ uri: ICONS_3D.beach }} style={{ width: 22, height: 22 }} contentFit="contain" />
                 <Text style={styles.cardHeading}>{t('weekday_vs_weekend')}</Text>
-                <Text style={styles.cardSub}>{t('day_pattern')}</Text>
               </View>
               <View style={[styles.weekendRatioPill, weekendVsWeekday.weekendPct >= 50 && styles.weekendRatioPillHeavy]}>
                 <Text style={[styles.weekendRatioText, weekendVsWeekday.weekendPct >= 50 && styles.weekendRatioTextHeavy]}>
-                  {weekendVsWeekday.weekendPct >= 50 ? 'Weekend Heavy 🏖️' : 'Weekday Heavy 💼'}
+                  {weekendVsWeekday.weekendPct >= 50 ? 'Weekend Heavy' : 'Weekday Heavy'}
                 </Text>
               </View>
             </View>
@@ -2336,7 +2277,7 @@ export default function ReportsScreen() {
             <View style={styles.weekendVsWeekdayRow}>
               <View style={styles.weekSplitCard}>
                 <View style={styles.weekSplitIconCircle}>
-                  <Ionicons name="briefcase-outline" size={16} color="#2563EB" />
+                  <ExpoImage source={{ uri: ICONS_3D.briefcase }} style={{ width: 18, height: 18 }} contentFit="contain" />
                 </View>
                 <Text style={styles.weekSplitLabel}>Weekdays (Mon–Fri)</Text>
                 <Text style={styles.weekSplitAmount}>{curr}{weekendVsWeekday.weekdayTotal.toLocaleString('en-IN')}</Text>
@@ -2347,7 +2288,7 @@ export default function ReportsScreen() {
 
               <View style={styles.weekSplitCard}>
                 <View style={[styles.weekSplitIconCircle, { backgroundColor: '#FEF3C7' }]}>
-                  <Ionicons name="sparkles-outline" size={16} color="#D97706" />
+                  <ExpoImage source={{ uri: ICONS_3D.beach }} style={{ width: 18, height: 18 }} contentFit="contain" />
                 </View>
                 <Text style={styles.weekSplitLabel}>Weekends (Sat–Sun)</Text>
                 <Text style={styles.weekSplitAmount}>{curr}{weekendVsWeekday.weekendTotal.toLocaleString('en-IN')}</Text>
@@ -2360,8 +2301,10 @@ export default function ReportsScreen() {
 
           {/* DAY-OF-WEEK SPENDING WAVE */}
           <View style={styles.sectionCard}>
-            <Text style={styles.cardHeading}>{t('day_pattern')}</Text>
-            <Text style={styles.cardSub}>{t('peak_day')}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 10 }}>
+              <ExpoImage source={{ uri: ICONS_3D.fire }} style={{ width: 22, height: 22 }} contentFit="contain" />
+              <Text style={styles.cardHeading}>{t('day_pattern')}</Text>
+            </View>
 
             <View style={styles.dayOfWeekRow}>
               {dayOfWeekSpend.map(d => (
@@ -2386,8 +2329,10 @@ export default function ReportsScreen() {
           {/* LARGEST EXPENSES */}
           {topExpenses.length > 0 && (
             <View style={styles.sectionCard}>
-              <Text style={styles.cardHeading}>{t('top_expenses_title')}</Text>
-              <Text style={styles.cardSub}>{t('biggest_hits')}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 12 }}>
+                <ExpoImage source={{ uri: ICONS_3D.money_wings }} style={{ width: 22, height: 22 }} contentFit="contain" />
+                <Text style={styles.cardHeading}>{t('top_expenses_title')}</Text>
+              </View>
 
               <View style={styles.topExpenseList}>
                 {topExpenses.map((tx, idx) => (
@@ -3319,6 +3264,23 @@ const styles = StyleSheet.create({
     color: '#334155',
     fontWeight: '600',
     lineHeight: 17,
+  },
+  compactTakeawayPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    marginTop: 2,
+  },
+  compactTakeawayText: {
+    flex: 1,
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#334155',
   },
 
   // SECTION CARDS

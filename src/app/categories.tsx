@@ -11,6 +11,9 @@ import {
   Alert,
   ActivityIndicator,
   Platform,
+  Keyboard,
+  KeyboardAvoidingView,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -120,6 +123,24 @@ export default function CategoriesScreen() {
   const [selectedIcon, setSelectedIcon] = useState('fast-food');
   const [selectedColor, setSelectedColor] = useState('#4D96FF');
   const [saving, setSaving] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const showSub = Keyboard.addListener(showEvent, (e) => {
+      setKeyboardHeight(e.endCoordinates.height);
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      setKeyboardHeight(0);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const fetchCategories = async () => {
     if (!user) return;
@@ -327,9 +348,31 @@ export default function CategoriesScreen() {
       </ScrollView>
 
       {/* Add / Edit Category Modal */}
-      <Modal visible={showModal} transparent animationType="slide" onRequestClose={() => setShowModal(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+      <Modal
+        visible={showModal}
+        transparent
+        animationType="slide"
+        statusBarTranslucent
+        onRequestClose={() => setShowModal(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalOverlay}
+        >
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => Keyboard.dismiss()}
+          />
+          <View
+            style={[
+              styles.modalContent,
+              keyboardHeight > 0 && {
+                marginBottom: Platform.OS === 'android' ? keyboardHeight : 0,
+                maxHeight: Dimensions.get('screen').height - (Platform.OS === 'android' ? keyboardHeight : 0) - (Platform.OS === 'android' ? 65 : 90),
+              },
+            ]}
+          >
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>
                 {editingCategory ? t('edit_category') : t('add_new_category')}
@@ -339,7 +382,12 @@ export default function CategoriesScreen() {
               </TouchableOpacity>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false}>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              contentContainerStyle={{ paddingBottom: 20 }}
+            >
               {/* Category Name */}
               <Text style={styles.formLabel}>{t('category_name')}</Text>
               <TextInput
@@ -348,6 +396,8 @@ export default function CategoriesScreen() {
                 placeholderTextColor="#9CA3AF"
                 value={categoryName}
                 onChangeText={setCategoryName}
+                returnKeyType="done"
+                onSubmitEditing={Keyboard.dismiss}
               />
 
               {/* Icon Selector */}
@@ -409,7 +459,7 @@ export default function CategoriesScreen() {
               </TouchableOpacity>
             </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* CUSTOM DELETE CATEGORY CONFIRMATION MODAL */}

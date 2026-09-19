@@ -13,6 +13,7 @@ import {
   Animated,
   Easing,
   StatusBar,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -1140,13 +1141,27 @@ export default function AddExpenseScreen() {
         visible={addCatModalOpen}
         transparent
         animationType="slide"
+        statusBarTranslucent
         onRequestClose={() => setAddCatModalOpen(false)}
       >
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={styles.modalBackdrop}
         >
-          <View style={styles.addCatModalCard}>
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => Keyboard.dismiss()}
+          />
+          <View
+            style={[
+              styles.addCatModalCard,
+              keyboardHeight > 0 && {
+                marginBottom: Platform.OS === 'android' ? keyboardHeight : 0,
+                maxHeight: Dimensions.get('screen').height - (Platform.OS === 'android' ? keyboardHeight : 0) - (Platform.OS === 'android' ? 65 : 90),
+              },
+            ]}
+          >
             <View style={styles.addCatModalHeader}>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <ExpoImage
@@ -1166,7 +1181,12 @@ export default function AddExpenseScreen() {
               </TouchableOpacity>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              contentContainerStyle={{ paddingBottom: 20 }}
+            >
               {/* Category Name Input */}
               <Text style={styles.modalInputLabel}>{t('category')} Name</Text>
               <TextInput
@@ -1175,6 +1195,8 @@ export default function AddExpenseScreen() {
                 placeholderTextColor="#94A3B8"
                 value={newCatName}
                 onChangeText={setNewCatName}
+                returnKeyType="done"
+                onSubmitEditing={Keyboard.dismiss}
                 autoFocus
               />
 

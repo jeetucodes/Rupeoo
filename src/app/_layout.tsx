@@ -1,5 +1,8 @@
 import React, { useEffect, useState, Component } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
+
+SplashScreen.preventAutoHideAsync().catch(() => {});
 import { 
   useColorScheme, 
   View, 
@@ -72,8 +75,6 @@ class RootErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState
   }
 }
 
-import AppLoadingSkeleton from '@/components/app-loading-skeleton';
-
 import * as Notifications from 'expo-notifications';
 import { 
   requestNotificationPermissions, 
@@ -88,6 +89,20 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const { user, loading, settings, appConfig } = useAuth();
   const segments = useSegments();
   const router = useRouter();
+
+  useEffect(() => {
+    // Safety timer to prevent splash screen hanging
+    const timer = setTimeout(() => {
+      SplashScreen.hideAsync().catch(() => {});
+    }, 3500);
+
+    if (!loading) {
+      SplashScreen.hideAsync().catch(() => {});
+      clearTimeout(timer);
+    }
+
+    return () => clearTimeout(timer);
+  }, [loading]);
 
   useEffect(() => {
     const unsub = startRealtimeNotificationWatcher(user?.uid);
@@ -142,7 +157,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   }, [user, loading, settings, segments]);
 
   if (loading) {
-    return <AppLoadingSkeleton />;
+    return null;
   }
 
   // Real-time Maintenance Mode Block
@@ -179,7 +194,7 @@ export default function RootLayout() {
                 <Stack 
                   screenOptions={{ 
                     headerShown: false,
-                    animation: Platform.OS === 'android' ? 'fade_from_bottom' : 'default',
+                    animation: 'none',
                     contentStyle: { backgroundColor: '#F1F5F9' }
                   }}
                 >

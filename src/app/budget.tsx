@@ -29,6 +29,7 @@ import { useTranslation } from '@/lib/i18n';
 import { getLocalMonthString } from '@/lib/dateUtils';
 import Toast from 'react-native-toast-message';
 import Skeleton from '@/components/Skeleton';
+import BudgetArcGauge from '@/components/BudgetArcGauge';
 
 export default function BudgetScreen() {
   const router = useRouter();
@@ -194,10 +195,21 @@ export default function BudgetScreen() {
           onPress={() => safeGoBack(router)}
           activeOpacity={0.7}
         >
-          <Ionicons name="arrow-back" size={24} color="#1C1C1E" />
+          <Ionicons name="arrow-back" size={22} color="#1C1C1E" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>{t('budget_goals')}</Text>
-        <View style={{ width: 44 }} />
+        <Text style={styles.headerTitle}>
+          {new Date().toLocaleString('default', { month: 'long' })} {new Date().getFullYear()} Budget
+        </Text>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => {
+            setOverallBudgetInput(monthlyBudget > 0 ? monthlyBudget.toString() : '');
+            setShowOverallModal(true);
+          }}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="pencil" size={18} color="#1C1C1E" />
+        </TouchableOpacity>
       </View>
 
       <ScrollView
@@ -205,130 +217,96 @@ export default function BudgetScreen() {
         showsVerticalScrollIndicator={false}
       >
         <>
-          {/* Overall Monthly Budget Hero Card */}
-            <View style={styles.heroCard}>
-              <View style={styles.heroHeader}>
-                <View>
-                  <Text style={styles.heroSubtitle}>{t('overall_monthly_budget')}</Text>
-                  <Text style={styles.heroAmount}>
-                    {currency}
-                    {monthlyBudget.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                  </Text>
-                </View>
+          {/* Budget Arc Gauge Hero Card */}
+          <BudgetArcGauge
+            spent={totalSpent}
+            limit={monthlyBudget}
+            currency={currency}
+            monthName={new Date().toLocaleString('default', { month: 'long' })}
+            onEditLimit={() => {
+              setOverallBudgetInput(monthlyBudget > 0 ? monthlyBudget.toString() : '');
+              setShowOverallModal(true);
+            }}
+            style={{ marginBottom: 24 }}
+          />
+
+          {/* Category Budgets Header */}
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Budgeted Categories</Text>
+            <Text style={styles.sectionSubtitle}>
+              Tap any category to set or edit its monthly budget
+            </Text>
+          </View>
+
+          {/* Category List */}
+          <View style={styles.categoriesListCard}>
+            {categories.map((cat, idx) => {
+              const spent = categoryTotals[cat.name.toLowerCase()] || 0;
+              const budget = categoryBudgets[cat.name] || 0;
+              const percent = budget > 0 ? Math.min(Math.round((spent / budget) * 100), 100) : 0;
+              const isOver = budget > 0 && spent > budget;
+              const isLast = idx === categories.length - 1;
+
+              return (
                 <TouchableOpacity
-                  style={styles.editBudgetBtn}
-                  onPress={() => {
-                    setOverallBudgetInput(monthlyBudget > 0 ? monthlyBudget.toString() : '');
-                    setShowOverallModal(true);
-                  }}
-                  activeOpacity={0.8}
+                  key={cat.id || cat.name}
+                  style={[styles.categoryRow, !isLast && styles.rowBorder]}
+                  onPress={() => openCategoryBudgetModal(cat)}
+                  activeOpacity={0.7}
                 >
-                  <Ionicons name="pencil" size={16} color="#1C1C1E" />
-                  <Text style={styles.editBudgetBtnText}>{t('edit')}</Text>
-                </TouchableOpacity>
-              </View>
+                  <View style={[styles.catIconWrap, { backgroundColor: cat.color + '20', overflow: 'hidden' }]}>
+                    <CategoryIcon categoryName={cat.name} iconName={cat.icon} size={22} color={cat.color} />
+                  </View>
 
-              {/* Progress Track */}
-              <View style={styles.progressTrack}>
-                <View
-                  style={[
-                    styles.progressBar,
-                    {
-                      width: `${overallPercentage}%`,
-                      backgroundColor: isOverallOverBudget ? '#EF4444' : '#FFD740',
-                    },
-                  ]}
-                />
-              </View>
-
-              {/* Stats Row */}
-              <View style={styles.statsRow}>
-                <View style={styles.statCol}>
-                  <Text style={styles.statLabel}>{t('spent')}</Text>
-                  <Text style={[styles.statValue, isOverallOverBudget && { color: '#EF4444' }]}>
-                    {currency}
-                    {totalSpent.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                  </Text>
-                </View>
-                <View style={[styles.statCol, { alignItems: 'flex-end' }]}>
-                  <Text style={styles.statLabel}>{t('remaining')}</Text>
-                  <Text style={styles.statValue}>
-                    {currency}
-                    {Math.max(0, monthlyBudget - totalSpent).toLocaleString('en-IN', {
-                      minimumFractionDigits: 2,
-                    })}
-                  </Text>
-                </View>
-              </View>
-
-              {isOverallOverBudget && (
-                <View style={styles.warningPill}>
-                  <Ionicons name="warning" size={16} color="#EF4444" style={{ marginRight: 6 }} />
-                  <Text style={styles.warningText}>{t('over_budget')}</Text>
-                </View>
-              )}
-            </View>
-
-            {/* Category Budgets Header */}
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>{t('category_budgets')}</Text>
-              <Text style={styles.sectionSubtitle}>
-                Tap any category to set its monthly budget
-              </Text>
-            </View>
-
-            {/* Category List */}
-            <View style={styles.categoriesListCard}>
-              {categories.map((cat, idx) => {
-                const spent = categoryTotals[cat.name.toLowerCase()] || 0;
-                const budget = categoryBudgets[cat.name] || 0;
-                const percent = budget > 0 ? Math.min(Math.round((spent / budget) * 100), 100) : 0;
-                const isOver = budget > 0 && spent > budget;
-                const isLast = idx === categories.length - 1;
-
-                return (
-                  <TouchableOpacity
-                    key={cat.id || cat.name}
-                    style={[styles.categoryRow, !isLast && styles.rowBorder]}
-                    onPress={() => openCategoryBudgetModal(cat)}
-                    activeOpacity={0.7}
-                  >
-                    <View style={[styles.catIconWrap, { backgroundColor: cat.color + '20', overflow: 'hidden' }]}>
-                      <CategoryIcon categoryName={cat.name} iconName={cat.icon} size={22} color={cat.color} />
-                    </View>
-
-                    <View style={styles.catInfoWrap}>
-                      <View style={styles.catNameRow}>
-                        <Text style={styles.catName}>{cat.name}</Text>
-                        <Text style={[styles.catSpentText, isOver && { color: '#EF4444' }]}>
-                          {currency}{spent.toLocaleString('en-IN')}
-                          {budget > 0 ? ` / ${currency}${budget.toLocaleString('en-IN')}` : ''}
+                  <View style={styles.catInfoWrap}>
+                    <View style={styles.catNameRow}>
+                      <View style={{ flex: 1, marginRight: 8 }}>
+                        <Text style={styles.catName} numberOfLines={1}>{cat.name}</Text>
+                        <Text style={styles.catBudgetSub}>
+                          {budget > 0 ? `Budget: ${currency}${budget.toLocaleString('en-IN')}` : 'No limit set'}
                         </Text>
                       </View>
-
-                      {budget > 0 ? (
-                        <View style={styles.catProgressTrack}>
-                          <View
-                            style={[
-                              styles.catProgressBar,
-                              {
-                                width: `${percent}%`,
-                                backgroundColor: isOver ? '#EF4444' : '#22C55E',
-                              },
-                            ]}
-                          />
-                        </View>
-                      ) : (
-                        <Text style={styles.noBudgetHint}>+ Set Budget</Text>
-                      )}
+                      <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={[styles.catSpentValue, isOver && { color: '#EF4444' }]}>
+                          {currency}{spent.toLocaleString('en-IN')}
+                        </Text>
+                        <Text style={styles.catSpentLabel}>Spent</Text>
+                      </View>
                     </View>
 
-                    <Ionicons name="chevron-forward" size={18} color="#D1D5DB" style={{ marginLeft: 8 }} />
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          </>
+                    {budget > 0 ? (
+                      <>
+                        <View style={styles.catProgressTrackRow}>
+                          <View style={styles.catProgressTrack}>
+                            <View
+                              style={[
+                                styles.catProgressBar,
+                                {
+                                  width: `${percent}%`,
+                                  backgroundColor: isOver ? '#EF4444' : '#22C55E',
+                                },
+                              ]}
+                            />
+                          </View>
+                          <Text style={styles.catProgressPct}>{percent}%</Text>
+                        </View>
+                        <Text style={[styles.catLimitStatusText, isOver ? styles.catOverText : styles.catUnderText]}>
+                          {isOver
+                            ? `You are over the limit by ${currency}${(spent - budget).toLocaleString('en-IN')}`
+                            : `You are under the limit by ${currency}${(budget - spent).toLocaleString('en-IN')}`}
+                        </Text>
+                      </>
+                    ) : (
+                      <Text style={styles.noBudgetHint}>+ Set Budget Limit</Text>
+                    )}
+                  </View>
+
+                  <Ionicons name="chevron-forward" size={18} color="#D1D5DB" style={{ marginLeft: 8 }} />
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </>
       </ScrollView>
 
       {/* Edit Overall Budget Modal */}
@@ -579,7 +557,7 @@ const styles = StyleSheet.create({
   catNameRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: 6,
   },
   catName: {
@@ -587,14 +565,33 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#1C1C1E',
   },
-  catSpentText: {
-    fontSize: 13,
+  catBudgetSub: {
+    fontSize: 11.5,
+    fontWeight: '600',
+    color: '#94A3B8',
+    marginTop: 1,
+  },
+  catSpentValue: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#1C1C1E',
+  },
+  catSpentLabel: {
+    fontSize: 10,
     fontWeight: '700',
-    color: '#6B7280',
+    color: '#94A3B8',
+    textTransform: 'uppercase',
+  },
+  catProgressTrackRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
   },
   catProgressTrack: {
+    flex: 1,
     height: 6,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#F1F5F9',
     borderRadius: 3,
     overflow: 'hidden',
   },
@@ -602,10 +599,28 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: 3,
   },
+  catProgressPct: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: '#64748B',
+    minWidth: 26,
+    textAlign: 'right',
+  },
+  catLimitStatusText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  catUnderText: {
+    color: '#10B981',
+  },
+  catOverText: {
+    color: '#EF4444',
+  },
   noBudgetHint: {
     fontSize: 12,
     color: '#3B82F6',
     fontWeight: '700',
+    marginTop: 2,
   },
   modalOverlay: {
     flex: 1,
