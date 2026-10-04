@@ -126,6 +126,118 @@ export async function generateAndShareTransactionStatementPDF(options: Statement
     minute: '2-digit',
   });
 
+  // 2b. Compute Daily Spending & Average Benchmark
+  const dailySpendMap: Record<string, number> = {};
+  filtered.forEach(tx => {
+    const type = (tx.type || 'debit').toLowerCase();
+    if (type !== 'credit' && type !== 'income') {
+      const d = tx.date;
+      if (d) {
+        dailySpendMap[d] = (dailySpendMap[d] || 0) + (Math.abs(Number(tx.amount)) || 0);
+      }
+    }
+  });
+
+  const sortedDates = Object.keys(dailySpendMap).sort();
+  const dailyPoints = sortedDates.map(dateStr => {
+    let label = dateStr;
+    try {
+      const parts = dateStr.split('-');
+      if (parts.length === 3) {
+        const day = parseInt(parts[2], 10);
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const mIdx = parseInt(parts[1], 10) - 1;
+        label = `${day} ${months[mIdx] || ''}`;
+      }
+    } catch {}
+    return {
+      date: dateStr,
+      label,
+      expense: dailySpendMap[dateStr],
+    };
+  });
+
+  const activeDaysCount = Math.max(dailyPoints.length, 1);
+  const avgDailySpend = Math.round(totalExpense / activeDaysCount);
+
+  // Build Daily Spend vs Average SVG Chart for Statement
+  let dailySpendChartHtml = '';
+  if (dailyPoints.length > 1 && totalExpense > 0) {
+    const chartW = 750;
+    const chartH = 95;
+    const padX = 35;
+    const padTop = 15;
+    const padBottom = 22;
+    const innerH = chartH - padBottom;
+    const usableW = chartW - padX * 2;
+    const step = usableW / Math.max(dailyPoints.length - 1, 1);
+    const maxVal = Math.max(...dailyPoints.map(p => p.expense), avgDailySpend * 1.25, 500);
+
+    const coords = dailyPoints.map((p, idx) => ({
+      x: padX + idx * step,
+      y: padTop + (1 - p.expense / maxVal) * (innerH - padTop),
+    }));
+
+    const avgY = avgDailySpend > 0 ? padTop + (1 - avgDailySpend / maxVal) * (innerH - padTop) : innerH;
+
+    let lineD = `M ${coords[0].x.toFixed(1)} ${coords[0].y.toFixed(1)}`;
+    for (let i = 1; i < coords.length; i++) {
+      lineD += ` L ${coords[i].x.toFixed(1)} ${coords[i].y.toFixed(1)}`;
+    }
+    const areaD = `${lineD} L ${coords[coords.length - 1].x.toFixed(1)} ${innerH} L ${coords[0].x.toFixed(1)} ${innerH} Z`;
+
+    const stepLabel = Math.max(1, Math.ceil(dailyPoints.length / 10));
+
+    dailySpendChartHtml = `
+    <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 10px; padding: 10px 12px; margin-bottom: 14px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+        <div style="font-size: 10.5px; font-weight: 800; color: #0F172A;">
+          Daily Spending & Daily Average (${activeDaysCount} Active Days)
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px; font-size: 8.5px; font-weight: 700;">
+          <span style="display: inline-flex; align-items: center; gap: 3px; color: #D97706;">
+            <span style="width: 8px; height: 3px; background: #F59E0B; border-radius: 1px;"></span> Daily Spend
+          </span>
+          <span style="display: inline-flex; align-items: center; gap: 3px; color: #4338CA;">
+            <span style="width: 10px; height: 0; border-top: 1.5px dashed #6366F1;"></span> Daily Avg (${curr}${avgDailySpend.toLocaleString('en-IN')}/day)
+          </span>
+        </div>
+      </div>
+      <svg width="100%" height="${chartH}" viewBox="0 0 ${chartW} ${chartH}" style="overflow: visible;">
+        <defs>
+          <linearGradient id="stmtWaveGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#F59E0B" stop-opacity="0.35" />
+            <stop offset="100%" stop-color="#F59E0B" stop-opacity="0.0" />
+          </linearGradient>
+        </defs>
+        <!-- Guidelines -->
+        <line x1="${padX}" y1="${padTop}" x2="${chartW - padX}" y2="${padTop}" stroke="#F1F5F9" stroke-width="1" stroke-dasharray="3 3" />
+        <line x1="${padX}" y1="${innerH}" x2="${chartW - padX}" y2="${innerH}" stroke="#E2E8F0" stroke-width="1" />
+
+        <!-- Area & Line -->
+        <path d="${areaD}" fill="url(#stmtWaveGrad)" />
+        <path d="${lineD}" stroke="#D97706" stroke-width="2.2" fill="transparent" stroke-linecap="round" stroke-linejoin="round" />
+
+        <!-- Daily Average Benchmark Line -->
+        ${avgDailySpend > 0 ? `
+          <line x1="${padX}" y1="${avgY.toFixed(1)}" x2="${(chartW - padX).toFixed(1)}" y2="${avgY.toFixed(1)}" stroke="#6366F1" stroke-width="1.8" stroke-dasharray="4 3" />
+          <rect x="${(chartW - padX - 116).toFixed(1)}" y="${Math.max(avgY - 14, 2).toFixed(1)}" width="116" height="12" rx="3" fill="#EEF2FF" stroke="#6366F1" stroke-width="0.8" />
+          <text x="${(chartW - padX - 58).toFixed(1)}" y="${Math.max(avgY - 4.5, 11).toFixed(1)}" font-size="7.5" font-weight="800" fill="#4338CA" text-anchor="middle">Daily Avg: ${curr}${avgDailySpend.toLocaleString('en-IN')}/day</text>
+        ` : ''}
+
+        <!-- Points & Labels -->
+        ${coords.map((c, idx) => {
+          const isAbove = dailyPoints[idx].expense > avgDailySpend;
+          const showLabel = idx % stepLabel === 0 || idx === coords.length - 1;
+          return `
+            <circle cx="${c.x.toFixed(1)}" cy="${c.y.toFixed(1)}" r="2.8" fill="${isAbove ? '#F59E0B' : '#10B981'}" stroke="#FFFFFF" stroke-width="1.2" />
+            ${showLabel ? `<text x="${c.x.toFixed(1)}" y="${chartH - 6}" font-size="8" font-weight="700" fill="#64748B" text-anchor="middle">${dailyPoints[idx].label}</text>` : ''}
+          `;
+        }).join('')}
+      </svg>
+    </div>`;
+  }
+
   const statementRef = `RUP-${Date.now().toString().slice(-6)}`;
 
   // 3. Build HTML Template
@@ -577,6 +689,9 @@ export async function generateAndShareTransactionStatementPDF(options: Statement
       : ''
   }
 
+  <!-- DAILY SPEND & AVERAGE GRAPH -->
+  ${dailySpendChartHtml}
+
   <!-- ITEMISED LEDGER TABLE -->
   <div class="table-container">
     <div class="table-title">
@@ -660,7 +775,7 @@ export async function generateAndShareTransactionStatementPDF(options: Statement
 </html>
   `;
 
-  const cleanFilename = `Rupeo_Statement_${(monthStr || 'All').replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`;
+  const cleanFilename = `Rupeo_Statement_${(monthStr || 'All').replace(/[^a-zA-Z0-9_-]/g, '_')}_${Date.now().toString().slice(-6)}.pdf`;
   const defaultPdfTitle = `Rupeo Statement - ${periodLabel}`;
 
   // 4. Web Handling
@@ -713,6 +828,10 @@ export async function generateAndShareTransactionStatementPDF(options: Statement
       let shareUri = result.uri;
       try {
         const targetUri = `${FileSystem.documentDirectory}${cleanFilename}`;
+        const existingInfo = await FileSystem.getInfoAsync(targetUri);
+        if (existingInfo.exists) {
+          await FileSystem.deleteAsync(targetUri, { idempotent: true });
+        }
         await FileSystem.copyAsync({
           from: result.uri,
           to: targetUri,

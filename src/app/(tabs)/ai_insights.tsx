@@ -17,7 +17,7 @@ import {
   Modal,
   Alert,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
@@ -46,6 +46,12 @@ import BudgetArcGauge from '@/components/BudgetArcGauge';
 
 const { width } = Dimensions.get('window');
 const CHART_WIDTH = width - 40;
+
+const getSvgTouchProps = (handler: () => void) => {
+  return Platform.OS === 'web'
+    ? { onClick: handler, style: { cursor: 'pointer' } as any }
+    : { onPress: handler };
+};
 
 type PeriodType = 'this_month' | 'last_month' | '3_months' | 'this_year' | 'all';
 type ChartViewType = 'curve' | 'bars' | 'donut' | 'gauge';
@@ -129,6 +135,7 @@ function buildSmoothPath(points: { x: number; y: number }[]): string {
 
 export default function ReportsScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { user, settings, isPremium, appConfig } = useAuth();
   const { t } = useTranslation();
   const curr = settings?.currency === 'INR' ? '₹' : (settings?.currency || '₹');
@@ -145,6 +152,7 @@ export default function ReportsScreen() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedPointIndex, setSelectedPointIndex] = useState<number | null>(null);
   const [selectedTrendIndex, setSelectedTrendIndex] = useState<number | null>(null);
+  const [waveDaysRange, setWaveDaysRange] = useState<7 | 14 | 30>(7);
   const [showExportModal, setShowExportModal] = useState(false);
   const [selectedCategoryDetail, setSelectedCategoryDetail] = useState<CategorySpend | null>(null);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
@@ -165,70 +173,8 @@ export default function ReportsScreen() {
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
-  // Smooth Multi-Phase Pastel Color Flow & Soft Light Gleam for Net Savings Card
-  const colorAnim = useRef(new Animated.Value(0)).current;
-  const shimmerAnim = useRef(new Animated.Value(0)).current;
+  // High-performance insights: clean static rendering without 60fps JS thread thrashing
 
-  useEffect(() => {
-    // 1. Smooth, continuous multi-phase color transition (60s)
-    const colorLoop = Animated.loop(
-      Animated.timing(colorAnim, {
-        toValue: 5,
-        duration: 60000,
-        easing: Easing.linear,
-        useNativeDriver: false,
-      })
-    );
-
-    // 2. Elegant diagonal light gleam / sheen wave that glides across every 5s
-    const shimmerLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(shimmerAnim, {
-          toValue: 1,
-          duration: 2800,
-          easing: Easing.bezier(0.4, 0, 0.2, 1),
-          useNativeDriver: true,
-        }),
-        Animated.delay(2200),
-      ])
-    );
-
-    colorLoop.start();
-    shimmerLoop.start();
-
-    return () => {
-      colorLoop.stop();
-      shimmerLoop.stop();
-    };
-  }, [colorAnim, shimmerAnim]);
-
-  // Card Background Color Interpolation (Unique Royal Periwinkle / Berry / Amber / Aqua / Lavender flow)
-  const animatedCardBg = colorAnim.interpolate({
-    inputRange: [0, 1, 2, 3, 4, 5],
-    outputRange: [
-      '#E0E7FF', // Royal Periwinkle / Soft Indigo
-      '#FCE7F3', // Sweet Berry Pink / Soft Magenta
-      '#FEF3C7', // Warm Golden Amber / Honey
-      '#CCFBF1', // Bright Aqua Teal / Ocean Foam
-      '#DDD6FE', // Vibrant Lavender Violet
-      '#E0E7FF', // Loop back to Periwinkle
-    ],
-  });
-
-  // Smooth diagonal light sheen sweep
-  const shimmerStyle = {
-    transform: [
-      {
-        translateX: shimmerAnim.interpolate({
-          inputRange: [0, 1],
-          outputRange: [-240, 480],
-        }),
-      },
-      {
-        rotate: '25deg',
-      },
-    ],
-  };
 
   const loadData = useCallback(async (forceRefresh = false) => {
     if (!user?.uid) return;
@@ -465,16 +411,15 @@ export default function ReportsScreen() {
     return { score, rating, color, insights };
   }, [metrics, categoryBreakdown, paymentModesSplit, categoryType, curr]);
 
-  // Daily Spending Points for the Smooth Curve
+  // Daily Spending Points for the Smooth Curve (Configurable 7D / 14D / 30D)
   const dailyTrendPoints = useMemo<TrendPoint[]>(() => {
     const now = new Date();
     const map: { [dayKey: string]: { label: string; dayName: string; fullDate: string; income: number; expense: number } } = {};
 
-    // 7 recent data bins
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-    for (let i = 6; i >= 0; i--) {
+    for (let i = waveDaysRange - 1; i >= 0; i--) {
       const d = new Date();
       d.setDate(now.getDate() - i);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -504,9 +449,9 @@ export default function ReportsScreen() {
       expense: map[k].expense,
       net: map[k].income - map[k].expense,
     }));
-  }, [filteredTransactions]);
+  }, [filteredTransactions, waveDaysRange]);
 
-  // 7-Day Spending Wave Summary
+  // Spending Wave Summary (Daily Spend & Average Benchmark)
   const spendingWaveSummary = useMemo(() => {
     let totalSpend = 0;
     let peakSpend = 0;
@@ -1077,10 +1022,11 @@ export default function ReportsScreen() {
     }
   };
 
-  // Render SVG Smooth Bezier Line & Area Graph (Enhanced Spending Wave)
+  // Render SVG Smooth Bezier Line & Area Graph (Enhanced Daily Spending & Average Benchmark)
   const renderSmoothLineGraph = () => {
     const dataPoints = dailyTrendPoints;
-    const maxVal = Math.max(...dataPoints.map(p => p.expense), 500);
+    const avgSpend = spendingWaveSummary.avgDailySpend;
+    const maxVal = Math.max(...dataPoints.map(p => p.expense), avgSpend * 1.25, 500);
     const chartHeight = 155;
     const paddingX = 18;
     const usableWidth = chartWidth - paddingX * 2;
@@ -1090,6 +1036,11 @@ export default function ReportsScreen() {
       x: paddingX + idx * step,
       y: chartHeight - (p.expense / maxVal) * (chartHeight - 35) - 12,
     }));
+
+    // Y coordinate of the horizontal Daily Average Benchmark line
+    const avgY = avgSpend > 0
+      ? chartHeight - (avgSpend / maxVal) * (chartHeight - 35) - 12
+      : chartHeight;
 
     const smoothLineD = buildSmoothPath(coords);
     const smoothAreaD = `${smoothLineD} L ${coords[coords.length - 1].x} ${chartHeight} L ${coords[0].x} ${chartHeight} Z`;
@@ -1101,10 +1052,17 @@ export default function ReportsScreen() {
       ? coords[selectedPointIndex]
       : null;
 
-    // Helper for formatting Y-axis numbers
-    const formatY = (val: number) => (val >= 1000 ? `${Math.round(val / 1000)}k` : `${val}`);
+    // Helper for formatting Y-axis numbers (clean integers without decimals)
+    const formatY = (val: number) => {
+      const rounded = Math.round(val);
+      return rounded >= 1000 ? `${Math.round(rounded / 1000)}k` : `${rounded}`;
+    };
 
     const isPeakPoint = activePoint && activePoint.expense === spendingWaveSummary.peakSpend && spendingWaveSummary.peakSpend > 0;
+    const isAboveAvg = activePoint && activePoint.expense > avgSpend;
+    const isUnderAvg = activePoint && activePoint.expense < avgSpend && activePoint.expense > 0;
+    const isZeroSpend = activePoint && activePoint.expense === 0;
+
     const spendPercent = activePoint && spendingWaveSummary.totalSpend > 0
       ? Math.round((activePoint.expense / spendingWaveSummary.totalSpend) * 100)
       : 0;
@@ -1116,19 +1074,63 @@ export default function ReportsScreen() {
           <View style={{ flex: 1, marginRight: 10 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <ExpoImage source={{ uri: ICONS_3D.sparkles }} style={{ width: 20, height: 20 }} contentFit="contain" />
-              <Text style={styles.themeCardTitle}>{t('spending_wave') || 'Spending Wave'}</Text>
-              <View style={styles.waveLiveBadge}>
-                <Text style={styles.waveLiveBadgeText}>7-Day Wave</Text>
-              </View>
+              <Text style={styles.themeCardTitle}>{t('spending_wave') || 'Daily Spend & Average'}</Text>
             </View>
             <Text style={styles.themeCardSub}>
               {activePoint
-                ? `Inspecting ${activePoint.dayName || ''} ${activePoint.label} daily spend`
-                : 'Tap any day along the wave to inspect outflow'}
+                ? (t('inspecting_day_spend') || 'Inspecting {date} daily spend').replace(
+                    '{date}',
+                    `${activePoint.dayName ? `${activePoint.dayName}, ` : ''}${activePoint.label}`
+                  )
+                : (t('spending_wave_sub') || 'Daily spending & daily average benchmark')}
             </Text>
           </View>
 
-          {/* Reset or Peak Pill */}
+          {/* Timeframe Selector Chips (7D / 14D / 30D) */}
+          <View style={styles.rangePillRow}>
+            {([7, 14, 30] as const).map(num => (
+              <TouchableOpacity
+                key={`range-${num}`}
+                style={[
+                  styles.rangePillBtn,
+                  waveDaysRange === num && styles.rangePillBtnActive,
+                ]}
+                onPress={() => {
+                  setWaveDaysRange(num);
+                  setSelectedPointIndex(null);
+                }}
+                activeOpacity={0.7}
+              >
+                <Text
+                  style={[
+                    styles.rangePillText,
+                    waveDaysRange === num && styles.rangePillTextActive,
+                  ]}
+                >
+                  {num}D
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        {/* LEGEND & PEAK / RESET ACTIONS */}
+        <View style={styles.waveLegendBar}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <View style={{ width: 10, height: 3.5, backgroundColor: '#F59E0B', borderRadius: 2 }} />
+              <Text style={{ fontSize: 10, fontWeight: '700', color: '#475569' }}>
+                {t('daily_spend_legend') || 'Daily Spend'}
+              </Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <View style={{ width: 13, height: 0, borderTopWidth: 2, borderTopColor: '#6366F1', borderStyle: 'dashed' }} />
+              <Text style={{ fontSize: 10, fontWeight: '800', color: '#6366F1' }}>
+                {`${t('daily_avg_legend') || 'Daily Avg'} (${curr}${avgSpend >= 1000 ? `${Math.round(avgSpend / 1000)}k` : Math.round(avgSpend)})`}
+              </Text>
+            </View>
+          </View>
+
           {activePoint ? (
             <TouchableOpacity
               style={styles.resetCatBtn}
@@ -1136,39 +1138,45 @@ export default function ReportsScreen() {
               activeOpacity={0.7}
             >
               <Ionicons name="close-circle" size={13} color="#64748B" style={{ marginRight: 3 }} />
-              <Text style={styles.resetCatText}>Reset</Text>
+              <Text style={styles.resetCatText}>{t('reset') || 'Reset'}</Text>
             </TouchableOpacity>
           ) : (
             <View style={styles.wavePeakSummaryPill}>
               <Ionicons name="flame" size={12} color="#D97706" style={{ marginRight: 3 }} />
               <Text style={styles.wavePeakSummaryText}>
-                Peak: {curr}{spendingWaveSummary.peakSpend.toLocaleString('en-IN')}
+                {`${t('peak') || 'Peak'}: ${curr}${spendingWaveSummary.peakSpend.toLocaleString('en-IN')}`}
               </Text>
             </View>
           )}
         </View>
 
-        {/* 7-DAY EXECUTIVE SUMMARY STRIP (WHEN NO POINT SELECTED) */}
+        {/* EXECUTIVE SUMMARY STRIP (WHEN NO POINT SELECTED) */}
         {!activePoint ? (
           <View style={styles.waveSummaryRow}>
             <View style={styles.waveSummaryCol}>
-              <Text style={styles.waveSummaryLabel}>7-DAY OUTFLOW</Text>
+              <Text style={styles.waveSummaryLabel}>
+                {`${waveDaysRange}${t('day_total_suffix') || '-DAY TOTAL'}`}
+              </Text>
               <Text style={[styles.waveSummaryValue, { color: '#0F172A' }]}>
-                {curr}{spendingWaveSummary.totalSpend.toLocaleString('en-IN')}
+                {`${curr}${spendingWaveSummary.totalSpend.toLocaleString('en-IN')}`}
               </Text>
             </View>
             <View style={styles.waveSummaryDivider} />
             <View style={styles.waveSummaryCol}>
-              <Text style={styles.waveSummaryLabel}>DAILY AVERAGE</Text>
-              <Text style={[styles.waveSummaryValue, { color: '#D97706' }]}>
-                {curr}{spendingWaveSummary.avgDailySpend.toLocaleString('en-IN')}
+              <Text style={styles.waveSummaryLabel}>
+                {t('daily_avg_stat') || 'DAILY AVERAGE'}
+              </Text>
+              <Text style={[styles.waveSummaryValue, { color: '#6366F1' }]}>
+                {`${curr}${spendingWaveSummary.avgDailySpend.toLocaleString('en-IN')}${t('per_day_suffix') || '/day'}`}
               </Text>
             </View>
             <View style={styles.waveSummaryDivider} />
             <View style={styles.waveSummaryCol}>
-              <Text style={styles.waveSummaryLabel}>PEAK OUTFLOW</Text>
+              <Text style={styles.waveSummaryLabel}>
+                {t('peak_outflow_stat') || 'PEAK OUTFLOW'}
+              </Text>
               <Text style={[styles.waveSummaryValue, { color: '#DC2626' }]}>
-                {curr}{spendingWaveSummary.peakSpend.toLocaleString('en-IN')}
+                {`${curr}${spendingWaveSummary.peakSpend.toLocaleString('en-IN')}`}
               </Text>
             </View>
           </View>
@@ -1189,59 +1197,63 @@ export default function ReportsScreen() {
                 styles.waveBadge,
                 isPeakPoint
                   ? { backgroundColor: '#FEE2E2', borderColor: '#FECDD3' }
-                  : activePoint.expense === 0
+                  : isAboveAvg
+                  ? { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }
+                  : isZeroSpend
                   ? { backgroundColor: '#DCFCE7', borderColor: '#BBF7D0' }
-                  : { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }
+                  : { backgroundColor: '#E0F2FE', borderColor: '#BAE6FD' }
               ]}>
                 <Ionicons
-                  name={isPeakPoint ? 'flame' : activePoint.expense === 0 ? 'checkmark-circle' : 'analytics'}
+                  name={isPeakPoint ? 'flame' : isAboveAvg ? 'trending-up' : isZeroSpend ? 'checkmark-circle' : 'trending-down'}
                   size={12}
-                  color={isPeakPoint ? '#DC2626' : activePoint.expense === 0 ? '#16A34A' : '#D97706'}
+                  color={isPeakPoint ? '#DC2626' : isAboveAvg ? '#D97706' : isZeroSpend ? '#16A34A' : '#0284C7'}
                   style={{ marginRight: 3 }}
                 />
                 <Text style={[
                   styles.waveBadgeText,
-                  { color: isPeakPoint ? '#B91C1C' : activePoint.expense === 0 ? '#15803D' : '#92400E' }
+                  { color: isPeakPoint ? '#B91C1C' : isAboveAvg ? '#92400E' : isZeroSpend ? '#15803D' : '#0369A1' }
                 ]}>
                   {isPeakPoint
-                    ? 'Peak Spending Day'
-                    : activePoint.expense === 0
-                    ? 'Zero Spends'
-                    : `${spendPercent}% of 7-Day`}
+                    ? (t('peak_spend_day') || 'Peak Spending Day')
+                    : isAboveAvg
+                    ? (t('above_daily_avg') || 'Above Daily Avg ⚠️')
+                    : isZeroSpend
+                    ? (t('zero_outflow') || 'Zero Outflow 👏')
+                    : (t('below_daily_avg') || 'Below Daily Avg 🎯')}
                 </Text>
               </View>
             </View>
 
             <View style={styles.waveInspectorPillsRow}>
               <View style={styles.waveInspectorPillItem}>
-                <Text style={styles.waveInspectorPillLabel}>OUTFLOW</Text>
+                <Text style={styles.waveInspectorPillLabel}>{t('outflow_label') || 'OUTFLOW'}</Text>
                 <Text style={[styles.waveInspectorPillValue, { color: '#DC2626' }]}>
-                  {curr}{activePoint.expense.toLocaleString('en-IN')}
+                  {`${curr}${activePoint.expense.toLocaleString('en-IN')}`}
                 </Text>
               </View>
               <View style={styles.waveInspectorPillItem}>
-                <Text style={styles.waveInspectorPillLabel}>VS 7-D AVG</Text>
+                <Text style={styles.waveInspectorPillLabel}>{t('vs_daily_avg') || 'VS DAILY AVG'}</Text>
                 <Text style={[
                   styles.waveInspectorPillValue,
                   {
-                    color: activePoint.expense > spendingWaveSummary.avgDailySpend
+                    color: activePoint.expense > avgSpend
                       ? '#DC2626'
-                      : activePoint.expense < spendingWaveSummary.avgDailySpend
+                      : activePoint.expense < avgSpend
                       ? '#059669'
                       : '#64748B'
                   }
                 ]}>
-                  {activePoint.expense > spendingWaveSummary.avgDailySpend
-                    ? `+${curr}${(activePoint.expense - spendingWaveSummary.avgDailySpend).toLocaleString('en-IN')}`
-                    : activePoint.expense < spendingWaveSummary.avgDailySpend
-                    ? `-${curr}${(spendingWaveSummary.avgDailySpend - activePoint.expense).toLocaleString('en-IN')}`
-                    : 'Equal'}
+                  {activePoint.expense > avgSpend
+                    ? `+${curr}${(activePoint.expense - avgSpend).toLocaleString('en-IN')}`
+                    : activePoint.expense < avgSpend
+                    ? `-${curr}${(avgSpend - activePoint.expense).toLocaleString('en-IN')}`
+                    : (t('equal_label') || 'Equal')}
                 </Text>
               </View>
               <View style={styles.waveInspectorPillItem}>
-                <Text style={styles.waveInspectorPillLabel}>INFLOW</Text>
+                <Text style={styles.waveInspectorPillLabel}>{t('inflow_label') || 'INFLOW'}</Text>
                 <Text style={[styles.waveInspectorPillValue, { color: '#059669' }]}>
-                  +{curr}{activePoint.income.toLocaleString('en-IN')}
+                  {`+${curr}${activePoint.income.toLocaleString('en-IN')}`}
                 </Text>
               </View>
             </View>
@@ -1249,7 +1261,7 @@ export default function ReportsScreen() {
         )}
 
         {/* SVG CHART */}
-        <Svg width={chartWidth} height={chartHeight + 35} style={{ alignSelf: 'center' }}>
+        <Svg width={chartWidth} height={chartHeight + 38} style={{ alignSelf: 'center' }}>
           <Defs>
             <LinearGradient id="smoothAreaGrad" x1="0" y1="0" x2="0" y2="1">
               <Stop offset="0" stopColor="#F59E0B" stopOpacity="0.4" />
@@ -1270,10 +1282,10 @@ export default function ReportsScreen() {
 
           {/* Reference guidelines with Y-axis markers */}
           <Line x1={paddingX} y1={chartHeight * 0.22} x2={chartWidth - paddingX} y2={chartHeight * 0.22} stroke="#F1F5F9" strokeWidth="1" strokeDasharray="4 4" />
-          <SvgText x={paddingX} y={chartHeight * 0.22 - 3} fontSize="8.5" fontWeight="700" fill="#94A3B8">{curr}{formatY(maxVal * 0.78)}</SvgText>
+          <SvgText x={paddingX} y={chartHeight * 0.22 - 3} fontSize="8.5" fontWeight="700" fill="#94A3B8">{`${curr}${formatY(maxVal * 0.78)}`}</SvgText>
 
           <Line x1={paddingX} y1={chartHeight * 0.58} x2={chartWidth - paddingX} y2={chartHeight * 0.58} stroke="#F1F5F9" strokeWidth="1" strokeDasharray="4 4" />
-          <SvgText x={paddingX} y={chartHeight * 0.58 - 3} fontSize="8.5" fontWeight="700" fill="#94A3B8">{curr}{formatY(maxVal * 0.42)}</SvgText>
+          <SvgText x={paddingX} y={chartHeight * 0.58 - 3} fontSize="8.5" fontWeight="700" fill="#94A3B8">{`${curr}${formatY(maxVal * 0.42)}`}</SvgText>
 
           {/* Baseline */}
           <Line x1={paddingX} y1={chartHeight} x2={chartWidth - paddingX} y2={chartHeight} stroke="#E2E8F0" strokeWidth="1.2" />
@@ -1298,6 +1310,52 @@ export default function ReportsScreen() {
           {/* Smooth Bezier Line */}
           <Path d={smoothLineD} stroke="url(#lineGrad)" strokeWidth="3.2" fill="transparent" strokeLinecap="round" strokeLinejoin="round" />
 
+          {/* DAILY AVERAGE BENCHMARK LINE & PILL */}
+          {avgSpend > 0 && (() => {
+            const avgFormatted = avgSpend >= 1000 ? `${Math.round(avgSpend / 1000)}k` : `${Math.round(avgSpend)}`;
+            const avgTagPrefix = t('avg_benchmark_tag') || 'Avg';
+            const avgTagSuffix = t('per_d_tag') || '/d';
+            const avgPillText = `${avgTagPrefix} ${curr}${avgFormatted}${avgTagSuffix}`;
+            const pillWidth = 98;
+            const pillHeight = 16;
+            const pillX = chartWidth - paddingX - pillWidth;
+            const pillY = Math.max(avgY - 18, 2);
+
+            return (
+              <G>
+                <Line
+                  x1={paddingX}
+                  y1={avgY}
+                  x2={chartWidth - paddingX}
+                  y2={avgY}
+                  stroke="#6366F1"
+                  strokeWidth="1.8"
+                  strokeDasharray="5 4"
+                />
+                <Rect
+                  x={pillX}
+                  y={pillY}
+                  width={pillWidth}
+                  height={pillHeight}
+                  rx={4}
+                  fill="#EEF2FF"
+                  stroke="#818CF8"
+                  strokeWidth="1"
+                />
+                <SvgText
+                  x={pillX + pillWidth / 2}
+                  y={pillY + 11.5}
+                  fontSize="8.5"
+                  fontWeight="800"
+                  fill="#4338CA"
+                  textAnchor="middle"
+                >
+                  {avgPillText}
+                </SvgText>
+              </G>
+            );
+          })()}
+
           {/* Selected Point Vertical Guideline */}
           {activeCoord && (
             <Line
@@ -1316,6 +1374,14 @@ export default function ReportsScreen() {
             const isSelected = selectedPointIndex === idx;
             const item = dataPoints[idx];
             const isPeak = item.expense === spendingWaveSummary.peakSpend && spendingWaveSummary.peakSpend > 0;
+            const isPointAboveAvg = item.expense > avgSpend;
+            const isPointZero = item.expense === 0;
+
+            const showLabel =
+              dataPoints.length <= 7 ||
+              (dataPoints.length <= 14 ? idx % 2 === 0 : idx % 5 === 0) ||
+              idx === dataPoints.length - 1 ||
+              isSelected;
 
             return (
               <G key={`dot-${idx}`}>
@@ -1324,9 +1390,9 @@ export default function ReportsScreen() {
                   x={c.x - step / 2}
                   y={0}
                   width={step}
-                  height={chartHeight + 35}
+                  height={chartHeight + 38}
                   fill="transparent"
-                  onPress={() => setSelectedPointIndex(selectedPointIndex === idx ? null : idx)}
+                  {...getSvgTouchProps(() => setSelectedPointIndex(selectedPointIndex === idx ? null : idx))}
                 />
 
                 {/* Selected Point Halo Ring */}
@@ -1344,11 +1410,21 @@ export default function ReportsScreen() {
                 <Circle
                   cx={c.x}
                   cy={c.y}
-                  r={isSelected ? 6 : isPeak ? 4.5 : 3.5}
-                  fill={isSelected ? '#B45309' : isPeak ? '#EF4444' : '#FFFFFF'}
-                  stroke={isSelected ? '#FFFFFF' : isPeak ? '#FFFFFF' : '#F59E0B'}
-                  strokeWidth={isSelected ? 2.5 : isPeak ? 2 : 2}
-                  onPress={() => setSelectedPointIndex(selectedPointIndex === idx ? null : idx)}
+                  r={isSelected ? 6 : isPeak ? 4.8 : 3.5}
+                  fill={
+                    isSelected
+                      ? '#4338CA'
+                      : isPeak
+                      ? '#EF4444'
+                      : isPointAboveAvg
+                      ? '#F59E0B'
+                      : isPointZero
+                      ? '#E2E8F0'
+                      : '#10B981'
+                  }
+                  stroke={isSelected ? '#FFFFFF' : '#FFFFFF'}
+                  strokeWidth={isSelected ? 2.5 : 1.8}
+                  {...getSvgTouchProps(() => setSelectedPointIndex(selectedPointIndex === idx ? null : idx))}
                 />
 
                 {/* Peak Day Beacon */}
@@ -1362,37 +1438,41 @@ export default function ReportsScreen() {
                 )}
 
                 {/* X Axis Day & Date Label */}
-                <SvgText
-                  x={c.x}
-                  y={chartHeight + 17}
-                  fontSize={isSelected ? '11' : '10'}
-                  fontWeight={isSelected ? '900' : '700'}
-                  fill={isSelected ? '#0F172A' : '#64748B'}
-                  textAnchor="middle"
-                  onPress={() => setSelectedPointIndex(selectedPointIndex === idx ? null : idx)}
-                >
-                  {item.dayName || item.label.split(' ')[0]}
-                </SvgText>
+                {showLabel && (
+                  <>
+                    <SvgText
+                      x={c.x}
+                      y={chartHeight + 17}
+                      fontSize={isSelected ? '11' : dataPoints.length > 14 ? '9' : '10'}
+                      fontWeight={isSelected ? '900' : '700'}
+                      fill={isSelected ? '#0F172A' : '#64748B'}
+                      textAnchor="middle"
+                      {...getSvgTouchProps(() => setSelectedPointIndex(selectedPointIndex === idx ? null : idx))}
+                    >
+                      {item.dayName || item.label.split(' ')[0]}
+                    </SvgText>
 
-                <SvgText
-                  x={c.x}
-                  y={chartHeight + 28}
-                  fontSize="8"
-                  fontWeight={isSelected ? '800' : '600'}
-                  fill={isSelected ? '#D97706' : '#94A3B8'}
-                  textAnchor="middle"
-                  onPress={() => setSelectedPointIndex(selectedPointIndex === idx ? null : idx)}
-                >
-                  {item.label.split(' ')[0]}
-                </SvgText>
+                    <SvgText
+                      x={c.x}
+                      y={chartHeight + 28}
+                      fontSize="8"
+                      fontWeight={isSelected ? '800' : '600'}
+                      fill={isSelected ? '#D97706' : '#94A3B8'}
+                      textAnchor="middle"
+                      {...getSvgTouchProps(() => setSelectedPointIndex(selectedPointIndex === idx ? null : idx))}
+                    >
+                      {item.label.split(' ')[0]}
+                    </SvgText>
+                  </>
+                )}
 
                 {/* Active Indicator Underline */}
                 {isSelected && (
                   <Line
                     x1={c.x - 8}
-                    y1={chartHeight + 32}
+                    y1={chartHeight + 33}
                     x2={c.x + 8}
-                    y2={chartHeight + 32}
+                    y2={chartHeight + 33}
                     stroke="#D97706"
                     strokeWidth="2"
                     strokeLinecap="round"
@@ -1422,8 +1502,11 @@ export default function ReportsScreen() {
       ? monthlyTrends[selectedTrendIndex]
       : null;
 
-    // Helper for formatting Y-axis numbers
-    const formatY = (val: number) => (val >= 1000 ? `${Math.round(val / 1000)}k` : `${val}`);
+    // Helper for formatting Y-axis numbers (clean integers without decimals)
+    const formatY = (val: number) => {
+      const rounded = Math.round(val);
+      return rounded >= 1000 ? `${Math.round(rounded / 1000)}k` : `${rounded}`;
+    };
 
     return (
       <View style={styles.chartWrapperCard}>
@@ -1599,7 +1682,7 @@ export default function ReportsScreen() {
                   width={colWidth}
                   height={chartHeight + 35}
                   fill="transparent"
-                  onPress={() => setSelectedTrendIndex(selectedTrendIndex === idx ? null : idx)}
+                  {...getSvgTouchProps(() => setSelectedTrendIndex(selectedTrendIndex === idx ? null : idx))}
                 />
 
                 {/* Income Bar */}
@@ -1610,7 +1693,7 @@ export default function ReportsScreen() {
                   height={Math.max(incH, 4)}
                   rx={5}
                   fill="url(#incomeGrad)"
-                  onPress={() => setSelectedTrendIndex(selectedTrendIndex === idx ? null : idx)}
+                  {...getSvgTouchProps(() => setSelectedTrendIndex(selectedTrendIndex === idx ? null : idx))}
                 />
 
                 {/* Expense Bar */}
@@ -1621,7 +1704,7 @@ export default function ReportsScreen() {
                   height={Math.max(expH, 4)}
                   rx={5}
                   fill="url(#expenseGrad)"
-                  onPress={() => setSelectedTrendIndex(selectedTrendIndex === idx ? null : idx)}
+                  {...getSvgTouchProps(() => setSelectedTrendIndex(selectedTrendIndex === idx ? null : idx))}
                 />
 
                 {/* Net Savings Dot Indicator */}
@@ -1644,7 +1727,7 @@ export default function ReportsScreen() {
                   fontWeight={isSelected ? '900' : '700'}
                   fill={isSelected ? '#0F172A' : '#64748B'}
                   textAnchor="middle"
-                  onPress={() => setSelectedTrendIndex(selectedTrendIndex === idx ? null : idx)}
+                  {...getSvgTouchProps(() => setSelectedTrendIndex(selectedTrendIndex === idx ? null : idx))}
                 >
                   {item.label}
                 </SvgText>
@@ -1813,6 +1896,7 @@ export default function ReportsScreen() {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
+        removeClippedSubviews={Platform.OS === 'android'}
         contentContainerStyle={styles.scrollContent}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#1C1C1E" />}
       >
@@ -1856,10 +1940,7 @@ export default function ReportsScreen() {
           </View>
 
           {/* HERO NET SAVINGS CARD */}
-          <Animated.View style={[styles.heroOverviewCard, { backgroundColor: animatedCardBg }]}>
-            {/* Smooth Diagonal Shimmer Gleam */}
-            <Animated.View style={[styles.shimmerBeam, shimmerStyle]} pointerEvents="none" />
-
+          <View style={styles.heroOverviewCard}>
             {/* Header Row: Label Pill (✦ NET SAVINGS) & Savings Rate Badge */}
             <View style={styles.heroTopRow}>
               <View style={styles.heroNetLabelWrap}>
@@ -1912,7 +1993,7 @@ export default function ReportsScreen() {
                 </Text>
               </View>
             </View>
-          </Animated.View>
+          </View>
 
           {/* 1. 3D BUDGET ARC GAUGE (WHITE THEME SPEEDOMETER) */}
           <BudgetArcGauge
@@ -2357,7 +2438,7 @@ export default function ReportsScreen() {
             </View>
           )}
 
-          <View style={{ height: 110 }} />
+          <View style={{ height: 110 + (insets.bottom > 0 ? insets.bottom + 8 : 0) }} />
         </Animated.View>
       </ScrollView>
 
@@ -2598,13 +2679,14 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
 
-  // HERO NET SAVINGS CARD - ANIMATED PASTEL THEME
+  // HERO NET SAVINGS CARD - PERFORMANCE OPTIMIZED
   heroOverviewCard: {
+    backgroundColor: '#EEF2FF',
     borderRadius: 26,
     padding: 18,
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.7)',
+    borderColor: '#E0E7FF',
     shadowColor: '#4338CA',
     shadowOpacity: 0.12,
     shadowOffset: { width: 0, height: 8 },
@@ -3019,6 +3101,38 @@ const styles = StyleSheet.create({
   },
 
   // SPENDING WAVE ENHANCEMENTS
+  rangePillRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F1F5F9',
+    borderRadius: 8,
+    padding: 2.5,
+    gap: 2,
+  },
+  rangePillBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 3.5,
+    borderRadius: 6,
+  },
+  rangePillBtnActive: {
+    backgroundColor: '#0F172A',
+  },
+  rangePillText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  rangePillTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+  },
+  waveLegendBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 2,
+    marginBottom: 10,
+  },
   waveLiveBadge: {
     backgroundColor: '#FFFBEB',
     paddingHorizontal: 7,

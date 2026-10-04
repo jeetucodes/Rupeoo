@@ -22,9 +22,11 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Toast from 'react-native-toast-message';
+import * as Haptics from 'expo-haptics';
 
 import { useAuth } from '@/context/AuthContext';
 import { safeGoBack } from '@/lib/navigation';
+import { RupeoAdBanner } from '@/lib/ads';
 import {
   SplitMode,
   DEFAULT_SPLIT_LIMIT,
@@ -89,16 +91,13 @@ export default function SplitQrScreen() {
   const [selectedPresetLimit, setSelectedPresetLimit] = useState<number>(DEFAULT_SPLIT_LIMIT);
   const [customLimitInput, setCustomLimitInput] = useState<string>('1999');
   const [isCustomLimit, setIsCustomLimit] = useState<boolean>(false);
-  const [splitMode, setSplitMode] = useState<SplitMode>('greedy');
+  const [splitMode, setSplitMode] = useState<SplitMode>('equal');
 
   // Active Selected Part Tab
   const [activePartIndex, setActivePartIndex] = useState<number>(0);
 
   // Paid Status Map for parts: { [partId: string]: boolean }
   const [paidStatusMap, setPaidStatusMap] = useState<Record<string, boolean>>({});
-
-  // Show Details for NPCI MDR
-  const [showMdrDetails, setShowMdrDetails] = useState<boolean>(false);
 
   // Scroll ref to scroll down to QR once generated
   const scrollRef = useRef<ScrollView>(null);
@@ -216,10 +215,24 @@ export default function SplitQrScreen() {
 
   // Toggle paid status for a part
   const handleTogglePaid = useCallback((partId: string) => {
-    setPaidStatusMap((prev) => ({
-      ...prev,
-      [partId]: !prev[partId],
-    }));
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    setPaidStatusMap((prev) => {
+      const nextPaid = !prev[partId];
+      if (nextPaid) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+        Toast.show({
+          type: 'success',
+          text1: 'Marked as Paid! ✅',
+          text2: 'This QR part has been recorded as paid.',
+          position: 'top',
+          visibilityTime: 2000,
+        });
+      }
+      return {
+        ...prev,
+        [partId]: nextPaid,
+      };
+    });
   }, []);
 
   // Quick Amount Preset Handler
@@ -369,8 +382,8 @@ export default function SplitQrScreen() {
         await loadSavedCards();
         Toast.show({
           type: 'success',
-          text1: 'Payment Recorded in Rupeo! 💸',
-          text2: `₹${card.totalAmountFormatted} added to your expenses.`,
+          text1: 'Payment Recorded in Rupeo! 💰',
+          text2: `₹${card.totalAmountFormatted} added to your income.`,
           position: 'top',
           visibilityTime: 4000,
         });
@@ -564,6 +577,9 @@ export default function SplitQrScreen() {
         </View>
       </View>
 
+      {/* SCANNER / SMART QR SCREEN PROMOTIONAL AD */}
+      <RupeoAdBanner placement="scanner_screen" compact />
+
       {activeMainTab === 'saved' ? (
         <ScrollView
           style={styles.flexOne}
@@ -685,69 +701,13 @@ export default function SplitQrScreen() {
               })}
             </View>
 
-            {/* NPCI MDR Notice Box with Dropdown Toggle */}
-            <TouchableOpacity
-              style={styles.mdrInfoBox}
-              onPress={() => setShowMdrDetails((prev) => !prev)}
-              activeOpacity={0.8}
-            >
-              <View style={styles.mdrInfoLeft}>
-                <View style={styles.mdrGreySquare} />
-                <Text style={styles.mdrInfoText} numberOfLines={1}>
-                  NPCI MDR: ₹0 Free up to ₹2,000 · 0.40% abo...
-                </Text>
-              </View>
-              <View style={styles.mdrDetailsToggle}>
-                <Text style={styles.mdrDetailsText}>Details</Text>
-                <Ionicons
-                  name={showMdrDetails ? 'chevron-up' : 'chevron-down'}
-                  size={14}
-                  color="#64748B"
-                />
-              </View>
-            </TouchableOpacity>
-
-            {/* Expanded MDR Details with 100% Verified Truth */}
-            {showMdrDetails && (
-              <View style={styles.mdrExpandedDetails}>
-                <Text style={styles.mdrExpandedHeading}>Official NPCI & Banking Regulations (Verified Facts):</Text>
-
-                <View style={styles.mdrFactRow}>
-                  <Text style={styles.mdrFactBullet}>•</Text>
-                  <Text style={styles.mdrFactText}>
-                    <Text style={styles.mdrFactBold}>Standard Bank-to-Bank UPI:</Text> 100% Free (0% MDR) for both customers and merchants, irrespective of the amount.
-                  </Text>
-                </View>
-
-                <View style={styles.mdrFactRow}>
-                  <Text style={styles.mdrFactBullet}>•</Text>
-                  <Text style={styles.mdrFactText}>
-                    <Text style={styles.mdrFactBold}>P2M Commercial Transactions:</Text> Free up to ₹2,000. For merchant payments exceeding ₹2,000, an MDR of 0.40% applies under NPCI circulars (capped at ₹300 for ₹75k+).
-                  </Text>
-                </View>
-
-                <View style={styles.mdrFactRow}>
-                  <Text style={styles.mdrFactBullet}>•</Text>
-                  <Text style={styles.mdrFactText}>
-                    <Text style={styles.mdrFactBold}>PPI Wallets & Credit Cards on UPI:</Text> Free up to ₹2,000. Above ₹2,000, an interchange fee of up to 1.1% applies (borne by merchant acquirers).
-                  </Text>
-                </View>
-
-                <View style={styles.mdrFactRow}>
-                  <Text style={styles.mdrFactBullet}>•</Text>
-                  <Text style={styles.mdrFactText}>
-                    <Text style={styles.mdrFactBold}>Bank Velocity & Limits:</Text> Most banks (SBI, HDFC, ICICI) enforce a ₹2,000 single-transaction velocity cap on new payees or in the first 24h.
-                  </Text>
-                </View>
-
-                <View style={styles.mdrSummaryBox}>
-                  <Ionicons name="shield-checkmark" size={13} color="#059669" style={{ marginRight: 6 }} />
-                  <Text style={styles.mdrSummaryText}>
-                    Splitting amounts to ≤₹1,999 keeps transfers strictly within the 0% zero-fee bracket and eliminates banking velocity trigger blocks.
-                  </Text>
-                </View>
-              </View>
-            )}
+            {/* Split & Equal Tip Box */}
+            <View style={styles.splitTipBox}>
+              <Ionicons name="git-compare-outline" size={14} color="#2563EB" style={{ marginRight: 6 }} />
+              <Text style={styles.splitTipText}>
+                Easily split bills into equal parts or custom amounts with multiple QR passes.
+              </Text>
+            </View>
           </View>
 
           {/* Card 2: Recipient UPI ID */}
@@ -914,7 +874,7 @@ export default function SplitQrScreen() {
             </View>
           </View>
 
-          {/* Card 3: Split Payments Card */}
+          {/* Card 3: Split & Equal Payments Card */}
           <View style={styles.cardContainer}>
             <View style={styles.splitHeaderRow}>
               <View style={styles.splitHeaderLeft}>
@@ -926,13 +886,17 @@ export default function SplitQrScreen() {
                 </LinearGradient>
                 <View style={{ flex: 1 }}>
                   <View style={styles.splitTitleRow}>
-                    <Text style={styles.splitHeaderTitle}>Split Payments</Text>
+                    <Text style={styles.splitHeaderTitle}>Split & Equal Payments</Text>
                     <View style={styles.maxLimitPill}>
-                      <Text style={styles.maxLimitPillText}>Max ₹{effectiveMaxLimit.toLocaleString('en-IN')} / QR</Text>
+                      <Text style={styles.maxLimitPillText}>
+                        {splitMode === 'equal' ? 'Equal Split' : `Max ₹${effectiveMaxLimit.toLocaleString('en-IN')} / QR`}
+                      </Text>
                     </View>
                   </View>
                   <Text style={styles.splitHeaderSubtitle}>
-                    Bypasses bank limits · multiple QRs ≤ ₹{effectiveMaxLimit.toLocaleString('en-IN')}
+                    {splitMode === 'equal'
+                      ? 'Divides total bill into equal parts for all people'
+                      : `Multiple QRs up to ₹${effectiveMaxLimit.toLocaleString('en-IN')} each`}
                   </Text>
                 </View>
               </View>
@@ -948,8 +912,50 @@ export default function SplitQrScreen() {
             {/* Split Options Accordion */}
             {isSplitEnabled && (
               <View style={styles.splitExpandedContainer}>
-                {/* Section 1: Limit Presets */}
+                {/* Section 1: Mode Selector */}
                 <View style={styles.splitOptionSection}>
+                  <View style={styles.splitSectionHeaderRow}>
+                    <Text style={styles.splitSubLabel}>SPLIT DISTRIBUTION MODE</Text>
+                    <Text style={styles.splitSubHint}>Choose division type</Text>
+                  </View>
+
+                  <View style={styles.modeSegmentContainer}>
+                    <TouchableOpacity
+                      style={[styles.modeSegmentBtn, splitMode === 'equal' && styles.modeSegmentBtnActive]}
+                      onPress={() => setSplitMode('equal')}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons
+                        name="git-compare-outline"
+                        size={14}
+                        color={splitMode === 'equal' ? '#2563EB' : '#64748B'}
+                        style={{ marginRight: 5 }}
+                      />
+                      <Text style={[styles.modeSegmentText, splitMode === 'equal' && styles.modeSegmentTextActive]}>
+                        Equal Parts
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.modeSegmentBtn, splitMode === 'greedy' && styles.modeSegmentBtnActive]}
+                      onPress={() => setSplitMode('greedy')}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons
+                        name="flash-outline"
+                        size={14}
+                        color={splitMode === 'greedy' ? '#2563EB' : '#64748B'}
+                        style={{ marginRight: 5 }}
+                      />
+                      <Text style={[styles.modeSegmentText, splitMode === 'greedy' && styles.modeSegmentTextActive]}>
+                        Max per QR
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                {/* Section 2: Limit Presets */}
+                <View style={[styles.splitOptionSection, { marginTop: 10 }]}>
                   <View style={styles.splitSectionHeaderRow}>
                     <Text style={styles.splitSubLabel}>MAX LIMIT PER QR CODE</Text>
                     <Text style={styles.splitSubHint}>Select threshold</Text>
@@ -1005,48 +1011,6 @@ export default function SplitQrScreen() {
                       <Text style={styles.customLimitSuffix}>max / QR</Text>
                     </View>
                   )}
-                </View>
-
-                {/* Section 2: Mode Selector */}
-                <View style={[styles.splitOptionSection, { marginTop: 10 }]}>
-                  <View style={styles.splitSectionHeaderRow}>
-                    <Text style={styles.splitSubLabel}>SPLIT DISTRIBUTION MODE</Text>
-                    <Text style={styles.splitSubHint}>How amount divides</Text>
-                  </View>
-
-                  <View style={styles.modeSegmentContainer}>
-                    <TouchableOpacity
-                      style={[styles.modeSegmentBtn, splitMode === 'greedy' && styles.modeSegmentBtnActive]}
-                      onPress={() => setSplitMode('greedy')}
-                      activeOpacity={0.8}
-                    >
-                      <Ionicons
-                        name="flash-outline"
-                        size={14}
-                        color={splitMode === 'greedy' ? '#2563EB' : '#64748B'}
-                        style={{ marginRight: 5 }}
-                      />
-                      <Text style={[styles.modeSegmentText, splitMode === 'greedy' && styles.modeSegmentTextActive]}>
-                        Max per QR (Greedy)
-                      </Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={[styles.modeSegmentBtn, splitMode === 'equal' && styles.modeSegmentBtnActive]}
-                      onPress={() => setSplitMode('equal')}
-                      activeOpacity={0.8}
-                    >
-                      <Ionicons
-                        name="git-compare-outline"
-                        size={14}
-                        color={splitMode === 'equal' ? '#2563EB' : '#64748B'}
-                        style={{ marginRight: 5 }}
-                      />
-                      <Text style={[styles.modeSegmentText, splitMode === 'equal' && styles.modeSegmentTextActive]}>
-                        Equal Parts
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
                 </View>
               </View>
             )}
@@ -1402,98 +1366,23 @@ const styles = StyleSheet.create({
   amountPresetChipTextActive: {
     color: '#FFFFFF',
   },
-  mdrInfoBox: {
+  splitTipBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#F9FAFB',
-    borderRadius: 8,
+    backgroundColor: '#EFF6FF',
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    borderColor: '#DBEAFE',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     marginTop: 14,
   },
-  mdrInfoLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    flex: 1,
-  },
-  mdrGreySquare: {
-    width: 8,
-    height: 8,
-    backgroundColor: '#9CA3AF',
-    borderRadius: 1,
-  },
-  mdrInfoText: {
-    fontSize: 11,
+  splitTipText: {
+    fontSize: 11.5,
     fontWeight: '600',
-    color: '#374151',
-  },
-  mdrDetailsToggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-  },
-  mdrDetailsText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#6B7280',
-  },
-  mdrExpandedDetails: {
-    backgroundColor: '#F8FAFC',
-    padding: 12,
-    borderRadius: 10,
-    marginTop: 10,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    gap: 6,
-  },
-  mdrExpandedHeading: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#0F172A',
-    marginBottom: 4,
-    letterSpacing: 0.2,
-  },
-  mdrFactRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
-  mdrFactBullet: {
-    fontSize: 12,
-    color: '#059669',
-    fontWeight: '900',
-    marginRight: 6,
-    lineHeight: 16,
-  },
-  mdrFactText: {
+    color: '#1E40AF',
     flex: 1,
-    fontSize: 11,
-    color: '#475569',
     lineHeight: 16,
-  },
-  mdrFactBold: {
-    fontWeight: '800',
-    color: '#0F172A',
-  },
-  mdrSummaryBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#ECFDF5',
-    padding: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#A7F3D0',
-    marginTop: 4,
-  },
-  mdrSummaryText: {
-    flex: 1,
-    fontSize: 10.5,
-    fontWeight: '700',
-    color: '#065F46',
-    lineHeight: 15,
   },
   recipientHeaderRow: {
     flexDirection: 'row',

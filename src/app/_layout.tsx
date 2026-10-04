@@ -2,23 +2,29 @@ import React, { useEffect, useState, Component } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 
-SplashScreen.preventAutoHideAsync().catch(() => {});
-import { 
-  useColorScheme, 
-  View, 
-  Text, 
-  Platform, 
-  StyleSheet, 
-  TouchableOpacity 
+SplashScreen.preventAutoHideAsync().catch(() => { });
+import {
+  useColorScheme,
+  View,
+  Text,
+  Platform,
+  StyleSheet,
+  TouchableOpacity,
+  AppState
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
-import { initDatabase } from '@/lib/database';
+import { initDatabase, syncUserOfflineData } from '@/lib/database';
 import { initializeAds } from '@/lib/ads';
 import Toast from 'react-native-toast-message';
 import { customToastConfig } from '@/components/custom-toast';
 import MaintenanceScreen from '@/components/MaintenanceScreen';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Linking from 'expo-linking';
+import '@/widgets';
+import { syncWidgetWithTransactions } from '@/lib/widgetSync';
+import { preloadFriendsAndUdhar } from '@/lib/udharStorage';
 
 interface ErrorBoundaryProps {
   children: React.ReactNode;
@@ -59,9 +65,9 @@ class RootErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState
             <Text style={errorStyles.subtitle}>
               {this.state.error?.message || 'An unexpected runtime error occurred.'}
             </Text>
-            <TouchableOpacity 
-              style={errorStyles.retryButton} 
-              onPress={this.resetError} 
+            <TouchableOpacity
+              style={errorStyles.retryButton}
+              onPress={this.resetError}
               activeOpacity={0.8}
             >
               <Ionicons name="refresh" size={18} color="#1C1C1E" style={{ marginRight: 8 }} />
@@ -76,10 +82,10 @@ class RootErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState
 }
 
 import * as Notifications from 'expo-notifications';
-import { 
-  requestNotificationPermissions, 
+import {
+  requestNotificationPermissions,
   registerDeviceForPushNotifications,
-  sendWelcomeNotification, 
+  sendWelcomeNotification,
   setupPeriodicSmartNotifications,
   startRealtimeNotificationWatcher
 } from '@/lib/notifications';
@@ -93,11 +99,11 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // Safety timer to prevent splash screen hanging
     const timer = setTimeout(() => {
-      SplashScreen.hideAsync().catch(() => {});
+      SplashScreen.hideAsync().catch(() => { });
     }, 3500);
 
     if (!loading) {
-      SplashScreen.hideAsync().catch(() => {});
+      SplashScreen.hideAsync().catch(() => { });
       clearTimeout(timer);
     }
 
@@ -118,6 +124,34 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
     return () => {
       if (unsub) unsub();
+    };
+  }, [user?.uid]);
+
+  // Automatic background offline data sync with Firebase
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    // Preload friends and udhar into memory cache instantly (<1ms)
+    preloadFriendsAndUdhar(user.uid).catch(() => {});
+
+    // 1. Initial sync on startup / login
+    syncUserOfflineData(user.uid).catch(() => { });
+
+    // 2. Sync whenever app resumes / comes to foreground
+    const appStateSub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        syncUserOfflineData(user.uid).catch(() => { });
+      }
+    });
+
+    // 3. Periodic background sync every 60 seconds while active
+    const timer = setInterval(() => {
+      syncUserOfflineData(user.uid).catch(() => { });
+    }, 60 * 1000);
+
+    return () => {
+      appStateSub.remove();
+      clearInterval(timer);
     };
   }, [user?.uid]);
 
@@ -148,13 +182,59 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       currentSegment === 'setup';
 
     if (!user && !isPublicRoute) {
+      if (currentSegment === 'quick-add' || currentSegment === 'quick-add-voice') {
+        AsyncStorage.setItem('@rupeo_pending_redirect', `/${currentSegment}`).catch(() => {});
+      }
       router.replace('/login');
     } else if (user) {
+      // Sync widget with user's latest transaction summary
+      syncWidgetWithTransactions(user.uid, undefined, settings).catch(() => {});
+
       if (currentSegment === 'login') {
-        router.replace(user.hasSetStartingBalance ? '/(tabs)/dashboard' : '/starting-balance');
+        AsyncStorage.getItem('@rupeo_pending_redirect').then((pending) => {
+          if (pending) {
+            AsyncStorage.removeItem('@rupeo_pending_redirect').catch(() => {});
+            router.replace(pending as any);
+          } else {
+            router.replace(user.hasSetStartingBalance ? '/(tabs)/dashboard' : '/starting-balance');
+          }
+        }).catch(() => {
+          router.replace(user.hasSetStartingBalance ? '/(tabs)/dashboard' : '/starting-balance');
+        });
       }
     }
   }, [user, loading, settings, segments]);
+
+  useEffect(() => {
+    const handleUrl = (event: { url: string }) => {
+      try {
+        const parsed = Linking.parse(event.url);
+        if (parsed.path === 'quick-add' || parsed.path === 'quick-add-voice') {
+          const typeParam = parsed.queryParams?.type ? `?type=${parsed.queryParams.type}` : '';
+          const fullPath = `/${parsed.path}${typeParam}`;
+          if (!user) {
+            AsyncStorage.setItem('@rupeo_pending_redirect', fullPath).catch(() => {});
+          }
+        }
+      } catch (err) {
+        console.warn('Deep link parse error:', err);
+      }
+    };
+
+    Linking.getInitialURL().then((url) => {
+      if (url) handleUrl({ url });
+    }).catch(() => {});
+
+    const sub = Linking.addEventListener('url', handleUrl);
+    return () => sub.remove();
+  }, [user]);
+
+  // Initialize Ads respecting Real-time Remote Admin Config
+  useEffect(() => {
+    if (!loading && appConfig) {
+      initializeAds(appConfig).catch((e) => console.warn('Ads init warning:', e));
+    }
+  }, [loading, appConfig?.networkAdsEnabled, appConfig?.showAds, appConfig?.adMobTestMode]);
 
   if (loading) {
     return null;
@@ -173,12 +253,11 @@ export default function RootLayout() {
 
   useEffect(() => {
     initDatabase().catch((e) => console.error('Database init error:', e));
-    initializeAds().catch((e) => console.warn('AdMob init error:', e));
     requestNotificationPermissions()
       .then((granted) => {
         if (granted) {
-          sendWelcomeNotification().catch(() => {});
-          setupPeriodicSmartNotifications().catch(() => {});
+          sendWelcomeNotification().catch(() => { });
+          setupPeriodicSmartNotifications().catch(() => { });
         }
       })
       .catch((e) => console.error('Notification permission error:', e));
@@ -191,8 +270,8 @@ export default function RootLayout() {
           <AuthGuard>
             <View style={styles.appContainer}>
               <View style={styles.appContent}>
-                <Stack 
-                  screenOptions={{ 
+                <Stack
+                  screenOptions={{
                     headerShown: false,
                     animation: 'none',
                     contentStyle: { backgroundColor: '#F1F5F9' }
@@ -211,14 +290,29 @@ export default function RootLayout() {
                   <Stack.Screen name="premium" />
                   <Stack.Screen name="reminders" />
                   <Stack.Screen name="split-qr" />
+                  <Stack.Screen name="udhar" />
                   <Stack.Screen name="transaction/[id]" />
                   <Stack.Screen name="(tabs)" />
-                  <Stack.Screen 
-                    name="add" 
-                    options={{ 
+                  <Stack.Screen
+                    name="add"
+                    options={{
                       presentation: 'modal',
                       animation: 'slide_from_bottom'
-                    }} 
+                    }}
+                  />
+                  <Stack.Screen
+                    name="quick-add"
+                    options={{
+                      presentation: 'modal',
+                      animation: 'slide_from_bottom'
+                    }}
+                  />
+                  <Stack.Screen
+                    name="quick-add-voice"
+                    options={{
+                      presentation: 'modal',
+                      animation: 'fade'
+                    }}
                   />
                 </Stack>
               </View>

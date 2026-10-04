@@ -46,11 +46,13 @@ export default function BudgetScreen() {
   // Overall Budget Modal
   const [showOverallModal, setShowOverallModal] = useState(false);
   const [overallBudgetInput, setOverallBudgetInput] = useState('');
+  const [savingOverall, setSavingOverall] = useState(false);
 
   // Category Budget Modal
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<CategoryItem | null>(null);
   const [categoryBudgetInput, setCategoryBudgetInput] = useState('');
+  const [savingCategory, setSavingCategory] = useState(false);
 
   const fetchData = async () => {
     if (!user) return;
@@ -89,6 +91,7 @@ export default function BudgetScreen() {
   const isOverallOverBudget = monthlyBudget > 0 && totalSpent > monthlyBudget;
 
   const handleSaveOverallBudget = async () => {
+    if (savingOverall) return;
     const val = parseFloat(overallBudgetInput);
     if (isNaN(val) || val < 0) {
       Toast.show({ type: 'error', text1: 'Invalid Amount', text2: 'Please enter a valid budget amount.' });
@@ -96,6 +99,7 @@ export default function BudgetScreen() {
     }
 
     if (!user) return;
+    setSavingOverall(true);
     try {
       const updated = { ...settings, monthlyBudget: val } as any;
       await saveUserSettings(user.uid, updated);
@@ -105,16 +109,19 @@ export default function BudgetScreen() {
 
       if (val > 0 && totalSpent > val) {
         import('@/lib/notifications').then(({ sendBudgetAlert }) => {
-          sendBudgetAlert(Math.round(totalSpent - val), currency, totalSpent, val, undefined, user.uid).catch(() => {});
-        }).catch(() => {});
+          sendBudgetAlert(Math.round(totalSpent - val), currency, totalSpent, val, undefined, user.uid).catch(() => { });
+        }).catch(() => { });
       }
     } catch (err) {
       console.error(err);
       Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to save monthly budget.' });
+    } finally {
+      setSavingOverall(false);
     }
   };
 
   const handleSaveCategoryBudget = async () => {
+    if (savingCategory) return;
     if (!selectedCategory) return;
     const val = parseFloat(categoryBudgetInput);
     if (isNaN(val) || val < 0) {
@@ -123,6 +130,7 @@ export default function BudgetScreen() {
     }
 
     if (!user) return;
+    setSavingCategory(true);
     try {
       await saveCategoryBudget(user.uid, selectedCategory.name, val);
       setCategoryBudgets(prev => ({
@@ -135,12 +143,14 @@ export default function BudgetScreen() {
       const catSpent = categoryTotals[selectedCategory.name.toLowerCase()] || 0;
       if (val > 0 && catSpent > val) {
         import('@/lib/notifications').then(({ sendBudgetAlert }) => {
-          sendBudgetAlert(Math.round(catSpent - val), currency, catSpent, val, selectedCategory.name, user.uid).catch(() => {});
-        }).catch(() => {});
+          sendBudgetAlert(Math.round(catSpent - val), currency, catSpent, val, selectedCategory.name, user.uid).catch(() => { });
+        }).catch(() => { });
       }
     } catch (err) {
       console.error(err);
       Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to save category budget.' });
+    } finally {
+      setSavingCategory(false);
     }
   };
 
@@ -310,68 +320,86 @@ export default function BudgetScreen() {
       </ScrollView>
 
       {/* Edit Overall Budget Modal */}
-      <Modal visible={showOverallModal} transparent animationType="fade" onRequestClose={() => setShowOverallModal(false)}>
+      <Modal visible={showOverallModal} transparent animationType="fade" onRequestClose={() => !savingOverall && setShowOverallModal(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{t('overall_monthly_budget')}</Text>
-              <TouchableOpacity onPress={() => setShowOverallModal(false)}>
-                <Ionicons name="close" size={24} color="#1C1C1E" />
+              <TouchableOpacity onPress={() => setShowOverallModal(false)} disabled={savingOverall}>
+                <Ionicons name="close" size={24} color={savingOverall ? '#9CA3AF' : '#1C1C1E'} />
               </TouchableOpacity>
             </View>
 
             <Text style={styles.modalLabel}>Enter Monthly Limit ({currency})</Text>
             <TextInput
-              style={[styles.modalInput, { color: '#1C1C1E' }]}
+              style={[styles.modalInput, { color: '#1C1C1E' }, savingOverall && { opacity: 0.6 }]}
               keyboardType="decimal-pad"
               placeholder="e.g. 25000"
               placeholderTextColor="#9CA3AF"
               value={overallBudgetInput}
               onChangeText={setOverallBudgetInput}
+              editable={!savingOverall}
               autoFocus
             />
 
             <TouchableOpacity
-              style={styles.modalPrimaryBtn}
+              style={[styles.modalPrimaryBtn, savingOverall && { opacity: 0.75 }]}
               onPress={handleSaveOverallBudget}
+              disabled={savingOverall}
               activeOpacity={0.85}
             >
-              <Text style={styles.modalPrimaryBtnText}>{t('save')}</Text>
+              {savingOverall ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                  <Text style={styles.modalPrimaryBtnText}>Saving...</Text>
+                </View>
+              ) : (
+                <Text style={styles.modalPrimaryBtnText}>{t('save')}</Text>
+              )}
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
       {/* Edit Category Budget Modal */}
-      <Modal visible={showCategoryModal} transparent animationType="fade" onRequestClose={() => setShowCategoryModal(false)}>
+      <Modal visible={showCategoryModal} transparent animationType="fade" onRequestClose={() => !savingCategory && setShowCategoryModal(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>
                 {selectedCategory?.name} Budget
               </Text>
-              <TouchableOpacity onPress={() => setShowCategoryModal(false)}>
-                <Ionicons name="close" size={24} color="#1C1C1E" />
+              <TouchableOpacity onPress={() => setShowCategoryModal(false)} disabled={savingCategory}>
+                <Ionicons name="close" size={24} color={savingCategory ? '#9CA3AF' : '#1C1C1E'} />
               </TouchableOpacity>
             </View>
 
             <Text style={styles.modalLabel}>Monthly Limit ({currency})</Text>
             <TextInput
-              style={[styles.modalInput, { color: '#1C1C1E' }]}
+              style={[styles.modalInput, { color: '#1C1C1E' }, savingCategory && { opacity: 0.6 }]}
               keyboardType="decimal-pad"
               placeholder="e.g. 5000"
               placeholderTextColor="#9CA3AF"
               value={categoryBudgetInput}
               onChangeText={setCategoryBudgetInput}
+              editable={!savingCategory}
               autoFocus
             />
 
             <TouchableOpacity
-              style={styles.modalPrimaryBtn}
+              style={[styles.modalPrimaryBtn, savingCategory && { opacity: 0.75 }]}
               onPress={handleSaveCategoryBudget}
+              disabled={savingCategory}
               activeOpacity={0.85}
             >
-              <Text style={styles.modalPrimaryBtnText}>{t('save')}</Text>
+              {savingCategory ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                  <Text style={styles.modalPrimaryBtnText}>Saving...</Text>
+                </View>
+              ) : (
+                <Text style={styles.modalPrimaryBtnText}>{t('save')}</Text>
+              )}
             </TouchableOpacity>
           </View>
         </View>

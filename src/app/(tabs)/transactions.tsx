@@ -12,7 +12,7 @@ import {
   Platform,
   Modal,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -21,6 +21,7 @@ import {
   sortTransactionsRecentFirst,
   getUserCategories,
   CategoryItem,
+  subscribeTransactions,
 } from '@/lib/database';
 import { useAuth } from '@/context/AuthContext';
 import { useTranslation } from '@/lib/i18n';
@@ -287,6 +288,7 @@ const SlicedPieChart = ({
 
 export default function TransactionsScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { user, settings } = useAuth();
   const { t } = useTranslation();
 
@@ -342,6 +344,16 @@ export default function TransactionsScreen() {
     }, [user?.uid])
   );
 
+  // Subscribe to real-time & background sync updates so allTransactions is always up-to-date
+  useEffect(() => {
+    const unsub = subscribeTransactions((freshTxs) => {
+      if (Array.isArray(freshTxs)) {
+        setAllTransactions(sortTransactionsRecentFirst(freshTxs));
+      }
+    });
+    return () => unsub();
+  }, []);
+
   const onRefresh = () => {
     setRefreshing(true);
     loadData(true);
@@ -349,56 +361,76 @@ export default function TransactionsScreen() {
 
   // Filter logic
   const filteredList = useMemo(() => {
+    const isSearching = searchQuery.trim().length > 0;
     const now = new Date();
+
     return allTransactions.filter(tx => {
-      // Period filter
-      if (period === 'This Month') {
-        const d = new Date(tx.date);
-        if (d.getMonth() !== now.getMonth() || d.getFullYear() !== now.getFullYear()) return false;
-      } else if (period === 'Last 3 Months') {
-        const d = new Date(tx.date);
-        const threeMonthsAgo = new Date();
-        threeMonthsAgo.setMonth(now.getMonth() - 3);
-        if (d < threeMonthsAgo) return false;
-      } else if (period === 'Last 6 Months') {
-        const d = new Date(tx.date);
-        const sixMonthsAgo = new Date();
-        sixMonthsAgo.setMonth(now.getMonth() - 6);
-        if (d < sixMonthsAgo) return false;
-      } else if (period === 'Custom') {
-        const d = new Date(tx.date);
-        if (startDate) {
-          const start = new Date(startDate);
-          if (!isNaN(start.getTime()) && d < start) return false;
-        }
-        if (endDate) {
-          const end = new Date(endDate);
-          end.setHours(23, 59, 59, 999);
-          if (!isNaN(end.getTime()) && d > end) return false;
+      // 1. Period filter: ONLY apply if user is NOT searching!
+      // When searching, we search across ALL transactions throughout history so everything is found!
+      if (!isSearching) {
+        if (period === 'This Month') {
+          const d = new Date(tx.date);
+          if (d.getMonth() !== now.getMonth() || d.getFullYear() !== now.getFullYear()) return false;
+        } else if (period === 'Last 3 Months') {
+          const d = new Date(tx.date);
+          const threeMonthsAgo = new Date();
+          threeMonthsAgo.setMonth(now.getMonth() - 3);
+          if (d < threeMonthsAgo) return false;
+        } else if (period === 'Last 6 Months') {
+          const d = new Date(tx.date);
+          const sixMonthsAgo = new Date();
+          sixMonthsAgo.setMonth(now.getMonth() - 6);
+          if (d < sixMonthsAgo) return false;
+        } else if (period === 'Custom') {
+          const d = new Date(tx.date);
+          if (startDate) {
+            const start = new Date(startDate);
+            if (!isNaN(start.getTime()) && d < start) return false;
+          }
+          if (endDate) {
+            const end = new Date(endDate);
+            end.setHours(23, 59, 59, 999);
+            if (!isNaN(end.getTime()) && d > end) return false;
+          }
         }
       }
 
-      // Search query filter
-      if (searchQuery.trim()) {
+      // 2. Search query filter (matches merchant, description, category, payment mode, amount, date, utr, ref_no)
+      if (isSearching) {
         const q = searchQuery.toLowerCase().trim();
         const m = (tx.merchant_name || '').toLowerCase();
         const d = (tx.description || '').toLowerCase();
         const c = (tx.category || '').toLowerCase();
         const p = (tx.payment_mode || '').toLowerCase();
-        if (!m.includes(q) && !d.includes(q) && !c.includes(q) && !p.includes(q)) return false;
+        const amt = String(tx.amount || '');
+        const dateStr = (tx.date || '').toLowerCase();
+        const utr = (tx.utr || '').toLowerCase();
+        const refNo = (tx.ref_no || '').toLowerCase();
+
+        const matches =
+          m.includes(q) ||
+          d.includes(q) ||
+          c.includes(q) ||
+          p.includes(q) ||
+          amt.includes(q) ||
+          dateStr.includes(q) ||
+          utr.includes(q) ||
+          refNo.includes(q);
+
+        if (!matches) return false;
       }
 
-      // Type filter
+      // 3. Type filter
       if (filterType !== 'all') {
         if (tx.type !== filterType) return false;
       }
 
-      // Category filter
+      // 4. Category filter
       if (selectedCategory !== 'All') {
         if ((tx.category || '').toLowerCase() !== selectedCategory.toLowerCase()) return false;
       }
 
-      // Amount filter
+      // 5. Amount filter
       const amt = Number(tx.amount) || 0;
       if (minAmount && !isNaN(Number(minAmount))) {
         if (amt < Number(minAmount)) return false;
@@ -407,7 +439,7 @@ export default function TransactionsScreen() {
         if (amt > Number(maxAmount)) return false;
       }
 
-      // Payment Mode
+      // 6. Payment Mode
       if (filterPaymentMode !== 'All') {
         if ((tx.payment_mode || 'Cash').toLowerCase() !== filterPaymentMode.toLowerCase()) return false;
       }
@@ -514,8 +546,10 @@ export default function TransactionsScreen() {
     const todayStr = getLocalDateString();
     const yesterdayStr = getRelativeDateString(-1);
 
+    const isSearching = searchQuery.trim().length > 0;
     const sortedList = sortTransactionsRecentFirst(filteredList);
-    const visibleList = sortedList.slice(0, displayLimit);
+    // When searching, display ALL matching items immediately so no results are clipped!
+    const visibleList = isSearching ? sortedList : sortedList.slice(0, displayLimit);
 
     visibleList.forEach(tx => {
       const dateKey = tx.date || 'Unknown Date';
@@ -544,7 +578,7 @@ export default function TransactionsScreen() {
         ...group,
         items: sortTransactionsRecentFirst(group.items),
       }));
-  }, [filteredList, displayLimit]);
+  }, [filteredList, displayLimit, searchQuery]);
 
   const resetFilters = () => {
     setSearchQuery('');
@@ -580,7 +614,7 @@ export default function TransactionsScreen() {
           <Skeleton width={44} height={44} borderRadius={22} />
         </View>
 
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: 110 + (insets.bottom > 0 ? insets.bottom + 8 : 0) }]} showsVerticalScrollIndicator={false}>
           {/* Summary Cards Skeleton */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginHorizontal: 20, marginBottom: 16 }}>
             <Skeleton width="48%" height={80} borderRadius={20} />
@@ -648,7 +682,7 @@ export default function TransactionsScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingBottom: 110 + (insets.bottom > 0 ? insets.bottom + 8 : 0) }]}
         showsVerticalScrollIndicator={false}
         removeClippedSubviews={Platform.OS === 'android'}
         refreshControl={
@@ -730,6 +764,24 @@ export default function TransactionsScreen() {
             />
           </TouchableOpacity>
         </View>
+
+        {/* Active Search Scope Indicator Banner */}
+        {searchQuery.trim().length > 0 && (
+          <View style={styles.searchScopeBanner}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+              <Ionicons name="sparkles" size={14} color="#D97706" />
+              <Text style={styles.searchScopeBannerText} numberOfLines={1}>
+                Searching across all {allTransactions.length} recorded transactions
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={() => setSearchQuery('')}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={styles.clearSearchLink}>Clear</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Advanced Filters Panel */}
         {showAdvancedFilters && (
@@ -1046,7 +1098,16 @@ export default function TransactionsScreen() {
 
         {/* Transactions List Header */}
         <View style={styles.listHeaderRow}>
-          <Text style={styles.listHeaderTitle}>{t('transaction_history')}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Text style={styles.listHeaderTitle}>
+              {searchQuery.trim() ? t('search_results_all') : t('transaction_history')}
+            </Text>
+            {searchQuery.trim().length > 0 && (
+              <View style={styles.searchAllBadge}>
+                <Text style={styles.searchAllBadgeText}>ALL RECORDS</Text>
+              </View>
+            )}
+          </View>
           <Text style={styles.listHeaderCount}>{filteredList.length} {t('items_count')}</Text>
         </View>
 
@@ -1058,7 +1119,9 @@ export default function TransactionsScreen() {
             </View>
             <Text style={styles.emptyTitle}>{t('no_transactions_found')}</Text>
             <Text style={styles.emptySubtitle}>
-              {searchQuery || selectedCategory !== 'All' || filterType !== 'all'
+              {searchQuery.trim()
+                ? `No transactions found matching "${searchQuery.trim()}" across your entire history.`
+                : selectedCategory !== 'All' || filterType !== 'all'
                 ? t('no_tx_adjust_filters')
                 : t('start_tracking_msg')}
             </Text>
@@ -1171,7 +1234,7 @@ export default function TransactionsScreen() {
               </View>
             ))}
 
-            {displayLimit < filteredList.length && (
+            {!searchQuery.trim() && displayLimit < filteredList.length && (
               <TouchableOpacity
                 style={styles.loadMoreBtn}
                 onPress={() => setDisplayLimit(prev => prev + 20)}
@@ -1307,7 +1370,45 @@ const styles = StyleSheet.create({
     height: 48,
     borderWidth: 1,
     borderColor: '#E5E7EB',
+    marginBottom: 10,
+  },
+  searchScopeBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginHorizontal: 20,
     marginBottom: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    backgroundColor: '#EFF6FF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+  },
+  searchScopeBannerText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#1D4ED8',
+  },
+  clearSearchLink: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#EF4444',
+    marginLeft: 8,
+  },
+  searchAllBadge: {
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  searchAllBadgeText: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: '#B45309',
+    letterSpacing: 0.5,
   },
   searchInput: {
     flex: 1,

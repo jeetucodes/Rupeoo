@@ -14,15 +14,16 @@ import {
   Easing,
   StatusBar,
   Dimensions,
+  BackHandler,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image as ExpoImage } from 'expo-image';
 import { insertTransaction, getAllTransactions, getUserCategories, addCustomCategory, CategoryItem, defaultCategories } from '@/lib/database';
 import { markFirstTransactionReviewPending, hasUserBeenPromptedForReview } from '@/lib/review';
 import { useAuth } from '@/context/AuthContext';
-import { showTransactionSaveAd, preloadTransactionSaveAd } from '@/lib/ads';
+import { showTransactionSaveAd, preloadTransactionSaveAd, RupeoAdBanner } from '@/lib/ads';
 import { useTranslation } from '@/lib/i18n';
 import { Ionicons } from '@expo/vector-icons';
 import CategoryIcon from '@/components/CategoryIcon';
@@ -32,6 +33,8 @@ import { formatTime12Hour, getLocalDateString, getRelativeDateString } from '@/l
 import Toast from 'react-native-toast-message';
 import { triggerTransactionVibration } from '@/lib/sound';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import VoiceTransactionModal from '@/components/VoiceTransactionModal';
+import { ParsedVoiceTransaction } from '@/lib/voiceParser';
 
 // High-res 3D Fluent Emojis
 const ICONS_3D = {
@@ -112,7 +115,8 @@ const ADD_CAT_COLORS = [
 
 export default function AddExpenseScreen() {
   const router = useRouter();
-  const { user, settings, isPremium } = useAuth();
+  const insets = useSafeAreaInsets();
+  const { user, settings, isPremium, appConfig } = useAuth();
   const { t } = useTranslation();
   const curr = settings?.currency === 'INR' ? '₹' : (settings?.currency || '₹');
 
@@ -146,6 +150,29 @@ export default function AddExpenseScreen() {
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
   const [savedDetails, setSavedDetails] = useState({ amount: '', merchant: '', category: '', paymentMode: '' });
+  const [voiceModalVisible, setVoiceModalVisible] = useState(false);
+
+  const handleApplyVoiceTransaction = (parsed: ParsedVoiceTransaction) => {
+    if (parsed.amount !== null && parsed.amount > 0) {
+      setAmount(parsed.amount.toString());
+    }
+    setType(parsed.type);
+    if (parsed.category) {
+      setCategory(parsed.category);
+    }
+    if (parsed.note) {
+      setDescription(parsed.note);
+    }
+    if (parsed.friendName) {
+      setMerchant(parsed.friendName);
+    }
+    Toast.show({
+      type: 'success',
+      text1: 'Voice Input Applied! 🎙️',
+      text2: `Amount: ₹${parsed.amount ?? 0}, Category: ${parsed.category}`,
+      position: 'top',
+    });
+  };
 
   // Animation refs
   const successScale = useRef(new Animated.Value(0.3)).current;
@@ -185,6 +212,16 @@ export default function AddExpenseScreen() {
       hideSub.remove();
     };
   }, []);
+
+  // Handle hardware back press on Android
+  useEffect(() => {
+    const onBackPress = () => {
+      safeGoBack(router);
+      return true;
+    };
+    const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => sub.remove();
+  }, [router]);
 
   const loadData = useCallback(() => {
     if (user?.uid) {
@@ -467,7 +504,7 @@ export default function AddExpenseScreen() {
         } else {
           showTransactionSaveAd(isPremium, () => {
             safeGoBack(router);
-          }).catch(() => {
+          }, appConfig).catch(() => {
             safeGoBack(router);
           });
         }
@@ -503,22 +540,34 @@ export default function AddExpenseScreen() {
 
           <Text style={styles.headerTitle}>{t('add_transaction')}</Text>
 
-          <TouchableOpacity
-            onPress={() => router.push('/categories')}
-            style={styles.headerCatsBtn}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="grid-outline" size={18} color="#64748B" />
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <TouchableOpacity
+              onPress={() => setVoiceModalVisible(true)}
+              style={styles.headerVoiceBtn}
+              activeOpacity={0.7}
+              accessibilityLabel="Voice Entry"
+            >
+              <Ionicons name="mic" size={18} color="#10B981" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => router.push('/categories')}
+              style={styles.headerCatsBtn}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="grid-outline" size={18} color="#64748B" />
+            </TouchableOpacity>
+          </View>
         </View>
 
         <ScrollView
           ref={scrollViewRef}
           contentContainerStyle={[
             styles.content,
-            { paddingBottom: keyboardHeight > 0 ? keyboardHeight + 110 : 130 },
+            { paddingBottom: keyboardHeight > 0 ? keyboardHeight + 110 : 130 + (insets.bottom > 0 ? insets.bottom + 8 : 0) },
           ]}
           showsVerticalScrollIndicator={false}
+          removeClippedSubviews={Platform.OS === 'android'}
           keyboardShouldPersistTaps="handled"
         >
           {/* 3D EXPENSE / INCOME SWITCH */}
@@ -572,15 +621,27 @@ export default function AddExpenseScreen() {
 
           {/* AMOUNT INPUT CARD */}
           <View style={styles.amountCard}>
-            <View
-              style={[
-                styles.amountBadge,
-                { backgroundColor: isExpense ? '#FEF2F2' : '#ECFDF5', borderColor: isExpense ? '#FECACA' : '#A7F3D0' },
-              ]}
-            >
-              <Text style={[styles.amountBadgeText, { color: isExpense ? '#DC2626' : '#059669' }]}>
-                {isExpense ? t('money_spent_badge') : t('money_received_badge')}
-              </Text>
+            <View style={styles.amountTopHeaderRow}>
+              <View
+                style={[
+                  styles.amountBadge,
+                  { backgroundColor: isExpense ? '#FEF2F2' : '#ECFDF5', borderColor: isExpense ? '#FECACA' : '#A7F3D0' },
+                ]}
+              >
+                <Text style={[styles.amountBadgeText, { color: isExpense ? '#DC2626' : '#059669' }]}>
+                  {isExpense ? t('money_spent_badge') : t('money_received_badge')}
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                onPress={() => setVoiceModalVisible(true)}
+                style={styles.amountVoicePill}
+                activeOpacity={0.8}
+                accessibilityLabel="Voice Entry"
+              >
+                <Ionicons name="mic" size={13} color="#059669" />
+                <Text style={styles.amountVoicePillText}>{t('voice_entry')}</Text>
+              </TouchableOpacity>
             </View>
 
             <View style={styles.amountInputRow}>
@@ -690,7 +751,7 @@ export default function AddExpenseScreen() {
                       { color: isExpense ? '#DC2626' : '#059669' },
                     ]}
                   >
-                    + {t('add_btn')}
+                    {t('add')}
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity onPress={() => router.push('/categories')} activeOpacity={0.7}>
@@ -776,7 +837,7 @@ export default function AddExpenseScreen() {
                     { color: isExpense ? '#DC2626' : '#059669' },
                   ]}
                 >
-                  + New
+                  {t('add')}
                 </Text>
               </TouchableOpacity>
             </ScrollView>
@@ -1022,10 +1083,13 @@ export default function AddExpenseScreen() {
               )}
             </View>
           </View>
+
+          {/* TRANSACTION FOOTER AD */}
+          <RupeoAdBanner placement="transaction_footer" compact />
         </ScrollView>
 
         {/* BOTTOM FIXED SAVE BUTTON */}
-        <View style={styles.footer}>
+        <View style={[styles.footer, { paddingBottom: keyboardHeight > 0 ? 9 : Math.max(9, insets.bottom + 6) }]}>
           <TouchableOpacity
             style={[styles.saveBtn, (!amount || parseFloat(amount) <= 0) && styles.saveBtnDisabled]}
             onPress={handleSave}
@@ -1265,6 +1329,13 @@ export default function AddExpenseScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+      {/* VOICE TRANSACTION MODAL */}
+      <VoiceTransactionModal
+        visible={voiceModalVisible}
+        onClose={() => setVoiceModalVisible(false)}
+        onApplyToForm={handleApplyVoiceTransaction}
+        availableCategories={isExpense ? expenseCategories : incomeCategories}
+      />
     </SafeAreaView>
   );
 }
@@ -1285,25 +1356,63 @@ const styles = StyleSheet.create({
     borderBottomColor: '#F1F5F9',
   },
   closeBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#F1F5F9',
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
     alignItems: 'center',
     justifyContent: 'center',
   },
   headerTitle: {
-    fontSize: 17,
-    fontWeight: '800',
+    fontSize: 18,
+    fontWeight: '900',
     color: '#0F172A',
+    letterSpacing: -0.3,
   },
-  headerCatsBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#F1F5F9',
+  headerVoiceBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  headerCatsBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  amountTopHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginBottom: 6,
+  },
+  amountVoicePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 10,
+    paddingVertical: 4.5,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    gap: 4,
+  },
+  amountVoicePillText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#059669',
   },
   content: {
     paddingHorizontal: 14,
@@ -1313,10 +1422,10 @@ const styles = StyleSheet.create({
   typeSwitchWrap: {
     flexDirection: 'row',
     backgroundColor: '#F1F5F9',
-    borderRadius: 12,
-    padding: 3,
-    marginBottom: 9,
-    borderWidth: 1,
+    borderRadius: 14,
+    padding: 3.5,
+    marginBottom: 10,
+    borderWidth: 1.5,
     borderColor: '#E2E8F0',
   },
   typeBtn: {
@@ -1324,48 +1433,133 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 7,
-    borderRadius: 9,
+    paddingVertical: 9,
+    borderRadius: 11,
   },
   typeBtnExpenseActive: {
     backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#FECACA',
     shadowColor: '#DC2626',
-    shadowOpacity: 0.1,
-    shadowOffset: { width: 0, height: 1.5 },
-    shadowRadius: 4,
+    shadowOpacity: 0.12,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 5,
     elevation: 2,
   },
   typeBtnIncomeActive: {
     backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
     shadowColor: '#059669',
-    shadowOpacity: 0.1,
-    shadowOffset: { width: 0, height: 1.5 },
-    shadowRadius: 4,
+    shadowOpacity: 0.12,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 5,
     elevation: 2,
   },
   typeBtnText: {
-    fontSize: 13,
-    fontWeight: '700',
+    fontSize: 13.5,
+    fontWeight: '800',
     color: '#64748B',
   },
   typeBtnExpenseTextActive: {
     color: '#DC2626',
-    fontWeight: '800',
+    fontWeight: '900',
   },
   typeBtnIncomeTextActive: {
     color: '#059669',
-    fontWeight: '800',
+    fontWeight: '900',
   },
 
   // Amount Card
   amountCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    borderRadius: 20,
+    paddingVertical: 15,
+    paddingHorizontal: 16,
     alignItems: 'center',
-    marginBottom: 9,
-    borderWidth: 1,
+    marginBottom: 10,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.04,
+    shadowOffset: { width: 0, height: 3 },
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  amountBadge: {
+    paddingHorizontal: 11,
+    paddingVertical: 3.5,
+    borderRadius: 8,
+    borderWidth: 1.2,
+    marginBottom: 4,
+  },
+  amountBadgeText: {
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  amountInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 4,
+  },
+  currencyPrefix: {
+    fontSize: 32,
+    fontWeight: '900',
+    marginRight: 4,
+  },
+  hugeAmountInput: {
+    fontSize: 42,
+    fontWeight: '900',
+    minWidth: 100,
+    textAlign: 'center',
+    paddingVertical: 0,
+    height: 50,
+    letterSpacing: -1,
+  },
+  quickAmountsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: 10,
+    gap: 7,
+  },
+  quickAmountPill: {
+    paddingHorizontal: 11,
+    paddingVertical: 5.5,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    borderWidth: 1.2,
+    borderColor: '#E2E8F0',
+  },
+  quickAmountPillText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  clearPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 5.5,
+    backgroundColor: '#FEF2F2',
+    borderRadius: 10,
+    borderWidth: 1.2,
+    borderColor: '#FECACA',
+  },
+  clearPillText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#EF4444',
+  },
+
+  // Section Cards
+  sectionCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 13,
+    marginBottom: 10,
+    borderWidth: 1.2,
     borderColor: '#E2E8F0',
     shadowColor: '#0F172A',
     shadowOpacity: 0.03,
@@ -1373,147 +1567,67 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 1,
   },
-  amountBadge: {
-    paddingHorizontal: 9,
-    paddingVertical: 3,
-    borderRadius: 8,
-    borderWidth: 1,
-    marginBottom: 4,
-  },
-  amountBadgeText: {
-    fontSize: 10.5,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  amountInputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginVertical: 2,
-  },
-  currencyPrefix: {
-    fontSize: 28,
-    fontWeight: '900',
-    marginRight: 4,
-  },
-  hugeAmountInput: {
-    fontSize: 36,
-    fontWeight: '900',
-    minWidth: 90,
-    textAlign: 'center',
-    paddingVertical: 0,
-    height: 44,
-  },
-  quickAmountsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingTop: 8,
-    gap: 6,
-  },
-  quickAmountPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    backgroundColor: '#F8FAFC',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  quickAmountPillText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#334155',
-  },
-  clearPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    backgroundColor: '#FEF2F2',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#FECACA',
-  },
-  clearPillText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#EF4444',
-  },
-
-  // Section Cards
-  sectionCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    padding: 11,
-    marginBottom: 9,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#0F172A',
-    shadowOpacity: 0.02,
-    shadowOffset: { width: 0, height: 1 },
-    shadowRadius: 4,
-    elevation: 1,
-  },
   sectionHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 6,
+    marginBottom: 7,
   },
   sectionHeaderRowBetween: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 6,
+    marginBottom: 7,
   },
   sectionTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#334155',
-    letterSpacing: 0.2,
+    fontSize: 13.5,
+    fontWeight: '900',
+    color: '#0F172A',
+    letterSpacing: -0.2,
   },
   manageLinkText: {
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: 12,
+    fontWeight: '800',
     color: '#3B82F6',
   },
   addCategoryHeaderBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 2.5,
-    borderRadius: 6,
-    borderWidth: 1,
+    paddingHorizontal: 9,
+    paddingVertical: 3.5,
+    borderRadius: 7,
+    borderWidth: 1.2,
   },
   addCategoryHeaderBtnText: {
-    fontSize: 10,
-    fontWeight: '800',
-    marginLeft: 2,
+    fontSize: 11,
+    fontWeight: '900',
+    marginLeft: 3,
   },
   addCategoryChip: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
     backgroundColor: '#FFFFFF',
     borderWidth: 1.5,
     borderStyle: 'dashed',
     marginRight: 4,
-    height: 34,
+    height: 38,
   },
   addCategoryChipIcon: {
     marginRight: 3,
   },
   addCategoryChipText: {
-    fontSize: 11,
-    fontWeight: '800',
+    fontSize: 12,
+    fontWeight: '900',
   },
   catUsageBadge: {
-    fontSize: 8,
-    fontWeight: '800',
+    fontSize: 8.5,
+    fontWeight: '900',
     color: '#64748B',
     backgroundColor: '#F1F5F9',
-    paddingHorizontal: 3,
+    paddingHorizontal: 4,
     paddingVertical: 1,
     borderRadius: 4,
     marginLeft: 3,
@@ -1522,40 +1636,40 @@ const styles = StyleSheet.create({
   // Categories
   categoriesScroll: {
     flexDirection: 'row',
-    gap: 6,
+    gap: 7,
     alignItems: 'center',
   },
   categoryChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 10,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+    borderRadius: 12,
     backgroundColor: '#F8FAFC',
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
-    height: 34,
+    height: 38,
   },
   catIconWrap: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 5,
+    marginRight: 6,
   },
   categoryChipText: {
-    fontSize: 11.5,
-    fontWeight: '600',
-    color: '#475569',
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#334155',
   },
   checkDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
     alignItems: 'center',
     justifyContent: 'center',
-    marginLeft: 4,
+    marginLeft: 5,
   },
 
   // Note & Title Input
@@ -1563,15 +1677,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F8FAFC',
-    borderRadius: 10,
-    borderWidth: 1,
+    borderRadius: 12,
+    borderWidth: 1.2,
     borderColor: '#E2E8F0',
-    paddingHorizontal: 10,
-    height: 40,
+    paddingHorizontal: 12,
+    height: 44,
   },
   textInput: {
     flex: 1,
-    fontSize: 13,
+    fontSize: 13.5,
+    fontWeight: '700',
     color: '#0F172A',
     paddingVertical: 0,
   },
@@ -1586,15 +1701,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 7,
-    borderRadius: 10,
+    paddingVertical: 9,
+    borderRadius: 12,
     backgroundColor: '#F8FAFC',
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
   },
   paymentPillText: {
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: 12,
+    fontWeight: '800',
     color: '#64748B',
   },
 
@@ -1621,11 +1736,11 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   datePill: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6.5,
+    borderRadius: 10,
     backgroundColor: '#F1F5F9',
-    borderWidth: 1,
+    borderWidth: 1.2,
     borderColor: '#E2E8F0',
   },
   datePillActive: {
@@ -1633,22 +1748,23 @@ const styles = StyleSheet.create({
     borderColor: '#6366F1',
   },
   datePillText: {
-    fontSize: 11,
-    fontWeight: '600',
+    fontSize: 12,
+    fontWeight: '700',
     color: '#64748B',
   },
   datePillTextActive: {
     color: '#4F46E5',
-    fontWeight: '800',
+    fontWeight: '900',
   },
   customDateInput: {
     flex: 1,
     backgroundColor: '#F8FAFC',
-    borderRadius: 8,
-    borderWidth: 1,
+    borderRadius: 10,
+    borderWidth: 1.2,
     borderColor: '#E2E8F0',
-    paddingHorizontal: 8,
-    fontSize: 11,
+    paddingHorizontal: 10,
+    fontSize: 12,
+    fontWeight: '700',
     color: '#0F172A',
   },
   divider: {
@@ -1665,22 +1781,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 7,
+    paddingVertical: 9,
     backgroundColor: '#EFF6FF',
-    borderRadius: 10,
-    borderWidth: 1,
+    borderRadius: 12,
+    borderWidth: 1.2,
     borderColor: '#DBEAFE',
   },
   photoBtnText: {
-    fontSize: 11.5,
-    fontWeight: '700',
+    fontSize: 12.5,
+    fontWeight: '800',
     color: '#2563EB',
   },
   receiptAttachedBox: {
     backgroundColor: '#F8FAFC',
-    borderRadius: 10,
-    padding: 8,
-    borderWidth: 1,
+    borderRadius: 12,
+    padding: 9,
+    borderWidth: 1.2,
     borderColor: '#E2E8F0',
   },
   receiptThumbRow: {
@@ -1688,26 +1804,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   receiptThumb: {
-    width: 36,
-    height: 36,
-    borderRadius: 6,
+    width: 38,
+    height: 38,
+    borderRadius: 8,
     backgroundColor: '#E2E8F0',
   },
   receiptAttachedTitle: {
-    fontSize: 12,
-    fontWeight: '700',
+    fontSize: 12.5,
+    fontWeight: '800',
     color: '#0F172A',
   },
   receiptAttachedSub: {
-    fontSize: 10,
+    fontSize: 10.5,
+    fontWeight: '600',
     color: '#64748B',
   },
   receiptActionsRow: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    gap: 10,
+    gap: 12,
     marginTop: 6,
-    paddingTop: 4,
+    paddingTop: 5,
     borderTopWidth: 1,
     borderTopColor: '#F1F5F9',
   },
@@ -1716,17 +1833,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   receiptActionText: {
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: 11.5,
+    fontWeight: '800',
     color: '#2563EB',
   },
   remarksInput: {
     backgroundColor: '#F8FAFC',
-    borderRadius: 10,
-    borderWidth: 1,
+    borderRadius: 12,
+    borderWidth: 1.2,
     borderColor: '#E2E8F0',
-    padding: 8,
-    fontSize: 12,
+    padding: 10,
+    fontSize: 13,
+    fontWeight: '700',
     color: '#0F172A',
     minHeight: 44,
   },
@@ -1734,19 +1852,19 @@ const styles = StyleSheet.create({
   // Footer Save
   footer: {
     paddingHorizontal: 16,
-    paddingVertical: 9,
+    paddingVertical: 10,
     backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
     borderTopColor: '#F1F5F9',
   },
   saveBtn: {
-    borderRadius: 14,
+    borderRadius: 16,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOpacity: 0.12,
-    shadowOffset: { width: 0, height: 3 },
-    shadowRadius: 8,
-    elevation: 3,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.18,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 10,
+    elevation: 4,
   },
   saveBtnDisabled: {
     opacity: 0.45,
@@ -1757,13 +1875,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
+    paddingVertical: 14,
   },
   saveBtnText: {
-    fontSize: 15,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '900',
     color: '#FFFFFF',
-    letterSpacing: 0.2,
+    letterSpacing: 0.3,
   },
 
   // Fullscreen Success Modal

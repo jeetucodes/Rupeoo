@@ -105,7 +105,11 @@ service cloud.firestore {
     }
 
     match /ads/{adId} {
-      allow read, write: if isAdmin();
+      allow read: if true;
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['clicksCount', 'impressionsCount', 'updatedAt'])
+      );
     }
   }
 }

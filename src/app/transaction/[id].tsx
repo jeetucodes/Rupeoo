@@ -17,6 +17,7 @@ import {
   Keyboard,
   Animated,
   Easing,
+  NativeModules,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image as ExpoImage } from 'expo-image';
@@ -27,6 +28,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Sharing from 'expo-sharing';
 import { captureRef } from 'react-native-view-shot';
 import { useAuth } from '@/context/AuthContext';
+import { RupeoAdBanner } from '@/lib/ads';
 import {
   getTransactionById,
   updateTransaction,
@@ -341,6 +343,34 @@ export default function TransactionDetailScreen() {
           result: 'tmpfile',
         });
 
+        // 1. Android: Use native RupeoShare to send BOTH receipt image and text together
+        if (Platform.OS === 'android' && NativeModules.RupeoShare?.shareImageAndText) {
+          try {
+            await NativeModules.RupeoShare.shareImageAndText(
+              uri,
+              receiptText,
+              `Rupeo Receipt (${formattedAmt})`
+            );
+            return;
+          } catch (nativeErr) {
+            console.warn('Native RupeoShare receipt error:', nativeErr);
+          }
+        }
+
+        // 2. iOS: Share.share handles message + url (image)
+        if (Platform.OS === 'ios') {
+          try {
+            await Share.share({
+              message: receiptText,
+              url: uri,
+            });
+            return;
+          } catch (iosErr) {
+            console.warn('iOS share error, falling back to expo-sharing:', iosErr);
+          }
+        }
+
+        // 3. Fallback to standard sharing
         if (await Sharing.isAvailableAsync()) {
           await Sharing.shareAsync(uri, {
             mimeType: 'image/png',
@@ -826,6 +856,9 @@ export default function TransactionDetailScreen() {
               {sharingImage ? 'Generating Receipt ...' : 'Share Receipt'}
             </Text>
           </TouchableOpacity>
+
+          {/* TRANSACTION FOOTER PROMOTIONAL BANNER */}
+          <RupeoAdBanner placement="transaction_footer" compact />
 
         </ScrollView>
         </>

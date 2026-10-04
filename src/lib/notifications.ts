@@ -109,7 +109,7 @@ export async function requestNotificationPermissions(): Promise<boolean> {
  * and triggers immediate local OS push notifications (with sound & popup banner).
  */
 export function startRealtimeNotificationWatcher(userId?: string) {
-  if (Platform.OS === 'web') return () => {};
+  if (Platform.OS === 'web') return () => { };
 
   let isMounted = true;
   const unsubs: (() => void)[] = [];
@@ -261,7 +261,7 @@ export async function registerDeviceForPushNotifications(userId: string): Promis
 }
 
 /**
- * Send a delightful Welcome Notification on app installation / first launch / setup.
+ * Send a delightful Welcome Notification 10 minutes after notification permission is granted / first setup.
  */
 export async function sendWelcomeNotification(userId?: string) {
   if (Platform.OS === 'web') return;
@@ -275,8 +275,9 @@ export async function sendWelcomeNotification(userId?: string) {
     const title = '🎉 Welcome to Rupeo!';
     const body = 'Track expenses effortlessly, stay within budget & build your financial freedom. Welcome aboard! 🚀';
 
-    // 1. Immediate OS Push Notification
+    // 1. Schedule OS Push Notification to trigger 10 minutes (600 seconds) later
     await Notifications.scheduleNotificationAsync({
+      identifier: 'welcome_10min_push',
       content: {
         title,
         body,
@@ -285,7 +286,11 @@ export async function sendWelcomeNotification(userId?: string) {
         data: { type: 'welcome' },
         ...(Platform.OS === 'android' ? { channelId: 'welcome' } : {}),
       },
-      trigger: null, // Send immediately
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+        seconds: 10 * 60, // Arrives after 10 minutes
+        repeats: false,
+      },
     });
 
     // 2. Persist in in-app notification center if userId is provided
@@ -298,7 +303,7 @@ export async function sendWelcomeNotification(userId?: string) {
       }).catch(e => console.warn('Could not save welcome notification to DB:', e));
     }
 
-    // Mark as sent in local storage
+    // Mark as scheduled in local storage
     await AsyncStorage.setItem(WELCOME_NOTIF_KEY, 'true');
   } catch (error) {
     console.warn('sendWelcomeNotification error:', error);
@@ -364,8 +369,10 @@ export async function setupPeriodicSmartNotifications(forceRefresh = false) {
       }
     }
 
-    // Cancel all old / duplicate scheduled notifications cleanly
-    await Notifications.cancelAllScheduledNotificationsAsync();
+    // Cancel old daily routine reminders cleanly by id (without wiping out welcome or bill reminders)
+    for (const item of DAILY_ROUTINE_SCHEDULE) {
+      await Notifications.cancelScheduledNotificationAsync(item.id).catch(() => { });
+    }
 
     // Schedule Fixed Daily Routine Reminders (9:00 AM, 2:00 PM, 7:30 PM, 10:00 PM)
     for (const item of DAILY_ROUTINE_SCHEDULE) {
@@ -462,7 +469,7 @@ export async function scheduleBillReminder(
     targetDate.setHours(9, 0, 0, 0);
 
     const diffDays = Math.round((targetDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-    
+
     let notifTitle = '';
     let notifBody = '';
 

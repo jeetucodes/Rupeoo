@@ -113,7 +113,8 @@ function buildSmoothSvgPath(points: { x: number; y: number }[]): string {
 
 function renderSpendingWaveSvg(
   points: { label: string; expense: number; income: number }[] = [],
-  curr: string
+  curr: string,
+  dailyAvg?: number
 ): string {
   if (!points || points.length === 0) {
     return `<div style="text-align: center; color: #94A3B8; font-size: 10px; padding: 20px;">No daily trend data available</div>`;
@@ -127,12 +128,17 @@ function renderSpendingWaveSvg(
   const chartHeight = height - paddingBottom;
   const usableWidth = width - paddingX * 2;
   const step = usableWidth / Math.max(points.length - 1, 1);
-  const maxVal = Math.max(...points.map(p => p.expense), 500);
+
+  const totalExp = points.reduce((sum, p) => sum + p.expense, 0);
+  const avgVal = dailyAvg !== undefined && dailyAvg > 0 ? dailyAvg : Math.round(totalExp / Math.max(points.length, 1));
+  const maxVal = Math.max(...points.map(p => p.expense), avgVal * 1.25, 500);
 
   const coords = points.map((p, idx) => ({
     x: paddingX + idx * step,
     y: paddingTop + (1 - p.expense / maxVal) * (chartHeight - paddingTop),
   }));
+
+  const avgY = avgVal > 0 ? paddingTop + (1 - avgVal / maxVal) * (chartHeight - paddingTop) : chartHeight;
 
   const smoothLineD = buildSmoothSvgPath(coords);
   const smoothAreaD = `${smoothLineD} L ${coords[coords.length - 1].x.toFixed(1)} ${chartHeight} L ${coords[0].x.toFixed(1)} ${chartHeight} Z`;
@@ -168,13 +174,29 @@ function renderSpendingWaveSvg(
       <path d="${smoothAreaD}" fill="url(#waveAreaGrad)" />
       <path d="${smoothLineD}" stroke="url(#waveLineGrad)" stroke-width="2.5" fill="transparent" stroke-linecap="round" stroke-linejoin="round" />
 
+      <!-- Daily Average Benchmark Line & Tag -->
+      ${
+        avgVal > 0
+          ? `
+        <line x1="${paddingX}" y1="${avgY.toFixed(1)}" x2="${(width - paddingX).toFixed(1)}" y2="${avgY.toFixed(1)}" stroke="#6366F1" stroke-width="1.8" stroke-dasharray="4 3" />
+        <rect x="${(width - paddingX - 112).toFixed(1)}" y="${Math.max(avgY - 14, 2).toFixed(1)}" width="112" height="12" rx="3" fill="#EEF2FF" stroke="#6366F1" stroke-width="0.8" />
+        <text x="${(width - paddingX - 56).toFixed(1)}" y="${Math.max(avgY - 4.5, 11).toFixed(1)}" font-size="7.5" font-weight="800" fill="#4338CA" text-anchor="middle">Daily Avg: ${curr}${avgVal.toLocaleString('en-IN')}</text>
+      `
+          : ''
+      }
+
       <!-- Points -->
       ${coords
         .map(
-          (c, idx) => `
-        <circle cx="${c.x.toFixed(1)}" cy="${c.y.toFixed(1)}" r="3" fill="#FFFFFF" stroke="#F59E0B" stroke-width="1.5" />
+          (c, idx) => {
+            const isAbove = points[idx].expense > avgVal;
+            const isZero = points[idx].expense === 0;
+            const dotFill = isAbove ? '#F59E0B' : isZero ? '#E2E8F0' : '#10B981';
+            return `
+        <circle cx="${c.x.toFixed(1)}" cy="${c.y.toFixed(1)}" r="3" fill="${dotFill}" stroke="#FFFFFF" stroke-width="1.5" />
         <text x="${c.x.toFixed(1)}" y="${height - 6}" font-size="8.5" font-weight="700" fill="#64748B" text-anchor="middle">${points[idx].label.split(' ')[0]}</text>
-      `
+      `;
+          }
         )
         .join('')}
 
@@ -786,20 +808,23 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
         </div>
       </div>
 
-      <!-- SPENDING WAVE (DAILY OUTFLOW TRAJECTORY) -->
+      <!-- SPENDING WAVE (DAILY OUTFLOW TRAJECTORY & DAILY AVERAGE BENCHMARK) -->
       <div class="section-box" style="margin-bottom: 10px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
           <div>
-            <div class="section-title">Spending Wave • Daily Outflow Trajectory</div>
-            <div class="section-desc" style="margin-bottom: 0;">Daily cadence of expenditures & peak outflow days</div>
+            <div class="section-title">Spending Wave • Daily Outflow & Daily Average</div>
+            <div class="section-desc" style="margin-bottom: 0;">Daily cadence of expenditures compared against your daily average run-rate</div>
           </div>
-          <div>
-            <span style="background: #FEF9E7; border: 1px solid #FFD740; color: #92400E; font-size: 9px; font-weight: 800; padding: 2px 7px; border-radius: 6px;">
-              ✦ Daily Rhythm
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="display: inline-flex; align-items: center; gap: 3px; font-size: 8px; font-weight: 700; color: #D97706; background: #FFFBEB; padding: 2px 6px; border-radius: 4px; border: 1px solid #FDE68A;">
+              <span style="width: 7px; height: 3px; background: #F59E0B; border-radius: 1px;"></span> Daily Spend
+            </span>
+            <span style="display: inline-flex; align-items: center; gap: 3px; font-size: 8px; font-weight: 800; color: #4338CA; background: #EEF2FF; padding: 2px 6px; border-radius: 4px; border: 1px solid #C7D2FE;">
+              <span style="width: 8px; height: 0; border-top: 1.5px dashed #6366F1;"></span> Daily Avg (${curr}${metrics.dailyAvg.toLocaleString('en-IN')})
             </span>
           </div>
         </div>
-        ${renderSpendingWaveSvg(dailyTrendPoints, curr)}
+        ${renderSpendingWaveSvg(dailyTrendPoints, curr, metrics.dailyAvg)}
       </div>
 
       <!-- EXPENSE BREAKDOWN (CATEGORY DISTRIBUTION & DONUT SLICES) -->
@@ -1027,7 +1052,7 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
 `;
 
   const defaultPdfTitle = `Rupeo Report ${periodTitle}`;
-  const cleanFilename = `Rupeo_Report_${periodTitle.replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`;
+  const cleanFilename = `Rupeo_Report_${periodTitle.replace(/[^a-zA-Z0-9_-]/g, '_')}_${Date.now().toString().slice(-6)}.pdf`;
 
   // Handle Web environment (Print ONLY the report HTML via hidden iframe, avoiding screen/modal capture)
   if (Platform.OS === 'web') {
@@ -1077,6 +1102,10 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
     let shareUri = result.uri;
     try {
       const targetUri = `${FileSystem.documentDirectory}${cleanFilename}`;
+      const existingInfo = await FileSystem.getInfoAsync(targetUri);
+      if (existingInfo.exists) {
+        await FileSystem.deleteAsync(targetUri, { idempotent: true });
+      }
       await FileSystem.copyAsync({
         from: result.uri,
         to: targetUri,

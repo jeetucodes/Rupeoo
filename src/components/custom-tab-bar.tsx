@@ -2,9 +2,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Animated,
+  Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -14,9 +15,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from '../lib/i18n';
 
 const BRAND_ACTIVE = '#1C1C1E';
-const BRAND_HIGHLIGHT = '#FEF9E7';
 const BRAND_YELLOW = '#FFD740';
-const INACTIVE_COLOR = '#8E8E93';
+const INACTIVE_COLOR = '#A0AEC0';
+const ACTIVE_LABEL = '#1C1C1E';
+const INACTIVE_LABEL = '#A0AEC0';
 
 const TAB_CONFIG = [
   {
@@ -67,113 +69,100 @@ interface TabItemProps {
 }
 
 function FabTabItem({ onPress, isActive }: TabItemProps) {
-  const [scaleAnim] = useState(() => new Animated.Value(1));
-  const [pulseAnim] = useState(() => new Animated.Value(1));
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const rotateAnim = useRef(new Animated.Value(0)).current;
+  const glowAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1.2,
-          duration: 2000,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 2000,
-          useNativeDriver: true,
-        }),
+        Animated.timing(glowAnim, { toValue: 1.18, duration: 1800, useNativeDriver: true }),
+        Animated.timing(glowAnim, { toValue: 1, duration: 1800, useNativeDriver: true }),
       ])
     );
     loop.start();
     return () => loop.stop();
-  }, [pulseAnim]);
+  }, []);
 
   const handlePress = () => {
     Animated.sequence([
-      Animated.spring(scaleAnim, {
-        toValue: 0.88,
-        useNativeDriver: true,
-        tension: 500,
-        friction: 8,
-      }),
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        useNativeDriver: true,
-        tension: 300,
-        friction: 10,
-      }),
+      Animated.parallel([
+        Animated.spring(scaleAnim, { toValue: 0.86, useNativeDriver: true, tension: 500, friction: 8 }),
+        Animated.timing(rotateAnim, { toValue: 1, duration: 120, useNativeDriver: true }),
+      ]),
+      Animated.parallel([
+        Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, tension: 300, friction: 10 }),
+        Animated.timing(rotateAnim, { toValue: 0, duration: 120, useNativeDriver: true }),
+      ]),
     ]).start();
     onPress();
   };
 
+  const rotate = rotateAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '45deg'] });
+
   return (
     <View style={styles.fabWrapper}>
+      {/* Glow ring behind FAB */}
+      <Animated.View
+        style={[
+          styles.fabGlowRing,
+          {
+            transform: [{ scale: glowAnim }],
+            opacity: glowAnim.interpolate({ inputRange: [1, 1.18], outputRange: [0.4, 0] }),
+          },
+        ]}
+        pointerEvents="none"
+      />
       <TouchableOpacity
         onPress={handlePress}
-        activeOpacity={0.85}
+        activeOpacity={0.9}
         style={styles.fabTouchable}
         accessibilityLabel="Add transaction"
         accessibilityRole="button"
       >
-        <Animated.View style={[styles.fab, { transform: [{ scale: scaleAnim }] }]}>
-          <Animated.View
-            style={[
-              styles.fabGlowRing,
-              {
-                transform: [{ scale: pulseAnim }],
-                opacity: pulseAnim.interpolate({
-                  inputRange: [1, 1.2],
-                  outputRange: [0.35, 0],
-                }),
-              },
-            ]}
-          />
-          <View style={[styles.fabInner, isActive && { backgroundColor: '#FFCA28', transform: [{ scale: 1.05 }] }]}>
-            <Ionicons name="add" size={32} color="#1C1C1E" />
-          </View>
+        <Animated.View style={[styles.fabInner, isActive && styles.fabInnerActive, { transform: [{ scale: scaleAnim }] }]}>
+          <Animated.View style={{ transform: [{ rotate }] }}>
+            <Ionicons name="add" size={30} color="#1C1C1E" />
+          </Animated.View>
         </Animated.View>
       </TouchableOpacity>
     </View>
   );
 }
 
-function RegularTabItem({ config, isActive, onPress, onLongPress, t }: TabItemProps) {
-  const [scaleAnim] = useState(() => new Animated.Value(1));
-  const [pillOpacity] = useState(() => new Animated.Value(isActive ? 1 : 0));
-  const [iconScale] = useState(() => new Animated.Value(isActive ? 1.08 : 1));
+function RegularTabItem({ config, isActive, onPress, onLongPress }: TabItemProps) {
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const dotScale = useRef(new Animated.Value(isActive ? 1 : 0)).current;
+  const bgOpacity = useRef(new Animated.Value(isActive ? 1 : 0)).current;
+  const iconScale = useRef(new Animated.Value(isActive ? 1.08 : 1)).current;
 
   useEffect(() => {
     Animated.parallel([
-      Animated.spring(pillOpacity, {
+      Animated.spring(dotScale, {
         toValue: isActive ? 1 : 0,
         useNativeDriver: true,
         tension: 300,
-        friction: 20,
+        friction: 14,
+      }),
+      Animated.spring(bgOpacity, {
+        toValue: isActive ? 1 : 0,
+        useNativeDriver: true,
+        tension: 260,
+        friction: 18,
       }),
       Animated.spring(iconScale, {
-        toValue: isActive ? 1.08 : 1,
+        toValue: isActive ? 1.12 : 1,
         useNativeDriver: true,
-        tension: 300,
-        friction: 12,
+        tension: 260,
+        friction: 18,
       }),
     ]).start();
-  }, [isActive, pillOpacity, iconScale]);
+  }, [isActive]);
 
   const handlePress = () => {
     Animated.sequence([
-      Animated.spring(scaleAnim, {
-        toValue: 0.9,
-        useNativeDriver: true,
-        tension: 500,
-        friction: 8,
-      }),
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        useNativeDriver: true,
-        tension: 300,
-        friction: 10,
-      }),
+      Animated.spring(scaleAnim, { toValue: 0.88, useNativeDriver: true, tension: 500, friction: 8 }),
+      Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, tension: 300, friction: 10 }),
     ]).start();
     onPress();
   };
@@ -188,14 +177,31 @@ function RegularTabItem({ config, isActive, onPress, onLongPress, t }: TabItemPr
       accessibilityLabel={config.label}
     >
       <Animated.View style={[styles.tabContent, { transform: [{ scale: scaleAnim }] }]}>
-        <Animated.View style={[styles.activePill, { opacity: pillOpacity }]} />
-        <Animated.View style={[styles.iconWrapper, { transform: [{ scale: iconScale }] }]}>
+        {/* Active background pill */}
+        <Animated.View style={[styles.activePill, { opacity: bgOpacity }]} />
+
+        {/* Icon */}
+        <Animated.View style={{ transform: [{ scale: iconScale }] }}>
           <Ionicons
             name={isActive ? config.icon : config.iconOutline}
-            size={24}
+            size={20}
             color={isActive ? BRAND_ACTIVE : INACTIVE_COLOR}
           />
         </Animated.View>
+
+        {/* Label — always visible */}
+        <Text
+          style={[
+            styles.tabLabel,
+            isActive ? styles.tabLabelActive : styles.tabLabelInactive,
+          ]}
+          numberOfLines={1}
+        >
+          {config.label}
+        </Text>
+
+        {/* Active dot indicator */}
+        <Animated.View style={[styles.activeDot, { transform: [{ scale: dotScale }] }]} />
       </Animated.View>
     </TouchableOpacity>
   );
@@ -206,9 +212,18 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
 
+  const bottomOffset = insets.bottom > 0 ? insets.bottom + 8 : 16;
+
   return (
-    <View style={styles.tabBarWrapper} pointerEvents="box-none">
-      <BlurView intensity={90} tint="light" style={[styles.tabBarInner, { paddingBottom: insets.bottom > 0 ? insets.bottom / 2 : 0 }]}>
+    <View style={[styles.tabBarWrapper, { bottom: bottomOffset }]} pointerEvents="box-none">
+      <BlurView
+        intensity={Platform.OS === 'ios' ? 80 : 100}
+        tint="light"
+        style={styles.tabBarInner}
+      >
+        {/* Subtle top border highlight */}
+        <View style={styles.topHighlight} />
+
         {TAB_CONFIG.map((config) => {
           const route = state.routes.find((r: any) => r.name === config.name);
           if (!route) return null;
@@ -232,10 +247,7 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
           };
 
           const onLongPress = () => {
-            navigation.emit({
-              type: 'tabLongPress',
-              target: route.key,
-            });
+            navigation.emit({ type: 'tabLongPress', target: route.key });
           };
 
           if (config.isFab) {
@@ -266,33 +278,41 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   );
 }
 
-const BAR_HEIGHT = 64;
-const FAB_SIZE = 54;
+const BAR_HEIGHT = 72;
+const FAB_SIZE = 52;
 
 const styles = StyleSheet.create({
   tabBarWrapper: {
     position: 'absolute',
-    bottom: 16,
-    left: 20,
-    right: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.15,
-    shadowRadius: 24,
-    elevation: 20,
-    borderRadius: 36,
+    left: 16,
+    right: 16,
+    shadowColor: '#1C1C1E',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 28,
+    elevation: 22,
+    borderRadius: 32,
   },
   tabBarInner: {
     flexDirection: 'row',
     height: BAR_HEIGHT,
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    borderRadius: 36,
+    backgroundColor: 'rgba(255, 255, 255, 0.97)',
+    borderRadius: 32,
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#E8ECF2',
+    borderColor: 'rgba(226, 232, 240, 0.9)',
+  },
+  topHighlight: {
+    position: 'absolute',
+    top: 0,
+    left: 32,
+    right: 32,
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    borderRadius: 1,
   },
   tabItem: {
     flex: 1,
@@ -303,9 +323,11 @@ const styles = StyleSheet.create({
   tabContent: {
     alignItems: 'center',
     justifyContent: 'center',
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 20,
+    gap: 2,
+    minWidth: 52,
   },
   activePill: {
     position: 'absolute',
@@ -313,36 +335,47 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    borderRadius: 24,
-    backgroundColor: BRAND_HIGHLIGHT,
+    borderRadius: 20,
+    backgroundColor: '#F0EFFF',
   },
-  iconWrapper: {
-    width: 28,
-    height: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
+  tabLabel: {
+    fontSize: 10,
+    letterSpacing: 0.1,
+    textAlign: 'center',
   },
+  tabLabelActive: {
+    fontWeight: '800',
+    color: '#1C1C1E',
+  },
+  tabLabelInactive: {
+    fontWeight: '600',
+    color: '#B0BAC8',
+  },
+  activeDot: {
+    position: 'absolute',
+    bottom: 3,
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: BRAND_YELLOW,
+  },
+
+  // FAB
   fabWrapper: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  fabGlowRing: {
+    position: 'absolute',
+    width: FAB_SIZE + 14,
+    height: FAB_SIZE + 14,
+    borderRadius: (FAB_SIZE + 14) / 2,
+    backgroundColor: BRAND_YELLOW,
+  },
   fabTouchable: {
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  fab: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: FAB_SIZE + 10,
-    height: FAB_SIZE + 10,
-  },
-  fabGlowRing: {
-    position: 'absolute',
-    width: FAB_SIZE + 10,
-    height: FAB_SIZE + 10,
-    borderRadius: (FAB_SIZE + 10) / 2,
-    backgroundColor: BRAND_YELLOW,
   },
   fabInner: {
     width: FAB_SIZE,
@@ -351,10 +384,16 @@ const styles = StyleSheet.create({
     backgroundColor: BRAND_YELLOW,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#FFD740',
+    shadowColor: '#F59E0B',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 10,
-    elevation: 8,
+    shadowOpacity: 0.45,
+    shadowRadius: 12,
+    elevation: 10,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.6)',
+  },
+  fabInnerActive: {
+    backgroundColor: '#FFCA28',
+    shadowOpacity: 0.6,
   },
 });

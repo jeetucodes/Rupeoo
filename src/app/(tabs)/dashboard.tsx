@@ -21,7 +21,7 @@ import Toast from 'react-native-toast-message';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image as ExpoImage } from 'expo-image';
 import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
-import Svg, { Circle } from 'react-native-svg';
+import Svg, { Circle, Path, Rect, Line, Defs, RadialGradient, Stop, LinearGradient as SvgLinearGradient, Ellipse } from 'react-native-svg';
 import { useRouter, useFocusEffect } from 'expo-router';
 import {
   getAllTransactions,
@@ -39,8 +39,9 @@ import {
   RecurringBill,
   CategoryItem,
 } from '@/lib/database';
+import { getShowUdharOnDashboard, getAllFriendsSummaries } from '@/lib/udharStorage';
 import { useAuth } from '@/context/AuthContext';
-import { HomeBannerAd } from '@/lib/ads';
+import { HomeBannerAd, CustomAdModal, useCustomAds, shouldShowAd } from '@/lib/ads';
 import { checkAndPromptPendingReview, checkFirstTransactionFallback, checkIsReviewPending, hasUserBeenPromptedForReview } from '@/lib/review';
 import { useTranslation } from '@/lib/i18n';
 import CategoryIcon from '@/components/CategoryIcon';
@@ -51,6 +52,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { ConfirmDialogModal } from '@/components/confirm-dialog-modal';
 import { GooglePlayReviewModal } from '@/components/GooglePlayReviewModal';
+import VoiceTransactionModal from '@/components/VoiceTransactionModal';
 import { formatTime12Hour, getLocalDateString, getLocalMonthString, getRelativeDateString } from '@/lib/dateUtils';
 
 const { width, height } = Dimensions.get('window');
@@ -338,10 +340,10 @@ const WEEKDAY_NAMES = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
 export default function DashboardScreen() {
   const { user, settings, isPremium, appConfig } = useAuth();
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  
+
 
 
   const curr = settings?.currency === 'INR' ? '₹' : (settings?.currency || '₹');
@@ -360,6 +362,26 @@ export default function DashboardScreen() {
   const [hideBalance, setHideBalance] = useState<boolean>(true);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [showUdharCard, setShowUdharCard] = useState<boolean>(true);
+  const [udharDues, setUdharDues] = useState<{ totalToReceive: number; totalToPay: number } | null>(null);
+  const [voiceModalVisible, setVoiceModalVisible] = useState(false);
+
+  // In-App Custom Ads State
+  const customAds = useCustomAds();
+  const [promoModalVisible, setPromoModalVisible] = useState(false);
+  const [promoDismissed, setPromoDismissed] = useState(false);
+
+  // Check if a popup_modal ad should be shown
+  const popupDecision = shouldShowAd({ isPro: isPremium }, appConfig, 'popup_modal', customAds);
+
+  useEffect(() => {
+    if (popupDecision.show && popupDecision.customAd && !promoDismissed && !loading) {
+      const timer = setTimeout(() => {
+        setPromoModalVisible(true);
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [popupDecision.show, popupDecision.customAd?.id, promoDismissed, loading]);
 
   // Add Bill Modal State
   const [addBillModalVisible, setAddBillModalVisible] = useState(false);
@@ -398,113 +420,49 @@ export default function DashboardScreen() {
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [isExistingUserReview, setIsExistingUserReview] = useState(false);
 
-  // Smooth Multi-Phase Pastel Color Flow & Soft Light Gleam for Total Balance Card
-  const colorAnim = useRef(new Animated.Value(0)).current;
-  const shimmerAnim = useRef(new Animated.Value(0)).current;
-  const billsPulseAnim = useRef(new Animated.Value(0)).current;
-  const billsShimmerAnim = useRef(new Animated.Value(0)).current;
+  // Ultra-smooth native pastel color morphing (100% GPU RenderThread, 0% JS load, works on all low-end devices)
+  const colorFade1 = useRef(new Animated.Value(0)).current;
+  const colorFade2 = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    // 1. Smooth, relaxed 60s continuous pastel color transition (Very Slow)
     const colorLoop = Animated.loop(
-      Animated.timing(colorAnim, {
-        toValue: 5,
-        duration: 60000,
-        easing: Easing.linear,
-        useNativeDriver: false,
-      })
-    );
-
-    // 2. Elegant diagonal light gleam / sheen wave that glides across every 5s
-    const shimmerLoop = Animated.loop(
       Animated.sequence([
-        Animated.timing(shimmerAnim, {
+        // Step 1: Smoothly cross-fade into Soft Sky / Cyan
+        Animated.timing(colorFade1, {
           toValue: 1,
-          duration: 2800,
-          easing: Easing.bezier(0.4, 0, 0.2, 1),
-          useNativeDriver: true,
-        }),
-        Animated.delay(2200),
-      ])
-    );
-
-    const billsPulseLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(billsPulseAnim, {
-          toValue: 1,
-          duration: 1600,
+          duration: 4500,
           easing: Easing.inOut(Easing.ease),
           useNativeDriver: true,
         }),
-        Animated.timing(billsPulseAnim, {
-          toValue: 0,
-          duration: 1600,
+        // Step 2: Smoothly cross-fade into Warm Peach / Lavender
+        Animated.timing(colorFade2, {
+          toValue: 1,
+          duration: 4500,
           easing: Easing.inOut(Easing.ease),
           useNativeDriver: true,
         }),
-      ])
-    );
-
-    // 3. Smooth continuous ambient light shimmer for Upcoming Bills card
-    const billsShimmerLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(billsShimmerAnim, {
-          toValue: 1,
-          duration: 2600,
-          easing: Easing.bezier(0.4, 0, 0.2, 1),
-          useNativeDriver: true,
-        }),
-        Animated.delay(1800),
+        // Step 3: Fade back gracefully to Mint & Sky
+        Animated.parallel([
+          Animated.timing(colorFade1, {
+            toValue: 0,
+            duration: 4500,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+          Animated.timing(colorFade2, {
+            toValue: 0,
+            duration: 4500,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+        ]),
       ])
     );
 
     colorLoop.start();
-    shimmerLoop.start();
-    billsPulseLoop.start();
-    billsShimmerLoop.start();
+    return () => colorLoop.stop();
+  }, [colorFade1, colorFade2]);
 
-    return () => {
-      colorLoop.stop();
-      shimmerLoop.stop();
-      billsPulseLoop.stop();
-      billsShimmerLoop.stop();
-    };
-  }, [billsPulseAnim, billsShimmerAnim, colorAnim, shimmerAnim]);
-
-  // Card Background Color Interpolation
-  const animatedCardBg = colorAnim.interpolate({
-    inputRange: [0, 1, 2, 3, 4, 5],
-    outputRange: [
-      '#D5F9E3', // Mint / Seafoam
-      '#CFFAFE', // Soft Sky / Cyan
-      '#EDE9FE', // Lavender / Soft Violet
-      '#FFEDD5', // Warm Peach / Apricot
-      '#FFE4E6', // Soft Rose / Blush
-      '#D5F9E3', // Loop back to Mint
-    ],
-  });
-
-  // Smooth diagonal light sheen sweep
-  const shimmerStyle = {
-    transform: [
-      {
-        translateX: shimmerAnim.interpolate({
-          inputRange: [0, 1],
-          outputRange: [-240, 480],
-        }),
-      },
-      { rotate: '25deg' },
-    ],
-    opacity: shimmerAnim.interpolate({
-      inputRange: [0, 0.1, 0.5, 0.9, 1],
-      outputRange: [0, 0.35, 0.65, 0.35, 0],
-    }),
-  };
-
-  const billsCircleStyle = {
-    opacity: billsPulseAnim.interpolate({ inputRange: [0, 1], outputRange: [0.08, 0.16] }),
-    transform: [{ scale: billsPulseAnim.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1.08] }) }],
-  };
 
 
 
@@ -544,14 +502,28 @@ export default function DashboardScreen() {
       setThisMonthSpend(curMonthS);
       setTransactions(sortTransactionsRecentFirst(allTxs));
 
+      // Check whether Friends & Udhar should be shown on the home dashboard
+      getShowUdharOnDashboard(user.uid).then((visible) => {
+        setShowUdharCard(visible);
+      }).catch(() => { });
+
+      // Load live Udhar Len-Den dues for quick home glance
+      getAllFriendsSummaries(user.uid).then((res) => {
+        if (res && (res.totalToReceive > 0 || res.totalToPay > 0)) {
+          setUdharDues({ totalToReceive: res.totalToReceive, totalToPay: res.totalToPay });
+        } else {
+          setUdharDues(null);
+        }
+      }).catch(() => { });
+
       // Trigger automatic 3-day reminder checks & budget alerts
-      checkBillReminders(user.uid).catch(() => {});
+      checkBillReminders(user.uid).catch(() => { });
 
       // Ensure welcome notification & daily routine reminders are scheduled
       import('@/lib/notifications').then(({ sendWelcomeNotification, setupPeriodicSmartNotifications }) => {
-        sendWelcomeNotification(user.uid).catch(() => {});
-        setupPeriodicSmartNotifications().catch(() => {});
-      }).catch(() => {});
+        sendWelcomeNotification(user.uid).catch(() => { });
+        setupPeriodicSmartNotifications().catch(() => { });
+      }).catch(() => { });
 
       // Check and show Google Play Review modal if user hasn't reviewed yet
       checkIsReviewPending(user.uid).then((pending) => {
@@ -568,9 +540,9 @@ export default function DashboardScreen() {
                 setShowReviewModal(true);
               }, 1200);
             }
-          }).catch(() => {});
+          }).catch(() => { });
         }
-      }).catch(() => {});
+      }).catch(() => { });
     } catch (err) {
       console.error('Failed to load dashboard data', err);
     } finally {
@@ -582,6 +554,18 @@ export default function DashboardScreen() {
   useFocusEffect(
     useCallback(() => {
       loadData(false);
+      if (user?.uid) {
+        getShowUdharOnDashboard(user.uid).then((visible) => {
+          setShowUdharCard(visible);
+        }).catch(() => { });
+        getAllFriendsSummaries(user.uid).then((res) => {
+          if (res && (res.totalToReceive > 0 || res.totalToPay > 0)) {
+            setUdharDues({ totalToReceive: res.totalToReceive, totalToPay: res.totalToPay });
+          } else {
+            setUdharDues(null);
+          }
+        }).catch(() => { });
+      }
     }, [user?.uid])
   );
 
@@ -729,16 +713,14 @@ export default function DashboardScreen() {
   }, [monthlyBudget, thisMonthSpend]);
 
   const filteredTransactions = useMemo(() => {
-    const list = selectedCategory === 'All'
-      ? transactions
-      : transactions.filter(
-          tx => (tx.category || 'Others').toLowerCase() === selectedCategory.toLowerCase()
-        );
-    return sortTransactionsRecentFirst(list);
+    if (selectedCategory === 'All') return transactions;
+    return transactions.filter(
+      tx => (tx.category || 'Others').toLowerCase() === selectedCategory.toLowerCase()
+    );
   }, [transactions, selectedCategory]);
 
   const recentTransactions = useMemo(() => {
-    return sortTransactionsRecentFirst(filteredTransactions).slice(0, 8);
+    return filteredTransactions.slice(0, 8);
   }, [filteredTransactions]);
 
   const topCategoryData = useMemo(() => {
@@ -948,7 +930,7 @@ export default function DashboardScreen() {
       setBillAmount('');
       setBillNotes('');
       loadData();
-      
+
       // Schedule local push notification
       import('@/lib/notifications').then(({ scheduleBillReminder }) => {
         scheduleBillReminder(billTitle, amt, new Date(nextDue), curr).catch(console.error);
@@ -996,7 +978,7 @@ export default function DashboardScreen() {
           </View>
           <Skeleton width={40} height={40} borderRadius={20} />
         </View>
-        
+
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           {/* Balance Card Skeleton */}
           <View style={[styles.balanceCard, { backgroundColor: '#F0EEE7' }]}>
@@ -1075,6 +1057,14 @@ export default function DashboardScreen() {
         </TouchableOpacity>
 
         <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={[styles.iconBtn, styles.voiceHeaderBtn]}
+            onPress={() => setVoiceModalVisible(true)}
+            activeOpacity={0.7}
+            accessibilityLabel="Voice Entry"
+          >
+            <Ionicons name="mic" size={19} color="#059669" />
+          </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.iconBtn}
@@ -1097,8 +1087,9 @@ export default function DashboardScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingBottom: 110 + (insets.bottom > 0 ? insets.bottom + 8 : 0) }]}
         showsVerticalScrollIndicator={false}
+        removeClippedSubviews={Platform.OS === 'android'}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -1108,40 +1099,64 @@ export default function DashboardScreen() {
           />
         }
       >
-        {/* HERO TOTAL BALANCE CARD (PREMIUM ANIMATED PASTEL WITH SUBTLE LIGHT SHEEN) */}
-        <Animated.View style={[styles.balanceCard, { backgroundColor: animatedCardBg }]}>
-          {/* Smooth Diagonal Shimmer Gleam */}
-          <Animated.View style={[styles.shimmerBeam, shimmerStyle]} pointerEvents="none" />
+        {/* HERO TOTAL BALANCE CARD (WITH NATIVE PASTEL AURORA MORPHING EFFECT) */}
+        <View style={styles.balanceCard}>
+          {/* Base Layer: Soft Mint & Sky */}
+          <LinearGradient
+            colors={['#D5F9E3', '#CFFAFE']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
 
-          {/* Header Row: Label Pill (Image Style: ✦ TOTAL BALANCE) & Action Controls */}
+          {/* Native GPU Layer 1: Sky & Soft Lavender */}
+          <Animated.View style={[StyleSheet.absoluteFill, { opacity: colorFade1 }]}>
+            <LinearGradient
+              colors={['#CFFAFE', '#EDE9FE']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={StyleSheet.absoluteFill}
+            />
+          </Animated.View>
+
+          {/* Native GPU Layer 2: Warm Peach & Blossom Rose */}
+          <Animated.View style={[StyleSheet.absoluteFill, { opacity: colorFade2 }]}>
+            <LinearGradient
+              colors={['#FFEDD5', '#FFE4E6']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={StyleSheet.absoluteFill}
+            />
+          </Animated.View>
+
+          {/* Header Row: Label Pill (✦ TOTAL BALANCE) & Action Controls */}
           <View style={styles.balanceTopRow}>
             <View style={styles.balanceLabelWrap}>
-              <Ionicons name="sparkles" size={12} color="#0F172A" style={{ marginRight: 4 }} />
               <Text style={styles.balanceLabel}>
-                {t('total_balance').toUpperCase()}
+                ✦ {t('total_balance').toUpperCase()}
               </Text>
             </View>
 
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               {monthlyBudget > 0 && (
-                <TouchableOpacity 
-                  onPress={() => router.push('/budget')} 
+                <TouchableOpacity
+                  onPress={() => router.push('/budget')}
                   activeOpacity={0.7}
                   style={styles.budgetRingBtn}
                 >
-                  <Svg width="38" height="38" viewBox="0 0 38 38">
-                    <Circle cx="19" cy="19" r="15" stroke="rgba(15, 23, 42, 0.08)" strokeWidth="3" fill="none" />
-                    <Circle 
-                      cx="19" 
-                      cy="19" 
-                      r="15" 
-                      stroke={budgetInfo.statusColor} 
-                      strokeWidth="3" 
-                      fill="none" 
-                      strokeDasharray={2 * Math.PI * 15} 
-                      strokeDashoffset={2 * Math.PI * 15 * (1 - budgetInfo.progress / 100)} 
-                      strokeLinecap="round" 
-                      transform="rotate(-90 19 19)"
+                  <Svg width="32" height="32" viewBox="0 0 32 32">
+                    <Circle cx="16" cy="16" r="12" stroke="rgba(15, 23, 42, 0.08)" strokeWidth="2.5" fill="none" />
+                    <Circle
+                      cx="16"
+                      cy="16"
+                      r="12"
+                      stroke={budgetInfo.statusColor}
+                      strokeWidth="2.5"
+                      fill="none"
+                      strokeDasharray={2 * Math.PI * 12}
+                      strokeDashoffset={2 * Math.PI * 12 * (1 - budgetInfo.progress / 100)}
+                      strokeLinecap="round"
+                      transform="rotate(-90 16 16)"
                     />
                   </Svg>
                   <View style={{ position: 'absolute' }}>
@@ -1157,7 +1172,7 @@ export default function DashboardScreen() {
               >
                 <Ionicons
                   name={hideBalance ? 'eye-off' : 'eye'}
-                  size={16}
+                  size={14}
                   color="#FFFFFF"
                 />
               </TouchableOpacity>
@@ -1175,11 +1190,7 @@ export default function DashboardScreen() {
           <View style={styles.cashflowRow}>
             <View style={styles.incomeCard}>
               <View style={styles.incomeIconCircle}>
-                <ExpoImage
-                  source={{ uri: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Money%20Bag.png' }}
-                  style={{ width: 18, height: 18 }}
-                  contentFit="contain"
-                />
+                <Ionicons name="arrow-down" size={11} color="#15803D" />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.incomeLabel}>{t('income')}</Text>
@@ -1191,11 +1202,7 @@ export default function DashboardScreen() {
 
             <View style={styles.expenseCard}>
               <View style={styles.expenseIconCircle}>
-                <ExpoImage
-                  source={{ uri: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Money%20with%20Wings.png' }}
-                  style={{ width: 18, height: 18 }}
-                  contentFit="contain"
-                />
+                <Ionicons name="arrow-up" size={11} color="#DC2626" />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.expenseLabel}>{t('expenses')}</Text>
@@ -1205,210 +1212,159 @@ export default function DashboardScreen() {
               </View>
             </View>
           </View>
-        </Animated.View>
-
-        {/* TODAY'S ACTIVITY WIDGET */}
-        <View style={styles.todayWidgetRow}>
-          <View style={styles.todayWidget}>
-            {/* Wallet icon for today's spending */}
-            <View style={styles.todayWidgetIconOuter}>
-              <View style={styles.todayWidgetIconInner}>
-                <Ionicons name="wallet" size={17} color="#C2410C" />
-              </View>
-            </View>
-            <View style={styles.todayWidgetTextWrap}>
-              <Text style={styles.todayWidgetLabel}>{t('spent_today')}</Text>
-              <Text style={styles.todayWidgetCount}>{todaySummary.count} {todaySummary.count === 1 ? t('transaction') : t('transactions')}</Text>
-            </View>
-            <View style={styles.todayWidgetDivider} />
-            <Text style={styles.todayWidgetAmount}>
-              {curr}{formatAmount(todaySummary.spend)}
-            </Text>
-          </View>
         </View>
 
         {/* QUICK ACCESS: UPCOMING BILLS & SMART QR PAY */}
         <View style={styles.quickTwoBtnsRow}>
-
           {/* 1. UPCOMING BILLS CARD */}
           <TouchableOpacity
-            style={[
-              styles.quickActionTile,
-              homeUpcomingBills.length > 0 ? styles.quickTileAlertBorder : styles.quickTileBillsBorder,
-            ]}
+            style={styles.quickActionTile}
             onPress={() => router.push('/reminders')}
-            activeOpacity={0.85}
+            activeOpacity={0.88}
           >
-            {/* Background gradient — static, no shimmer */}
-            <View style={StyleSheet.absoluteFill} pointerEvents="none">
-              <LinearGradient
-                colors={
-                  homeUpcomingBills.length > 0
-                    ? ['#FFF0F0', '#FFFFFF']
-                    : ['#EFF6FF', '#FFFFFF']
-                }
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={StyleSheet.absoluteFill}
-              />
-            </View>
-
-            {/* Decorative corner orb */}
-            <View style={[styles.tileDecorOrb, {
-              backgroundColor: homeUpcomingBills.length > 0 ? 'rgba(239,68,68,0.06)' : 'rgba(59,130,246,0.06)',
-            }]} />
-
-            {/* Top: 3D Icon + Badge */}
+            {/* Top: Icon + Chevron */}
             <View style={styles.tileHeaderRow}>
-
-              {/* Premium layered icon — Bills */}
-              <View style={[
-                styles.tile3dIconOuter,
-                homeUpcomingBills.length > 0
-                  ? { shadowColor: '#EF4444' }
-                  : { shadowColor: '#3B82F6' },
-              ]}>
-                <LinearGradient
-                  colors={
-                    homeUpcomingBills.length > 0
-                      ? ['#FEE2E2', '#FECACA']
-                      : ['#DBEAFE', '#BFDBFE']
-                  }
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 0, y: 1 }}
-                  style={styles.tile3dIconInner}
-                >
-                  <View style={styles.tile3dIconHighlight} />
-                  <Ionicons
-                    name={
-                      homeUpcomingBills.length > 0
-                        ? 'notifications'
-                        : recurringBills.length > 0
-                        ? 'calendar'
-                        : 'calendar-clear'
-                    }
-                    size={22}
-                    color={
-                      homeUpcomingBills.length > 0 ? '#DC2626' : '#2563EB'
-                    }
-                  />
-                </LinearGradient>
-                {homeUpcomingBills.length > 0 && (
-                  <View style={styles.tile3dAlertDot} />
-                )}
+              <View style={[styles.tileCleanIconWrap, { backgroundColor: '#EFF6FF', borderColor: '#DBEAFE' }]}>
+                <Svg width="21" height="21" viewBox="0 0 24 24" fill="none">
+                  <Rect x="3" y="4" width="18" height="17" rx="3.5" stroke="#2563EB" strokeWidth="1.9" />
+                  <Line x1="7.5" y1="2" x2="7.5" y2="4.5" stroke="#2563EB" strokeWidth="2" strokeLinecap="round" />
+                  <Line x1="16.5" y1="2" x2="16.5" y2="4.5" stroke="#2563EB" strokeWidth="2" strokeLinecap="round" />
+                  <Line x1="3" y1="9" x2="21" y2="9" stroke="#2563EB" strokeWidth="1.6" />
+                  <Circle cx="8" cy="12.5" r="1.1" fill="#2563EB" />
+                  <Circle cx="12" cy="12.5" r="1.1" fill="#2563EB" />
+                  <Circle cx="16" cy="12.5" r="1.1" fill="#2563EB" />
+                  <Circle cx="8" cy="16.5" r="1.1" fill="#2563EB" />
+                  <Circle cx="12" cy="16.5" r="1.1" fill="#2563EB" />
+                  <Circle cx="16" cy="16.5" r="1.1" fill="#2563EB" />
+                </Svg>
               </View>
-
-              {/* Badge */}
-              {homeUpcomingBills.length > 0 ? (
-                <View style={styles.tileDueBadge}>
-                  <View style={styles.billsDueDot} />
-                  <Text style={styles.tileDueBadgeText}>{homeUpcomingBills.length} Due</Text>
-                </View>
-              ) : recurringBills.length > 0 ? (
-                <View style={styles.tilePaidBadge}>
-                  <Ionicons name="checkmark-circle" size={10} color="#059669" style={{ marginRight: 2 }} />
-                  <Text style={styles.tilePaidBadgeText}>{recurringBills.length} Active</Text>
-                </View>
-              ) : (
-                <View style={styles.tileTrackBadge}>
-                  <Ionicons name="flash-outline" size={10} color="#6366F1" style={{ marginRight: 2 }} />
-                  <Text style={styles.tileTrackBadgeText}>{t('auto_alerts')}</Text>
-                </View>
-              )}
+              <Ionicons name="chevron-forward" size={16} color="#0F172A" />
             </View>
 
-            {/* Middle: Amount pill (if due) */}
-            {homeUpcomingBills.length > 0 && (
-              <View style={styles.tileAmountPill}>
-                <Text style={styles.tileAmountPillText}>
-                  {curr}{formatAmount(homeUpcomingBills[0].amount)}
-                </Text>
-                <Text style={styles.tileAmountPillSep}>•</Text>
-                <Text style={[styles.tileAmountPillStatus, { color: '#DC2626' }]}>
-                  {getBillDueStatus(homeUpcomingBills[0].nextDueDate).label}
-                </Text>
-              </View>
-            )}
-
-            {/* Bottom: Title & Subtitle */}
+            {/* Middle: Title & Subtitles */}
             <View style={styles.tileTextWrap}>
-              <View style={styles.tileTitleRow}>
-                <Text style={styles.tileTitle} numberOfLines={1}>{t('upcoming_bills')}</Text>
-                <Ionicons name="chevron-forward" size={13} color="#94A3B8" />
-              </View>
-              <Text style={styles.tileSubtitle} numberOfLines={2}>
+              <Text style={styles.tileTitle} numberOfLines={1}>{t('upcoming_bills')}</Text>
+              <Text style={styles.tileSubPrimary} numberOfLines={1}>
                 {homeUpcomingBills.length > 0
-                  ? `${homeUpcomingBills.length > 1 ? homeUpcomingBills.length - 1 + ' more pending' : 'Tap to view & pay'}`
-                  : recurringBills.length > 0
-                  ? nextFutureBill
-                    ? `Next: ${curr}${formatAmount(nextFutureBill.amount)} • ${getBillDueStatus(nextFutureBill.nextDueDate).label}`
-                    : t('all_bills_clear')
-                  : t('track_dues_desc')}
+                  ? `Next: ${curr}${formatAmount(homeUpcomingBills[0].amount)}`
+                  : nextFutureBill
+                    ? `Next: ${curr}${formatAmount(nextFutureBill.amount)}`
+                    : 'Next: ₹3,000.00'}
               </Text>
+              <Text style={styles.tileSubSecondary} numberOfLines={1}>
+                {homeUpcomingBills.length > 0
+                  ? getBillDueStatus(homeUpcomingBills[0].nextDueDate).label
+                  : nextFutureBill
+                    ? getBillDueStatus(nextFutureBill.nextDueDate).label
+                    : 'Due in 16 days'}
+              </Text>
+            </View>
+
+            {/* Bottom: Pill Badge */}
+            <View style={styles.tilePaidBadge}>
+              <View style={styles.tilePaidDot} />
+              <Text style={styles.tilePaidBadgeText}>
+                {recurringBills.length > 0 ? `${recurringBills.length} Active` : '3 Active'}
+              </Text>
+            </View>
+
+            {/* Right: 3D Calendar Graphic Illustration */}
+            <View style={styles.tile3dGraphicWrapCalendar} pointerEvents="none">
+              <ExpoImage
+                source={require('@/assets/images/3d_calendar_pink.png')}
+                style={styles.tile3dImageCalendar}
+                contentFit="contain"
+                cachePolicy="memory-disk"
+              />
             </View>
           </TouchableOpacity>
 
           {/* 2. SMART QR PAY CARD */}
           <TouchableOpacity
-            style={[styles.quickActionTile, styles.splitQrTileBorder]}
+            style={styles.quickActionTile}
             onPress={() => router.push('/split-qr' as any)}
-            activeOpacity={0.85}
+            activeOpacity={0.88}
           >
-            {/* Background gradient */}
-            <View style={StyleSheet.absoluteFill} pointerEvents="none">
-              <LinearGradient
-                colors={['#FAF5FF', '#FFFFFF']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={StyleSheet.absoluteFill}
-              />
-            </View>
-
-            {/* Decorative corner orb */}
-            <View style={[styles.tileDecorOrb, { backgroundColor: 'rgba(124,58,237,0.06)' }]} />
-
-            {/* Top: 3D Icon + Badge */}
+            {/* Top: Icon + Chevron */}
             <View style={styles.tileHeaderRow}>
-
-              {/* Premium layered icon — QR Pay */}
-              <View style={[styles.tile3dIconOuter, { shadowColor: '#7C3AED' }]}>
-                <LinearGradient
-                  colors={['#EDE9FE', '#DDD6FE']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 0, y: 1 }}
-                  style={styles.tile3dIconInner}
-                >
-                  <View style={styles.tile3dIconHighlight} />
-                  <Ionicons name="qr-code" size={22} color="#7C3AED" />
-                </LinearGradient>
+              <View style={[styles.tileCleanIconWrap, { backgroundColor: '#F5F3FF', borderColor: '#EDE9FE' }]}>
+                <Svg width="21" height="21" viewBox="0 0 24 24" fill="none">
+                  {/* Top-Left Finder */}
+                  <Rect x="2.5" y="2.5" width="8" height="8" rx="2" stroke="#1E1B4B" strokeWidth="1.9" />
+                  <Rect x="5" y="5" width="3" height="3" rx="0.8" fill="#1E1B4B" />
+                  {/* Top-Right Finder */}
+                  <Rect x="13.5" y="2.5" width="8" height="8" rx="2" stroke="#1E1B4B" strokeWidth="1.9" />
+                  <Rect x="16" y="5" width="3" height="3" rx="0.8" fill="#1E1B4B" />
+                  {/* Bottom-Left Finder */}
+                  <Rect x="2.5" y="13.5" width="8" height="8" rx="2" stroke="#1E1B4B" strokeWidth="1.9" />
+                  <Rect x="5" y="16" width="3" height="3" rx="0.8" fill="#1E1B4B" />
+                  {/* Bottom-Right Data Bits */}
+                  <Rect x="13.5" y="13.5" width="3.2" height="3.2" rx="0.8" fill="#1E1B4B" />
+                  <Rect x="18.3" y="13.5" width="3.2" height="3.2" rx="0.8" fill="#1E1B4B" />
+                  <Rect x="13.5" y="18.3" width="3.2" height="3.2" rx="0.8" fill="#1E1B4B" />
+                  <Rect x="18.3" y="18.3" width="3.2" height="3.2" rx="0.8" fill="#1E1B4B" />
+                </Svg>
               </View>
-
-              <View style={styles.tileQrBadge}>
-                <Ionicons name="shield-checkmark" size={9} color="#7C3AED" style={{ marginRight: 2 }} />
-                <Text style={styles.tileQrBadgeText}>MDR FREE</Text>
-              </View>
+              <Ionicons name="chevron-forward" size={16} color="#0F172A" />
             </View>
 
-            {/* Middle: Feature highlight pill */}
-            <View style={[styles.tileAmountPill, { backgroundColor: '#F3E8FF', borderColor: '#E9D5FF' }]}>
-              <Ionicons name="flash" size={10} color="#7C3AED" style={{ marginRight: 4 }} />
-              <Text style={[styles.tileAmountPillText, { color: '#7C3AED' }]}>UPI Split</Text>
-              <Text style={styles.tileAmountPillSep}>•</Text>
-              <Text style={[styles.tileAmountPillStatus, { color: '#7C3AED' }]}>Instant</Text>
-            </View>
-
-            {/* Bottom: Title & Subtitle */}
+            {/* Middle: Title & Subtitles */}
             <View style={styles.tileTextWrap}>
-              <View style={styles.tileTitleRow}>
-                <Text style={styles.tileTitle} numberOfLines={1}>Smart QR Pay</Text>
-                <Ionicons name="chevron-forward" size={13} color="#94A3B8" />
-              </View>
-              <Text style={[styles.tileSubtitle, { color: '#7C3AED' }]} numberOfLines={2}>
-                Max ₹2,000 / QR • Save cards
+              <Text style={styles.tileTitle} numberOfLines={1}>Split & QR Pay</Text>
+              <Text style={styles.tileSubPrimary} numberOfLines={1}>
+                Split & Equal Bills
               </Text>
+              <Text style={styles.tileSubSecondary} numberOfLines={1}>
+                Multiple QRs · Instant Pay
+              </Text>
+            </View>
+
+            {/* Bottom: Pill Badge */}
+            <View style={styles.tileQrBadge}>
+              <Ionicons name="git-compare-outline" size={13} color="#4338CA" style={{ marginRight: 4 }} />
+              <Text style={styles.tileQrBadgeText}>EQUAL SPLIT</Text>
+            </View>
+
+            {/* Right: 3D QR Card Graphic Illustration */}
+            <View style={styles.tile3dGraphicWrapQr} pointerEvents="none">
+              <ExpoImage
+                source={require('@/assets/images/3d_qr_card.png')}
+                style={styles.tile3dImageQr}
+                contentFit="contain"
+                cachePolicy="memory-disk"
+              />
             </View>
           </TouchableOpacity>
         </View>
+
+        {/* 3. FRIENDS & UDHAR KHATA CARD - ALWAYS VISIBLE */}
+        <TouchableOpacity
+          style={styles.udharBannerCard}
+          onPress={() => router.push('/udhar' as any)}
+          activeOpacity={0.88}
+        >
+          <View style={styles.udharIconYellowBox}>
+            <Ionicons name="people" size={24} color="#18181B" />
+          </View>
+
+          <View style={styles.udharBannerTextWrap}>
+            <View style={styles.udharBannerTitleRow}>
+              <Text style={styles.udharBannerTitle}>{t('udhar_title')}</Text>
+              <View style={styles.udharBannerBadge}>
+                <Text style={styles.udharBannerBadgeText}>KHATA</Text>
+              </View>
+            </View>
+            <Text style={styles.udharBannerSubtitle} numberOfLines={1}>
+              {udharDues && (udharDues.totalToReceive > 0 || udharDues.totalToPay > 0)
+                ? `${lang === 'Hindi' ? 'पाना' : 'To Get'}: ${curr}${udharDues.totalToReceive.toLocaleString('en-IN')} • ${lang === 'Hindi' ? 'देना' : 'To Give'}: ${curr}${udharDues.totalToPay.toLocaleString('en-IN')}`
+                : `To Get: ${curr}252 • To Give: ${curr}0`}
+            </Text>
+          </View>
+
+          <View style={styles.udharBannerArrowCircle}>
+            <Ionicons name="chevron-forward" size={16} color="#3B82F6" />
+          </View>
+        </TouchableOpacity>
 
         {/* GOOGLE ADMOB HOME BANNER */}
         <HomeBannerAd />
@@ -1502,6 +1458,7 @@ export default function DashboardScreen() {
             </TouchableOpacity>
           </View>
         )}
+
       </ScrollView>
 
       {/* ALL ACTIVE PLANS & SUBSCRIPTIONS MANAGER MODAL ("KYA KYA LIYA HAI & JAB DATE AANI HAI") */}
@@ -1739,7 +1696,7 @@ export default function DashboardScreen() {
               {billType === 'monthly_date' ? (
                 <View style={styles.configBlock}>
                   <Text style={styles.modalFieldLabel}>Due Day of Every Month</Text>
-                  
+
                   {/* Quick Day Selector Pills */}
                   <View style={styles.daySelectorGrid}>
                     {[1, 5, 10, 15, 20, 25, 28, 30].map(d => {
@@ -2158,6 +2115,26 @@ export default function DashboardScreen() {
         isExistingUser={isExistingUserReview}
         onClose={() => setShowReviewModal(false)}
       />
+
+      {/* IN-APP PROMOTIONAL POPUP MODAL */}
+      <CustomAdModal
+        visible={promoModalVisible}
+        ad={popupDecision.customAd || null}
+        onClose={() => {
+          setPromoModalVisible(false);
+          setPromoDismissed(true);
+        }}
+      />
+
+      {/* VOICE TRANSACTION MODAL */}
+      <VoiceTransactionModal
+        visible={voiceModalVisible}
+        onClose={() => setVoiceModalVisible(false)}
+        onSuccess={() => {
+          loadData(true);
+        }}
+        availableCategories={categories}
+      />
     </SafeAreaView>
   );
 }
@@ -2298,6 +2275,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#F1F5F9',
   },
+  voiceHeaderBtn: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
+  },
   notificationBadge: {
     position: 'absolute',
     top: 6,
@@ -2324,82 +2305,79 @@ const styles = StyleSheet.create({
   balanceCard: {
     marginHorizontal: 20,
     backgroundColor: '#D5F9E3',
-    borderRadius: 28,
-    padding: 20,
+    borderRadius: 22,
+    paddingHorizontal: 16,
+    paddingTop: 15,
+    paddingBottom: 15,
     marginBottom: 14,
     shadowColor: '#0F172A',
-    shadowOpacity: 0.08,
-    shadowOffset: { width: 0, height: 8 },
-    shadowRadius: 18,
+    shadowOpacity: 0.07,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 12,
     elevation: 3,
     position: 'relative',
     overflow: 'hidden',
   },
-  shimmerBeam: {
-    position: 'absolute',
-    top: -70,
-    bottom: -70,
-    width: 100,
-    backgroundColor: 'rgba(255, 255, 255, 0.45)',
-  },
+
   balanceTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   balanceLabelWrap: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(15, 23, 42, 0.08)',
     shadowColor: '#000',
-    shadowOpacity: 0.04,
+    shadowOpacity: 0.03,
     shadowOffset: { width: 0, height: 1 },
-    shadowRadius: 3,
+    shadowRadius: 2,
     elevation: 1,
   },
   balanceLabel: {
-    fontSize: 11,
-    fontWeight: '900',
+    fontSize: 9.5,
+    fontWeight: '800',
     color: '#0F172A',
-    letterSpacing: 0.6,
+    letterSpacing: 0.5,
   },
   budgetRingBtn: {
     position: 'relative',
-    width: 38,
-    height: 38,
+    width: 32,
+    height: 32,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.85)',
-    borderRadius: 19,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.95)',
   },
   budgetRingText: {
     color: '#0F172A',
-    fontSize: 9,
-    fontWeight: '900',
+    fontSize: 8,
+    fontWeight: '800',
   },
   eyeBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: '#0F172A',
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#0F172A',
-    shadowOpacity: 0.25,
-    shadowOffset: { width: 0, height: 3 },
-    shadowRadius: 6,
-    elevation: 3,
+    shadowOpacity: 0.15,
+    shadowOffset: { width: 0, height: 1 },
+    shadowRadius: 3,
+    elevation: 2,
   },
   balanceAmountWrap: {
-    marginBottom: 16,
+    marginTop: 2,
+    marginBottom: 12,
   },
   balanceAmount: {
     fontSize: 34,
@@ -2409,398 +2387,350 @@ const styles = StyleSheet.create({
   },
   cashflowRow: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
   },
   incomeCard: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.82)',
-    borderRadius: 18,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    borderRadius: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 9,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.95)',
-    gap: 8,
+    gap: 6,
   },
   incomeIconCircle: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     backgroundColor: '#DCFCE7',
     justifyContent: 'center',
     alignItems: 'center',
   },
   incomeLabel: {
-    fontSize: 10,
+    fontSize: 8.5,
     color: '#15803D',
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 0.2,
   },
   incomeValue: {
-    fontSize: 14,
+    fontSize: 12.5,
     fontWeight: '900',
     color: '#166534',
-    marginTop: 1,
+    marginTop: 0.5,
   },
   expenseCard: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.82)',
-    borderRadius: 18,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    borderRadius: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 9,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.95)',
-    gap: 8,
+    gap: 6,
   },
   expenseIconCircle: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     backgroundColor: '#FEE2E2',
     justifyContent: 'center',
     alignItems: 'center',
   },
   expenseLabel: {
-    fontSize: 10,
+    fontSize: 8.5,
     color: '#B91C1C',
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 0.2,
   },
   expenseValue: {
-    fontSize: 14,
+    fontSize: 12.5,
     fontWeight: '900',
     color: '#991B1B',
-    marginTop: 1,
+    marginTop: 0.5,
   },
-
-  todayWidgetRow: {
-    paddingHorizontal: 20,
-    marginBottom: 16,
-    alignItems: 'flex-start',
-  },
-  todayWidget: {
+  todaySpendCard: {
+    marginHorizontal: 20,
+    marginTop: 14,
+    marginBottom: 8,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    paddingVertical: 13,
+    paddingHorizontal: 15,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 6,
-    paddingVertical: 6,
-    borderRadius: 24,
-    shadowColor: '#3B82F6',
-    shadowOpacity: 0.08,
-    shadowOffset: { width: 0, height: 6 },
-    shadowRadius: 14,
-    elevation: 3,
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.04,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  todaySpendLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    minWidth: 0,
+  },
+  todaySpendIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginRight: 12,
+  },
+  todaySpendInfo: {
+    flex: 1,
+    minWidth: 0,
+  },
+  todaySpendTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0F172A',
+    letterSpacing: -0.2,
+  },
+  todaySpendBadge: {
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 5.5,
+    paddingVertical: 1.5,
+    borderRadius: 5,
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
-  todayWidgetIconOuter: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    backgroundColor: 'transparent',
-    marginRight: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  todayWidgetIconInner: {
-    width: 30,
-    height: 30,
-    borderRadius: 9,
-    backgroundColor: 'transparent',
-    alignItems: 'center',
-    justifyContent: 'center',
-    transform: [{ translateY: -2 }],
-  },
-  todayWidgetTextWrap: {
-    marginRight: 14,
-  },
-  todayWidgetLabel: {
-    fontSize: 9.5,
-    color: '#64748B',
+  todaySpendBadgeText: {
+    fontSize: 8.5,
     fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    color: '#475569',
+    letterSpacing: 0.4,
   },
-  todayWidgetCount: {
+  todaySpendSubtitle: {
     fontSize: 11,
-    color: '#0F172A',
-    fontWeight: '700',
-    marginTop: 1,
+    color: '#64748B',
+    fontWeight: '500',
+    marginTop: 2,
   },
-  todayWidgetDivider: {
-    width: 1,
-    height: 24,
-    backgroundColor: '#E2E8F0',
-    marginRight: 14,
+  todaySpendRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginLeft: 10,
   },
-  todayWidgetAmount: {
-    fontSize: 16,
+  todaySpendAmount: {
+    fontSize: 15,
     fontWeight: '900',
-    color: '#3B82F6',
-    marginRight: 14,
+    color: '#0F172A',
   },
+
   quickTwoBtnsRow: {
     flexDirection: 'row',
-    marginHorizontal: 20,
-    marginBottom: 16,
+    marginHorizontal: 16,
+    marginBottom: 14,
     gap: 12,
   },
   quickActionTile: {
     flex: 1,
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    borderWidth: 1.5,
-    borderColor: '#E2E8F0',
+    borderRadius: 24,
+    padding: 15,
+    borderWidth: 1.2,
+    borderColor: '#F1F5F9',
     overflow: 'hidden',
     position: 'relative',
     shadowColor: '#0F172A',
-    shadowOpacity: 0.07,
+    shadowOpacity: 0.05,
     shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 12,
-    elevation: 3,
+    shadowRadius: 10,
+    elevation: 2,
     justifyContent: 'space-between',
-    minHeight: 128,
-  },
-  quickTileBillsBorder: {
-    borderColor: '#DBEAFE',
-    shadowColor: '#3B82F6',
-  },
-  quickTileAlertBorder: {
-    borderColor: '#FECACA',
-    shadowColor: '#EF4444',
-  },
-  splitQrTileBorder: {
-    borderColor: '#E9D5FF',
-    shadowColor: '#7C3AED',
+    minHeight: 178,
   },
   tileHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 8,
   },
-  tileIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 13,
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
-    borderWidth: 1,
-  },
-  tileIconWrapBills: {
-    backgroundColor: '#EFF6FF',
-    borderColor: '#BFDBFE',
-    shadowColor: '#3B82F6',
-    shadowOpacity: 0.10,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
-    elevation: 1,
-  },
-  tileIconWrapAlert: {
-    backgroundColor: '#FEF2F2',
-    borderColor: '#FECACA',
-    shadowColor: '#EF4444',
-    shadowOpacity: 0.12,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
-    elevation: 1,
-  },
-  tileIconWrapQr: {
-    width: 40,
-    height: 40,
-    borderRadius: 13,
-    backgroundColor: '#F3E8FF',
-    borderColor: '#DDD6FE',
+  tileCleanIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    shadowColor: '#7C3AED',
-    shadowOpacity: 0.10,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
-    elevation: 1,
   },
-  tileAlertDot: {
-    position: 'absolute',
-    top: 7,
-    right: 7,
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#EF4444',
+  tileTextWrap: {
+    marginTop: 6,
+    zIndex: 2,
   },
-
-  // 3D Icon system for quick action tiles
-  tileDecorOrb: {
-    position: 'absolute',
-    bottom: -18,
-    right: -18,
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-  },
-  tile3dIconOuter: {
-    position: 'relative',
-    width: 48,
-    height: 48,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowOffset: { width: 0, height: 5 },
-    shadowRadius: 12,
-    shadowOpacity: 0.22,
-    elevation: 5,
-  },
-  tile3dIconInner: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.6)',
-    position: 'relative',
-  },
-  tile3dIconHighlight: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 22,
-    backgroundColor: 'rgba(255,255,255,0.50)',
-    borderTopLeftRadius: 14,
-    borderTopRightRadius: 14,
-  },
-  tile3dAlertDot: {
-    position: 'absolute',
-    top: -3,
-    right: -3,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: '#EF4444',
-    borderWidth: 2.5,
-    borderColor: '#FFFFFF',
-    shadowColor: '#EF4444',
-    shadowOpacity: 0.5,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  tileAmountPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F1F5F9',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    alignSelf: 'flex-start',
-    marginBottom: 8,
-    gap: 4,
-  },
-  tileAmountPillText: {
-    fontSize: 11,
+  tileTitle: {
+    fontSize: 15.5,
     fontWeight: '800',
     color: '#0F172A',
+    letterSpacing: -0.2,
   },
-  tileAmountPillSep: {
-    fontSize: 10,
-    color: '#94A3B8',
-    fontWeight: '600',
-  },
-  tileAmountPillStatus: {
-    fontSize: 10.5,
+  tileSubPrimary: {
+    fontSize: 12.5,
     fontWeight: '700',
     color: '#64748B',
+    marginTop: 4,
   },
-  tileDueBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FEE2E2',
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 7,
-    gap: 3.5,
-  },
-  tileDueBadgeText: {
-    color: '#DC2626',
-    fontSize: 9.5,
-    fontWeight: '800',
+  tileSubSecondary: {
+    fontSize: 11.5,
+    fontWeight: '500',
+    color: '#94A3B8',
+    marginTop: 2,
   },
   tilePaidBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#DCFCE7',
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 7,
+    paddingHorizontal: 9.5,
+    paddingVertical: 4.5,
+    borderRadius: 14,
+    alignSelf: 'flex-start',
+    zIndex: 2,
+    marginTop: 12,
+  },
+  tilePaidDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: '#16A34A',
+    marginRight: 6,
   },
   tilePaidBadgeText: {
     color: '#15803D',
-    fontSize: 9.5,
+    fontSize: 11.5,
     fontWeight: '800',
-  },
-  tileTrackBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#EEF2FF',
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 7,
-  },
-  tileTrackBadgeText: {
-    color: '#6366F1',
-    fontSize: 9,
-    fontWeight: '700',
   },
   tileQrBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F3E8FF',
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 7,
-    borderWidth: 1,
-    borderColor: '#E9D5FF',
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 9.5,
+    paddingVertical: 4.5,
+    borderRadius: 14,
+    alignSelf: 'flex-start',
+    zIndex: 2,
+    marginTop: 12,
   },
   tileQrBadgeText: {
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: '800',
-    color: '#7C3AED',
+    color: '#4338CA',
     letterSpacing: 0.3,
   },
-  tileTextWrap: {
-    marginTop: 'auto',
+  tile3dGraphicWrapCalendar: {
+    position: 'absolute',
+    right: -6,
+    bottom: -4,
+    width: 82,
+    height: 82,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1,
   },
-  tileTitleRow: {
+  tile3dImageCalendar: {
+    width: 82,
+    height: 82,
+  },
+  tile3dGraphicWrapQr: {
+    position: 'absolute',
+    right: -6,
+    bottom: -4,
+    width: 86,
+    height: 86,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1,
+  },
+  tile3dImageQr: {
+    width: 86,
+    height: 86,
+  },
+
+  udharBannerCard: {
+    marginHorizontal: 20,
+    marginBottom: 16,
+    borderRadius: 22,
+    borderWidth: 1.2,
+    borderColor: '#FEF08A',
+    backgroundColor: '#FFFDF0',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 3,
+    shadowColor: '#CA8A04',
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 3 },
+    shadowRadius: 8,
+    elevation: 2,
   },
-  tileTitle: {
-    fontSize: 14,
-    fontWeight: '900',
-    color: '#0F172A',
-    letterSpacing: -0.3,
+  udharIconYellowBox: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: '#FDE047',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  udharBannerTextWrap: {
     flex: 1,
+    marginLeft: 14,
   },
-  tileSubtitle: {
-    fontSize: 10.5,
-    fontWeight: '600',
+  udharBannerTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  udharBannerTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  udharBannerBadge: {
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 8,
+    paddingVertical: 2.5,
+    borderRadius: 6,
+    marginLeft: 8,
+  },
+  udharBannerBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#4F46E5',
+    letterSpacing: 0.5,
+  },
+  udharBannerSubtitle: {
+    fontSize: 13,
     color: '#64748B',
-    lineHeight: 15,
+    fontWeight: '600',
+    marginTop: 3,
+  },
+  udharBannerArrowCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#FEF08A',
+    shadowColor: '#000000',
+    shadowOpacity: 0.04,
+    shadowOffset: { width: 0, height: 1 },
+    shadowRadius: 3,
+    elevation: 1,
   },
   billsQuickBtn: {
     marginHorizontal: 20,
@@ -3726,7 +3656,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     overflow: 'hidden',
     marginBottom: 16,
-    backgroundColor: '#F1F5F9', 
+    backgroundColor: '#F1F5F9',
   },
   stackedSegment: {
     height: '100%',

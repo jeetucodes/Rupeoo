@@ -18,7 +18,15 @@ export interface BackupTransaction {
   time?: string;
 }
 
-export async function generateBackupData(userId: string): Promise<{
+export interface GenerateBackupOptions {
+  periodMode?: 'all' | 'month';
+  monthStr?: string; // YYYY-MM
+}
+
+export async function generateBackupData(
+  userId: string,
+  options?: GenerateBackupOptions
+): Promise<{
   count: number;
   jsonData: string;
   csvData: string;
@@ -27,9 +35,26 @@ export async function generateBackupData(userId: string): Promise<{
     throw new Error('User ID is required');
   }
 
-  const txs = await getAllTransactions(userId);
+  // Force refresh to pull 100% of remote transactions from Firestore & reconcile with local cache
+  let txs: any[] = [];
+  try {
+    txs = await getAllTransactions(userId, true);
+  } catch (err) {
+    console.warn('generateBackupData forceRefresh fallback to local:', err);
+    txs = await getAllTransactions(userId, false);
+  }
+
+  if (!txs || txs.length === 0) {
+    txs = await getAllTransactions(userId, false);
+  }
+
   if (!txs || txs.length === 0) {
     return { count: 0, jsonData: '[]', csvData: '' };
+  }
+
+  // If user selected a specific month, filter to that month; otherwise keep 100% of all data across all time
+  if (options?.periodMode === 'month' && options?.monthStr) {
+    txs = txs.filter((t: any) => t.date && t.date.startsWith(options.monthStr!));
   }
 
   const sanitized: BackupTransaction[] = txs.map(t => ({
@@ -71,16 +96,18 @@ export async function generateBackupData(userId: string): Promise<{
 
 export async function exportTransactions(
   userId: string,
-  format: 'json' | 'csv' = 'json'
+  format: 'json' | 'csv' = 'json',
+  options?: GenerateBackupOptions
 ): Promise<{ success: boolean; count: number; filename?: string; fileUri?: string; error?: string }> {
   try {
-    const { count, jsonData, csvData } = await generateBackupData(userId);
+    const { count, jsonData, csvData } = await generateBackupData(userId, options);
     if (count === 0) {
       return { success: false, count: 0, error: 'No transactions to export.' };
     }
 
     const today = getLocalDateString();
-    const filename = `rupeo_backup_${today}.${format}`;
+    const periodTag = options?.periodMode === 'month' && options?.monthStr ? `_${options.monthStr}` : '_all';
+    const filename = `rupeo_backup${periodTag}_${today}.${format}`;
     const content = format === 'json' ? jsonData : csvData;
     const mimeType = format === 'json' ? 'application/json' : 'text/csv';
 

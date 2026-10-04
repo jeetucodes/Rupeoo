@@ -102,10 +102,10 @@ export async function addSavedQrToTransactions(
         date: dateStr,
         time: timeStr,
         amount: Number(target.totalAmount) || 0,
-        type: 'debit',
+        type: 'credit',
         merchant_name: target.payeeName?.trim() || target.upiId.trim(),
-        description: target.note ? `Smart QR Pay: ${target.note.trim()} (${target.upiId})` : `Smart QR Pay to ${target.upiId}`,
-        category: 'Bills',
+        description: target.note ? `QR Pay Received: ${target.note.trim()} (${target.upiId})` : `QR Payment Received (${target.upiId})`,
+        category: 'Income',
         payment_mode: 'UPI',
         source: 'split_qr',
       });

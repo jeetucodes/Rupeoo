@@ -1,17 +1,19 @@
 # Privacy Policy for Rupeo
 
-**Effective Date:** September 4, 2026  
+**Effective Date:** September 21, 2026  
+**Version:** 2.1  
 **Application Name:** Rupeo  
 **Package Name:** `com.innovatexlabs.paisewaise`  
 **Publisher / Developer:** Innovatex Labs  
-**Contact Email:** support@innovatexlabs.com  
+**Official Portal / Download:** https://rupeoo.vercel.app/download  
+**Contact Email:** innovatexlab.services@gmail.com  
 
 ---
 
 ## 1. Introduction
-Innovatex Labs ("we", "us", or "our") develops and operates the **Rupeo** mobile application. This Privacy Policy outlines our principles and practices regarding the collection, use, storage, and protection of personal and financial information when you use Rupeo on Android or iOS devices.
+Innovatex Labs ("we", "us", or "our") develops and operates the **Rupeo** personal finance and bookkeeping application. We are committed to transparency, user privacy, and data security. This Privacy Policy details our principles and practices regarding the collection, use, storage, and protection of personal and financial information when you use Rupeo on Android or iOS devices.
 
-By installing, registering, or using Rupeo, you consent to the collection and use of information in accordance with this policy.
+By installing, registering, or using Rupeo, you consent to the collection and use of information in accordance with this Privacy Policy.
 
 ---
 
@@ -19,34 +21,45 @@ By installing, registering, or using Rupeo, you consent to the collection and us
 
 ### A. Account & Profile Information
 When you create an account or sign in to Rupeo:
-- **Email & Display Name:** To identify your account, send transaction summaries, and sync preferences.
-- **Profile Photo URL:** If signing in via Google Sign-In, to personalize your in-app profile.
-- **Firebase Authentication UID:** A unique anonymized identifier assigned to your account.
+- **Email & Display Name:** Used to authenticate your account, synchronize personal finance preferences, and personalize your experience.
+- **Profile Photo URL:** If signing in via Google Sign-In, we store your public Google profile avatar URL to display within your in-app profile.
+- **Firebase Authentication UID:** A unique anonymized identifier assigned to your account for secure cloud data isolation.
 
-### B. Financial & Bookkeeping Data
-Rupeo is a personal financial ledger where you may manually input:
-- **Transaction Records:** Income and expense amounts, transaction timestamps, payment modes (UPI, Cash, Debit/Credit Card, Net Banking).
-- **Categories:** Custom or predefined tags (e.g. Food, Groceries, Shopping, Bills, Fuel, Health, Salary, Freelance).
-- **Descriptions & Memos:** Custom notes attached to transactions.
+### B. Financial Transactions & Ledger Data
+Rupeo is an expense tracking, budgeting, and bookkeeping ledger where you may input:
+- **Transaction Records:** Income and expense amounts, timestamps, payment modes (UPI, Cash, Debit/Credit Card, Net Banking).
+- **Categories:** System-defined or custom user categories (e.g., Food, Groceries, Shopping, Bills, Fuel, Health, Salary, Freelance).
+- **Descriptions & Memos:** Custom text notes or remarks attached to transactions.
+- **Budget Benchmarks & Goals:** Monthly category spending targets and overall budget allocations.
 
-### C. Receipt & Bill Images
-- **Physical Bills & Receipts:** Photos you capture using your device camera or select from your gallery.
-- **Storage:** Images are compressed and stored securely via Cloudinary CDN, linked strictly to your account.
+### C. Friends & Udhar (Peer-to-Peer Khata) Data
+When you use the Friends & Udhar tracking feature:
+- **Friend Contact Details:** Names and optional mobile numbers you provide for contacts with whom you track shared expenses or loans.
+- **Ledger Entries:** Lent ("Gave") and borrowed ("Got") amounts, payment notes, and settlement records.
+- **Security:** Friends and ledger data are isolated under your personal authenticated Firestore account and never exposed publicly.
 
-### D. Recurring Bill Reminders
-- **Utility & Subscription Reminders:** Service provider names (e.g. Jio, Airtel, Vi, BSNL, Rent, Tiffin/Mess, Milk Delivery, Maid Salary, Electricity, Water, WiFi, EMI), cycle days, amount due, and due dates.
+### D. UPI QR Generation & Payment Requests
+- **UPI ID (VPA):** When generating a Split UPI QR code or requesting payment from friends, your provided UPI Virtual Payment Address (e.g. `username@bank`) is used solely to construct the standard NPCI UPI payment deep link (`upi://pay?...`) and rendered into scannable QR codes.
+- **QR Pass Capture:** The app generates a local graphical payment pass image on your device that you can voluntarily share via WhatsApp or system share dialogs.
 
-### E. Device & Diagnostic Data
-- **Device Model & OS Version:** To optimize UI performance and maintain platform compatibility.
-- **Push Notification Tokens:** Managed through Expo Notifications to deliver scheduled bill alerts.
-- **Crash Reports & Telemetry:** Aggregated and anonymized data to diagnose bugs and improve app stability.
+### E. Receipts & Bill Images
+- **Physical Bills & Invoices:** Photos you capture using your device camera or select from your photo library.
+- **Storage:** Receipt images are compressed and stored securely via Cloudinary CDN, linked strictly to your authenticated account.
+
+### F. Recurring Bill Reminders
+- **Utility & Subscription Reminders:** Service provider names (e.g., Jio, Airtel, Vi, BSNL, Rent, Tiffin/Mess, Milk Delivery, Maid Salary, Electricity, Water, WiFi, EMI), billing frequency, amount due, and due dates.
+
+### G. Device & Diagnostic Data
+- **Device Model & OS Version:** To optimize user interface performance and maintain compatibility.
+- **Push Notification Tokens:** Managed through Expo Notifications to deliver scheduled bill reminders and budget alerts.
+- **Crash Telemetry:** Aggregated, non-identifiable telemetry to resolve app crashes and improve reliability.
 
 ---
 
 ## 3. What We DO NOT Collect
 To protect your financial security:
-- **No Bank Login Credentials:** Rupeo never asks for or stores your net-banking passwords, ATM PINs, UPI MPINs, or card CVVs.
-- **No Direct Fund Custody:** Rupeo is not a payment gateway or wallet. It does not hold, transfer, or process actual money.
+- **No Bank Credentials:** Rupeo never asks for, records, or stores your net-banking passwords, ATM PINs, UPI MPINs, or card CVVs.
+- **No Direct Fund Custody:** Rupeo is not a payment gateway, bank, or digital wallet. It does not hold, transmit, receive, or process actual money.
 - **No Unauthorized SMS Scraping:** Rupeo does not read non-consented personal SMS messages.
 
 ---
@@ -57,17 +70,18 @@ To protect your financial security:
 | :--- | :--- | :--- |
 | **Camera** | `android.permission.CAMERA` | Allows you to photograph physical bill receipts, invoices, or payment confirmations. |
 | **Media / Photos** | `READ_MEDIA_IMAGES` / `READ_EXTERNAL_STORAGE` | Allows you to choose receipt photos from your gallery and save exported receipts/PDFs. |
-| **Notifications** | `android.permission.POST_NOTIFICATIONS` | Delivers timely bill due date alerts, recharge expiration warnings, and budget notices. |
+| **Notifications** | `android.permission.POST_NOTIFICATIONS` | Delivers timely bill due date alerts, recharge expiration warnings, and budget notifications. |
 
 ---
 
 ## 5. How We Use Your Information
 We use your information exclusively to provide and improve the Rupeo service:
-1. Synchronizing transactions and bill reminders across your registered devices.
+1. Synchronizing transactions, friends ledger, and bill reminders across your registered devices.
 2. Generating analytics: cash flow trends, spending waves, and category breakdowns.
 3. Rendering authentic scannable ISO/IEC 16388 Code 39 barcode receipts for personal records.
 4. Delivering AI-powered spending summaries and smart budget advice.
-5. Managing optional VIP / Pro subscription features.
+5. Providing Split UPI QR codes and payment request passes for peer-to-peer tracking.
+6. Managing optional VIP / Pro subscription features.
 
 **We do NOT sell, rent, monetize, or trade your personal or financial records to data brokers or third-party advertisers.**
 
@@ -75,7 +89,7 @@ We use your information exclusively to provide and improve the Rupeo service:
 
 ## 6. Third-Party Service Providers
 We partner with certified third-party providers who process data strictly on our behalf:
-- **Google Firebase (Google LLC):** Authentication, Cloud Firestore encrypted database, and backend infrastructure.
+- **Google Firebase (Google LLC):** Authentication, Cloud Firestore encrypted database, and cloud infrastructure.
 - **Google Mobile Ads (AdMob):** Displays banner and interstitial advertisements for free-tier users in compliance with Google Play Developer policies.
 - **Cloudinary:** High-speed cloud image optimization and encrypted storage for bill receipts.
 - **Google Play In-App Billing (`react-native-iap`):** Processes VIP/Pro subscription transactions securely without Rupeo ever handling credit card numbers.
@@ -92,7 +106,7 @@ We partner with certified third-party providers who process data strictly on our
 ## 8. Data Ownership, Export & Deletion Rights
 - **Data Ownership:** You own 100% of your financial information.
 - **Data Export:** You can export your data at any time in CSV, PDF, or JSON backup formats via Settings.
-- **Right to Erasure (Account Deletion):** You have the right to permanently erase your account at any time. Simply go to **Settings > Delete My Account**. This action permanently purges your profile, all transactions, recurring bills, notifications, and uploaded photos from our active servers.
+- **Right to Erasure (Account Deletion):** You have the right to permanently erase your account at any time. Simply navigate to **Settings > Delete My Account**. This action permanently and irreversibly purges your profile, all transactions, friends khata entries, recurring bills, notifications, and uploaded photos from our active servers.
 
 ---
 
@@ -108,5 +122,6 @@ We may update this Privacy Policy from time to time. We will notify you of any c
 
 ## 11. Contact Us
 If you have any questions, concerns, or requests regarding this Privacy Policy, please contact our support team at:
-- **Email:** support@innovatexlabs.com  
+- **Email:** innovatexlab.services@gmail.com  
 - **Publisher:** Innovatex Labs  
+- **Website:** https://rupeoo.vercel.app/download  

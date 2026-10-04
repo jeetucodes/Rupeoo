@@ -9,6 +9,8 @@
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
     "types": ["node"],
     "paths": {
       "@/*": [

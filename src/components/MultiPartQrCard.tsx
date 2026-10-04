@@ -269,12 +269,12 @@ export const MultiPartQrCard: React.FC<MultiPartQrCardProps> = ({
               color={part.isPaid ? '#475569' : '#0F172A'}
               backgroundColor="#FFFFFF"
               quietZone={10}
-              ecl="H"
+              ecl="Q"
               logo={require('../../assets/images/rupeo-qr-emblem.png')}
-              logoSize={logoSize}
-              logoBackgroundColor="transparent"
-              logoMargin={0}
-              logoBorderRadius={Math.round(logoSize * 0.215)}
+              logoSize={Math.min(logoSize, 34)}
+              logoBackgroundColor="#FFFFFF"
+              logoMargin={3}
+              logoBorderRadius={6}
               getRef={(c) => (svgRef.current = c)}
             />
 

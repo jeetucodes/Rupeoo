@@ -1,9 +1,20 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '@/context/AuthContext';
+import { View, StyleSheet } from 'react-native';
+import { useAuth, AppConfig } from '@/context/AuthContext';
+import {
+  shouldShowAd,
+  useCustomAds,
+  AdPlacement,
+  getActiveCustomAdsForPlacement,
+  InAppCustomAd,
+} from './customAds';
+import { CustomAdBanner } from '@/components/CustomAdBanner';
 
-// Dynamically check if react-native-google-mobile-ads native binary is available (Available in compiled APK / EAS build, not in Expo Go)
+export * from './customAds';
+export { CustomAdBanner } from '@/components/CustomAdBanner';
+export { CustomAdModal } from '@/components/CustomAdModal';
+
+// Dynamically check if react-native-google-mobile-ads native binary is available
 let GoogleMobileAds: any = null;
 try {
   GoogleMobileAds = require('react-native-google-mobile-ads');
@@ -27,17 +38,26 @@ export const ADMOB_CONFIG = {
 let interstitial: any = null;
 let isInterstitialLoaded = false;
 let onInterstitialClosedCallback: (() => void) | null = null;
+let expenseEntryCount = 0;
 
 const TEST_INTERSTITIAL_ID = TestIds?.INTERSTITIAL || 'ca-app-pub-3940256099942544/1033173712';
+const TEST_BANNER_ID = TestIds?.BANNER || 'ca-app-pub-3940256099942544/6300978111';
 
 /**
  * Initialize Google Mobile Ads SDK (Native)
+ * Strictly respects networkAdsEnabled and showAds master switches.
  */
-export async function initializeAds() {
+export async function initializeAds(config?: AppConfig) {
+  // If ads are killed or network ads are disabled, completely bypass SDK initialization
+  if (config && (config.showAds === false || config.networkAdsEnabled === false)) {
+    console.log('AdMob disabled by config: Skipping Google Mobile Ads SDK initialization');
+    return;
+  }
+
   if (!mobileAds) return;
   try {
     await mobileAds().initialize();
-    preloadTransactionSaveAd();
+    preloadTransactionSaveAd(Boolean(config?.adMobTestMode), config?.adMobInterstitialUnitId);
   } catch (e) {
     console.warn('Google Mobile Ads initialization warning:', e);
   }
@@ -46,10 +66,12 @@ export async function initializeAds() {
 /**
  * Preload the Transaction Save Interstitial Ad
  */
-export function preloadTransactionSaveAd(forceTest: boolean = false) {
+export function preloadTransactionSaveAd(forceTest: boolean = false, customUnitId?: string) {
   if (!InterstitialAd || !AdEventType) return;
 
-  const adUnitId = (forceTest || __DEV__) ? TEST_INTERSTITIAL_ID : ADMOB_CONFIG.transactionSaveId;
+  const adUnitId = forceTest || __DEV__
+    ? TEST_INTERSTITIAL_ID
+    : customUnitId || ADMOB_CONFIG.transactionSaveId;
 
   try {
     interstitial = InterstitialAd.createForAdRequest(adUnitId, {
@@ -70,7 +92,7 @@ export function preloadTransactionSaveAd(forceTest: boolean = false) {
         cb();
       }
       // Preload next interstitial ad
-      preloadTransactionSaveAd(forceTest);
+      preloadTransactionSaveAd(forceTest, customUnitId);
     });
 
     interstitial.addAdEventListener(AdEventType.ERROR, (error: any) => {
@@ -78,7 +100,7 @@ export function preloadTransactionSaveAd(forceTest: boolean = false) {
       isInterstitialLoaded = false;
       if (!forceTest) {
         // Fallback to Google's official test interstitial ID
-        preloadTransactionSaveAd(true);
+        preloadTransactionSaveAd(true, customUnitId);
       }
     });
 
@@ -90,96 +112,174 @@ export function preloadTransactionSaveAd(forceTest: boolean = false) {
 
 /**
  * Show Transaction Save Ad (Interstitial) after a transaction is successfully saved
- * Skips entirely if user is a Premium subscriber!
- * Calls onDismiss() when ad is closed or if ad fails/not ready.
+ * Strictly honors Pro-User suppression, remote master toggles, and interstitial interval.
  */
 export async function showTransactionSaveAd(
   isUserPremium: boolean = false,
-  onDismiss?: () => void
+  onDismiss?: () => void,
+  config?: AppConfig
 ): Promise<void> {
-  if (isUserPremium) {
+  const dismiss = () => {
     if (onDismiss) onDismiss();
+  };
+
+  // 1. Pro Member VIP VIP check
+  if (isUserPremium || (config && config.hideAdsForProUsers !== false && isUserPremium)) {
+    dismiss();
     return;
   }
 
+  // 2. Master Kill Switch / Network Ads Switch / Granular Interstitial switch
+  if (
+    config &&
+    (config.showAds === false ||
+      config.networkAdsEnabled === false ||
+      config.adMobInterstitialEnabled === false)
+  ) {
+    dismiss();
+    return;
+  }
+
+  // 3. Interstitial Frequency Interval check (Default: every 3 transactions)
+  const interval =
+    config?.interstitialInterval && config.interstitialInterval > 0
+      ? config.interstitialInterval
+      : 3;
+  expenseEntryCount += 1;
+
+  if (expenseEntryCount % interval !== 0) {
+    console.log(`Transaction entry #${expenseEntryCount}: skipping interstitial (interval is ${interval})`);
+    preloadTransactionSaveAd(Boolean(config?.adMobTestMode), config?.adMobInterstitialUnitId);
+    dismiss();
+    return;
+  }
+
+  // 4. Show Interstitial
   try {
     if (interstitial && isInterstitialLoaded) {
-      onInterstitialClosedCallback = onDismiss || null;
+      onInterstitialClosedCallback = dismiss;
       await interstitial.show();
     } else {
-      console.log('Interstitial ad not ready yet, proceeding with navigation');
-      preloadTransactionSaveAd();
-      if (onDismiss) onDismiss();
+      console.log('Interstitial ad not ready yet, continuing flow');
+      preloadTransactionSaveAd(Boolean(config?.adMobTestMode), config?.adMobInterstitialUnitId);
+      dismiss();
     }
   } catch (e) {
-    console.warn('Error showing Transaction Save Ad:', e);
+    console.warn('Error displaying Transaction Save Ad:', e);
     onInterstitialClosedCallback = null;
-    if (onDismiss) onDismiss();
-    preloadTransactionSaveAd();
+    dismiss();
+    preloadTransactionSaveAd(Boolean(config?.adMobTestMode), config?.adMobInterstitialUnitId);
   }
 }
 
 /**
- * Native Home Banner Ad Component
- * Hides completely when user is Premium or if ad fails to load!
- * Takes ZERO space (height: 0) while loading and vanishes on error.
+ * Unified Ad Banner Component (Supports all placements)
+ * Implements resolution algorithm: Custom In-House vs AdMob fallback vs None.
  */
-export function HomeBannerAd({ style }: { style?: any }) {
+export function RupeoAdBanner({
+  placement = 'home_banner',
+  style,
+  compact = false,
+}: {
+  placement?: AdPlacement;
+  style?: any;
+  compact?: boolean;
+}) {
   const { isPremium, appConfig } = useAuth();
-  const [isLoaded, setIsLoaded] = useState(false);
-  const [adError, setAdError] = useState(false);
-  const [useTestAd, setUseTestAd] = useState(__DEV__);
+  const customAds = useCustomAds();
+  const [admobLoaded, setAdmobLoaded] = useState(false);
+  const [admobError, setAdmobError] = useState(false);
+  const [useTestAd, setUseTestAd] = useState(__DEV__ || Boolean(appConfig?.adMobTestMode));
 
-  const TEST_BANNER_ID = TestIds?.BANNER || 'ca-app-pub-3940256099942544/6300978111';
+  // Run resolution algorithm
+  const decision = shouldShowAd({ isPro: isPremium }, appConfig, placement, customAds);
 
-  // If user is Premium, ads disabled by config, or native AdMob binary missing (e.g. Expo Go)
-  if (isPremium || appConfig?.showAds === false || !BannerAd || !BannerAdSize) {
+  // Fallback custom ad candidate
+  const fallbackList = getActiveCustomAdsForPlacement(customAds, placement, isPremium);
+  const fallbackAd = fallbackList[0];
+
+  if (!decision.show || decision.type === 'none') {
     return null;
   }
 
-  // If ad failed to load completely (e.g. offline, no fill), hide area completely
-  if (adError) {
-    return null;
+  // Case 1: Custom In-House Ad
+  if (decision.type === 'custom' && decision.customAd) {
+    return <CustomAdBanner ad={decision.customAd} style={style} compact={compact} />;
   }
 
-  const adUnitId = useTestAd ? TEST_BANNER_ID : ADMOB_CONFIG.homeBannerId;
+  // Case 2: Google AdMob Banner
+  if (decision.type === 'admob') {
+    // If native module is missing (Expo Go) or AdMob failed to load
+    if (!BannerAd || !BannerAdSize || admobError) {
+      // If custom ads are allowed and candidate exists, fallback to custom ad!
+      if (fallbackAd && appConfig?.customAdsEnabled !== false && appConfig?.showAds !== false) {
+        return <CustomAdBanner ad={fallbackAd} style={style} compact={compact} />;
+      }
+      return null;
+    }
 
-  return (
-    <View style={[styles.bannerContainer, style, !isLoaded && styles.hiddenBanner]}>
-      <BannerAd
-        key={adUnitId}
-        unitId={adUnitId}
-        size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
-        requestOptions={{
-          requestNonPersonalizedAdsOnly: false,
-        }}
-        onAdLoaded={() => {
-          setIsLoaded(true);
-          setAdError(false);
-        }}
-        onAdFailedToLoad={(error: any) => {
-          console.warn('AdMob Home Banner failed to load with unitId:', adUnitId, error);
-          if (!useTestAd) {
-            // Try fallback to Google's test ad ID
-            setUseTestAd(true);
-          } else {
-            // Both live and test failed -> hide area completely (0 pixels)
-            setAdError(true);
-            setIsLoaded(false);
-          }
-        }}
-      />
-    </View>
-  );
+    const isTestMode = useTestAd || Boolean(appConfig?.adMobTestMode);
+    const configuredUnitId = appConfig?.adMobBannerUnitId || ADMOB_CONFIG.homeBannerId;
+    const adUnitId = isTestMode ? TEST_BANNER_ID : configuredUnitId;
+
+    return (
+      <View style={[styles.outerWrapper, compact && styles.compactOuterWrapper, style]}>
+        <View style={[styles.bannerContainer, !admobLoaded && styles.hiddenBanner]}>
+          <BannerAd
+            key={adUnitId}
+            unitId={adUnitId}
+            size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
+            requestOptions={{
+              requestNonPersonalizedAdsOnly: false,
+            }}
+            onAdLoaded={() => {
+              setAdmobLoaded(true);
+              setAdmobError(false);
+            }}
+            onAdFailedToLoad={(error: any) => {
+              console.warn('AdMob Banner failed to load with unitId:', adUnitId, error);
+              if (!isTestMode) {
+                setUseTestAd(true);
+              } else {
+                setAdmobError(true);
+                setAdmobLoaded(false);
+              }
+            }}
+          />
+        </View>
+      </View>
+    );
+  }
+
+  return null;
+}
+
+/**
+ * Backward compatible HomeBannerAd component
+ */
+export function HomeBannerAd(props: { style?: any; compact?: boolean }) {
+  return <RupeoAdBanner placement="home_banner" {...props} />;
 }
 
 const styles = StyleSheet.create({
-  bannerContainer: {
+  outerWrapper: {
+    width: '100%',
+    paddingHorizontal: 20,
+    marginVertical: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    marginVertical: 10,
+  },
+  compactOuterWrapper: {
+    paddingHorizontal: 16,
+    marginVertical: 6,
+  },
+  bannerContainer: {
+    width: '100%',
+    maxWidth: 480,
+    alignItems: 'center',
+    justifyContent: 'center',
     overflow: 'hidden',
-    borderRadius: 12,
+    borderRadius: 14,
   },
   hiddenBanner: {
     height: 0,
@@ -187,67 +287,5 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
     opacity: 0,
     overflow: 'hidden',
-  },
-  previewBannerContainer: {
-    marginHorizontal: 20,
-    marginVertical: 10,
-    backgroundColor: '#F8FAFC',
-    borderRadius: 16,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#000',
-    shadowOpacity: 0.02,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
-    elevation: 1,
-  },
-  previewHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  adBadge: {
-    backgroundColor: '#0F172A',
-    paddingHorizontal: 5,
-    paddingVertical: 1.5,
-    borderRadius: 4,
-    marginRight: 6,
-  },
-  adBadgeText: {
-    fontSize: 9,
-    fontWeight: '900',
-    color: '#FFD740',
-    letterSpacing: 0.5,
-  },
-  previewSponsorText: {
-    fontSize: 10.5,
-    fontWeight: '700',
-    color: '#64748B',
-  },
-  previewContentRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  previewIconCircle: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    backgroundColor: '#EFF6FF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#DBEAFE',
-  },
-  previewTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#1E293B',
-  },
-  previewSubtitle: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: '#64748B',
-    marginTop: 1,
   },
 });

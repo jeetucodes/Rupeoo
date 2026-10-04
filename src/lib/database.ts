@@ -19,6 +19,27 @@ import {
   increment,
 } from 'firebase/firestore';
 import { formatTime12Hour, getLocalDateString, getLocalMonthString } from './dateUtils';
+import {
+  getOfflineTransactions,
+  saveOfflineTransactions,
+  getOfflineCategories,
+  saveOfflineCategories,
+  enqueueSyncAction,
+  flushSyncQueue,
+  syncRemoteTransactions,
+  checkIsOnline,
+} from './offlineSync';
+import { syncWidgetWithTransactions } from './widgetSync';
+import { flushUdharSyncQueue } from './udharStorage';
+
+export {
+  getOfflineTransactions,
+  saveOfflineTransactions,
+  getOfflineCategories,
+  saveOfflineCategories,
+  flushSyncQueue,
+  checkIsOnline,
+};
 
 export interface CategoryItem {
   id?: string;
@@ -102,6 +123,27 @@ export function invalidateAllUserCache(userId?: string) {
   invalidateNotificationsCache(userId);
 }
 
+// Transaction Listeners for Instant Cross-Component and Background Sync Updates
+type TxListener = (txs: any[]) => void;
+const txListeners = new Set<TxListener>();
+
+export function subscribeTransactions(listener: TxListener): () => void {
+  txListeners.add(listener);
+  return () => {
+    txListeners.delete(listener);
+  };
+}
+
+export function notifyTransactionsListeners(txs: any[]) {
+  txListeners.forEach((listener) => {
+    try {
+      listener(txs);
+    } catch (e) {
+      console.warn('Tx listener error:', e);
+    }
+  });
+}
+
 // Helper to normalize date to YYYY-MM-DD
 export function normalizeDate(dateStr: string): string {
   if (!dateStr) return getLocalDateString();
@@ -148,8 +190,14 @@ export function normalizeDate(dateStr: string): string {
 
 export async function insertTransaction(userId: string, tx: any, statementId?: number) {
   if (!userId) return null;
+
+  // 1. Generate client-side Firestore Document ID (permanent ID from creation)
   const txsRef = collection(db, `users/${userId}/transactions`);
-  const docRef = await addDoc(txsRef, {
+  const newDocRef = doc(txsRef);
+  const txId = newDocRef.id;
+
+  const txPayload = {
+    id: txId,
     date: normalizeDate(tx.date),
     time: tx.time || null,
     amount: Number(tx.amount) || 0,
@@ -165,24 +213,74 @@ export async function insertTransaction(userId: string, tx: any, statementId?: n
     source: tx.source || 'manual',
     source_statement_id: statementId || null,
     is_manually_edited: tx.is_manually_edited ? 1 : 0,
-    created_at: serverTimestamp(),
+    created_at: Date.now(),
+  };
+
+  // 2. Gather existing transactions from memory cache AND local persistent storage
+  // to ensure previously loaded/existing transactions are NEVER lost or hidden!
+  const cachedList = memoryCache.transactions.get(userId)?.data || [];
+  const localTxs = await getOfflineTransactions(userId);
+
+  const txMap = new Map<string, any>();
+  for (const t of localTxs) {
+    if (t?.id) txMap.set(t.id, t);
+  }
+  for (const t of cachedList) {
+    if (t?.id) txMap.set(t.id, t);
+  }
+
+  // If local & memory cache were both completely empty, attempt remote fetch before saving
+  if (txMap.size === 0) {
+    try {
+      const q = query(collection(db, `users/${userId}/transactions`), orderBy('date', 'desc'));
+      let snap;
+      try {
+        snap = await getDocs(q);
+      } catch {
+        snap = await getDocs(collection(db, `users/${userId}/transactions`));
+      }
+      for (const d of snap.docs) {
+        txMap.set(d.id, { id: d.id, ...d.data() });
+      }
+    } catch {
+      // offline fallback
+    }
+  }
+
+  // Add the newly created transaction
+  txMap.set(txId, txPayload);
+
+  const updatedLocal = sortTransactionsRecentFirst(Array.from(txMap.values()));
+  await saveOfflineTransactions(userId, updatedLocal);
+  memoryCache.transactions.set(userId, { data: updatedLocal, timestamp: Date.now() });
+  notifyTransactionsListeners(updatedLocal);
+
+  // Sync with Android widget
+  syncWidgetWithTransactions(userId, updatedLocal).catch(() => {});
+
+  // 3. Queue offline sync action for Firebase
+  await enqueueSyncAction(userId, {
+    type: 'ADD_TRANSACTION',
+    targetId: txId,
+    payload: txPayload,
   });
 
-  invalidateTransactionsCache(userId);
+  // 4. Background fire-and-forget sync to Firebase
+  flushSyncQueue(userId, db).catch(() => { });
 
   if ((tx.type || 'debit').toLowerCase() === 'debit') {
     checkAndTriggerBudgetAlert(userId).catch(() => { });
   }
 
-  return docRef.id;
+  return txId;
 }
 
 export async function updateTransaction(userId: string, txId: string, txData: any) {
   if (!userId || !txId) return;
-  const docRef = doc(db, `users/${userId}/transactions`, txId);
+
   const dataToUpdate: Record<string, any> = {
     is_manually_edited: 1,
-    updated_at: serverTimestamp(),
+    updated_at: Date.now(),
   };
 
   if (txData.date !== undefined) dataToUpdate.date = normalizeDate(txData.date);
@@ -197,17 +295,64 @@ export async function updateTransaction(userId: string, txId: string, txData: an
   if (txData.utr !== undefined) dataToUpdate.utr = txData.utr;
   if (txData.ref_no !== undefined) dataToUpdate.ref_no = txData.ref_no;
 
-  await updateDoc(docRef, dataToUpdate);
-  invalidateTransactionsCache(userId);
+  // 1. Gather existing transactions from memory cache and offline storage
+  const cachedList = memoryCache.transactions.get(userId)?.data || [];
+  const localTxs = await getOfflineTransactions(userId);
+
+  const txMap = new Map<string, any>();
+  for (const t of localTxs) {
+    if (t?.id) txMap.set(t.id, t);
+  }
+  for (const t of cachedList) {
+    if (t?.id) txMap.set(t.id, t);
+  }
+
+  if (txMap.has(txId)) {
+    txMap.set(txId, { ...txMap.get(txId), ...dataToUpdate });
+  }
+
+  const updatedLocal = sortTransactionsRecentFirst(Array.from(txMap.values()));
+  await saveOfflineTransactions(userId, updatedLocal);
+  memoryCache.transactions.set(userId, { data: updatedLocal, timestamp: Date.now() });
+  notifyTransactionsListeners(updatedLocal);
+
+  // 2. Queue offline sync action
+  await enqueueSyncAction(userId, {
+    type: 'UPDATE_TRANSACTION',
+    targetId: txId,
+    payload: dataToUpdate,
+  });
+
+  // 3. Background sync
+  flushSyncQueue(userId, db).catch(() => { });
 }
 
 export async function getTransactionById(userId: string, txId: string): Promise<any | null> {
   if (!userId || !txId) return null;
-  const docRef = doc(db, `users/${userId}/transactions`, txId);
-  const snap = await getDoc(docRef);
-  if (snap.exists()) {
-    return { id: snap.id, ...snap.data() };
+
+  // 1. Check in-memory cache
+  const memCached = memoryCache.transactions.get(userId);
+  if (memCached?.data) {
+    const found = memCached.data.find((t) => t.id === txId);
+    if (found) return found;
   }
+
+  // 2. Check local persistent storage
+  const offlineTxs = await getOfflineTransactions(userId);
+  const foundLocal = offlineTxs.find((t) => t.id === txId);
+  if (foundLocal) return foundLocal;
+
+  // 3. If not found locally, fetch from Firestore
+  try {
+    const docRef = doc(db, `users/${userId}/transactions`, txId);
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
+      return { id: snap.id, ...snap.data() };
+    }
+  } catch (err) {
+    console.warn('getTransactionById offline fallback caught:', err);
+  }
+
   return null;
 }
 
@@ -220,10 +365,11 @@ export async function insertTransactionsBatch(
   let imported = 0;
   let skipped = 0;
 
-  const existingTxs = await getAllTransactions(userId);
+  const existingTxs = await getAllTransactions(userId, true);
   const MAX_BATCH_SIZE = 500;
   let batch = writeBatch(db);
   let batchCount = 0;
+  const newLocalTxs: any[] = [];
 
   for (const tx of transactions) {
     const normDate = normalizeDate(tx.date);
@@ -243,7 +389,8 @@ export async function insertTransactionsBatch(
     }
 
     const txsRef = doc(collection(db, `users/${userId}/transactions`));
-    batch.set(txsRef, {
+    const txDocData = {
+      id: txsRef.id,
       date: normDate,
       time: tx.time || null,
       amount,
@@ -259,8 +406,15 @@ export async function insertTransactionsBatch(
       source: tx.source || 'statement',
       source_statement_id: statementId || null,
       is_manually_edited: 0,
+      created_at: Date.now(),
+    };
+
+    batch.set(txsRef, {
+      ...txDocData,
       created_at: serverTimestamp(),
     });
+
+    newLocalTxs.push(txDocData);
 
     batchCount++;
     imported++;
@@ -276,7 +430,16 @@ export async function insertTransactionsBatch(
     await batch.commit();
   }
 
-  invalidateTransactionsCache(userId);
+  // Ensure offline local storage and memory cache are immediately updated with all imported records
+  if (newLocalTxs.length > 0) {
+    const combined = sortTransactionsRecentFirst([...existingTxs, ...newLocalTxs]);
+    await saveOfflineTransactions(userId, combined);
+    memoryCache.transactions.set(userId, { data: combined, timestamp: Date.now() });
+    notifyTransactionsListeners(combined);
+  } else {
+    invalidateTransactionsCache(userId);
+  }
+
   return { imported, skipped };
 }
 
@@ -344,24 +507,56 @@ export async function getAllTransactions(userId: string, forceRefresh = false): 
 
   const now = Date.now();
   const cached = memoryCache.transactions.get(userId);
+
+  // 1. If memory cache is fresh and not forced, return immediately
   if (!forceRefresh && cached && (now - cached.timestamp < TX_CACHE_TTL_MS)) {
     return cached.data;
   }
 
+  // 2. If forceRefresh is requested, fetch and await fresh remote data from Firestore
+  if (forceRefresh) {
+    try {
+      const remoteData = await syncRemoteTransactions(userId, db);
+      if (remoteData && remoteData.length > 0) {
+        const sortedRemote = sortTransactionsRecentFirst(remoteData);
+        memoryCache.transactions.set(userId, { data: sortedRemote, timestamp: Date.now() });
+        notifyTransactionsListeners(sortedRemote);
+        return sortedRemote;
+      }
+    } catch (err) {
+      console.warn('forceRefresh remote sync error:', err);
+    }
+  }
+
+  // 3. Load from local persistent storage (AsyncStorage)
+  const offlineTxs = await getOfflineTransactions(userId);
+  if (offlineTxs && offlineTxs.length > 0) {
+    const sorted = sortTransactionsRecentFirst(offlineTxs);
+    memoryCache.transactions.set(userId, { data: sorted, timestamp: now });
+
+    // In background, sync with Firebase Firestore if online
+    syncRemoteTransactions(userId, db).then((remoteData) => {
+      if (remoteData && remoteData.length > 0) {
+        const sortedRemote = sortTransactionsRecentFirst(remoteData);
+        memoryCache.transactions.set(userId, { data: sortedRemote, timestamp: Date.now() });
+        notifyTransactionsListeners(sortedRemote);
+      }
+    }).catch(() => { });
+
+    // Return instant offline data (0ms response time!)
+    return sorted;
+  }
+
+  // 4. If local storage is empty (first app launch), sync from remote Firestore
   try {
-    const q = query(collection(db, `users/${userId}/transactions`), orderBy('date', 'desc'));
-    const snapshot = await getDocs(q);
-    const rawData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    const data = sortTransactionsRecentFirst(rawData);
-    memoryCache.transactions.set(userId, { data, timestamp: now });
-    return data;
+    const remoteData = await syncRemoteTransactions(userId, db);
+    const sorted = sortTransactionsRecentFirst(remoteData);
+    memoryCache.transactions.set(userId, { data: sorted, timestamp: now });
+    notifyTransactionsListeners(sorted);
+    return sorted;
   } catch (err) {
-    console.warn('Fallback getting transactions without order:', err);
-    const snapshot = await getDocs(collection(db, `users/${userId}/transactions`));
-    const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    const data = sortTransactionsRecentFirst(list);
-    memoryCache.transactions.set(userId, { data, timestamp: now });
-    return data;
+    console.warn('getAllTransactions offline fallback:', err);
+    return [];
   }
 }
 
@@ -373,29 +568,73 @@ export async function getTransactionsByMonth(userId: string, monthYear: string):
 
 export async function deleteTransaction(userId: string, txId: string) {
   if (!userId || !txId) return;
-  await deleteDoc(doc(db, `users/${userId}/transactions`, txId));
-  invalidateTransactionsCache(userId);
+
+  // 1. Gather all existing transactions from memory cache and offline storage
+  const cachedList = memoryCache.transactions.get(userId)?.data || [];
+  const localTxs = await getOfflineTransactions(userId);
+
+  const txMap = new Map<string, any>();
+  for (const t of localTxs) {
+    if (t?.id) txMap.set(t.id, t);
+  }
+  for (const t of cachedList) {
+    if (t?.id) txMap.set(t.id, t);
+  }
+
+  txMap.delete(txId);
+
+  const updatedLocal = sortTransactionsRecentFirst(Array.from(txMap.values()));
+  await saveOfflineTransactions(userId, updatedLocal);
+  memoryCache.transactions.set(userId, { data: updatedLocal, timestamp: Date.now() });
+  notifyTransactionsListeners(updatedLocal);
+
+  // Sync with Android widget
+  syncWidgetWithTransactions(userId, updatedLocal).catch(() => {});
+
+  // 2. Queue offline sync action
+  await enqueueSyncAction(userId, {
+    type: 'DELETE_TRANSACTION',
+    targetId: txId,
+  });
+
+  // 3. Background sync
+  flushSyncQueue(userId, db).catch(() => { });
 }
 
 export async function deleteAllTransactions(userId: string) {
   if (!userId) return;
-  const txs = await getAllTransactions(userId);
-  const MAX_BATCH_SIZE = 500;
-  let batch = writeBatch(db);
-  let batchCount = 0;
 
-  for (const tx of txs) {
-    batch.delete(doc(db, `users/${userId}/transactions`, tx.id));
-    batchCount++;
-    if (batchCount >= MAX_BATCH_SIZE) {
-      await batch.commit();
-      batch = writeBatch(db);
-      batchCount = 0;
+  // 1. Clear local persistent storage & memory cache immediately
+  await saveOfflineTransactions(userId, []);
+  memoryCache.transactions.set(userId, { data: [], timestamp: Date.now() });
+  notifyTransactionsListeners([]);
+
+  // Sync with Android widget
+  syncWidgetWithTransactions(userId, []).catch(() => {});
+
+  // 2. Delete from Firestore in background
+  try {
+    const txs = await getAllTransactions(userId, true);
+    const MAX_BATCH_SIZE = 500;
+    let batch = writeBatch(db);
+    let batchCount = 0;
+
+    for (const tx of txs) {
+      batch.delete(doc(db, `users/${userId}/transactions`, tx.id));
+      batchCount++;
+      if (batchCount >= MAX_BATCH_SIZE) {
+        await batch.commit();
+        batch = writeBatch(db);
+        batchCount = 0;
+      }
     }
+    if (batchCount > 0) {
+      await batch.commit();
+    }
+  } catch (err) {
+    console.warn('deleteAllTransactions remote error:', err);
   }
-  if (batchCount > 0) {
-    await batch.commit();
-  }
+
   invalidateTransactionsCache(userId);
 }
 
@@ -410,29 +649,56 @@ export async function getUserCategories(userId: string, forceRefresh = false): P
     return cached.data;
   }
 
+  // 1. Check local offline storage first
+  const offlineCats = await getOfflineCategories(userId);
+  if (offlineCats && offlineCats.length > 0) {
+    memoryCache.categories.set(userId, { data: offlineCats, timestamp: now });
+
+    // Background check & update if online
+    checkIsOnline().then((online) => {
+      if (online) {
+        getDocs(collection(db, `users/${userId}/categories`)).then((snapshot) => {
+          if (!snapshot.empty) {
+            const userCats = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as CategoryItem));
+            const customNames = new Set(userCats.map(c => (c.name || '').trim().toLowerCase()));
+            const remainingDefaults = defaultCategories.filter(
+              d => !customNames.has((d.name || '').trim().toLowerCase())
+            );
+            const merged = [...remainingDefaults, ...userCats];
+            saveOfflineCategories(userId, merged);
+            memoryCache.categories.set(userId, { data: merged, timestamp: Date.now() });
+          }
+        }).catch(() => { });
+      }
+    });
+
+    return offlineCats;
+  }
+
   try {
     const categoriesRef = collection(db, `users/${userId}/categories`);
     const snapshot = await getDocs(categoriesRef);
     if (snapshot.empty) {
+      saveOfflineCategories(userId, defaultCategories);
       memoryCache.categories.set(userId, { data: defaultCategories, timestamp: now });
       return defaultCategories;
     }
     const userCats = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as CategoryItem));
 
-    // If the database already explicitly holds default categories (isCustom === false)
     const hasDefaults = userCats.some(c => c.isCustom === false);
     if (hasDefaults) {
+      saveOfflineCategories(userId, userCats);
       memoryCache.categories.set(userId, { data: userCats, timestamp: now });
       return userCats;
     }
 
-    // Merge default categories with custom categories, preventing duplicate names
     const customNames = new Set(userCats.map(c => (c.name || '').trim().toLowerCase()));
     const remainingDefaults = defaultCategories.filter(
       d => !customNames.has((d.name || '').trim().toLowerCase())
     );
 
     const merged = [...remainingDefaults, ...userCats];
+    saveOfflineCategories(userId, merged);
     memoryCache.categories.set(userId, { data: merged, timestamp: now });
     return merged;
   } catch (err) {
@@ -444,19 +710,68 @@ export async function getUserCategories(userId: string, forceRefresh = false): P
 export async function addCategory(userId: string, category: CategoryItem) {
   if (!userId) return;
   const categoriesRef = collection(db, `users/${userId}/categories`);
-  const docRef = await addDoc(categoriesRef, {
+  const newCatDoc = doc(categoriesRef);
+  const catId = newCatDoc.id;
+
+  const catItem: CategoryItem = {
     ...category,
+    id: catId,
     isCustom: true,
+  };
+
+  // 1. Update local storage & memory cache immediately
+  const currentCats = (await getOfflineCategories(userId)) || defaultCategories;
+  const updatedCats = [...currentCats, catItem];
+  await saveOfflineCategories(userId, updatedCats);
+  memoryCache.categories.set(userId, { data: updatedCats, timestamp: Date.now() });
+
+  // 2. Queue offline sync action
+  await enqueueSyncAction(userId, {
+    type: 'ADD_CATEGORY',
+    targetId: catId,
+    payload: catItem,
   });
-  invalidateCategoriesCache(userId);
-  return docRef.id;
+
+  // 3. Background sync
+  flushSyncQueue(userId, db).catch(() => { });
+  return catId;
 }
 
 export async function deleteCategory(userId: string, categoryId: string) {
   if (!userId || !categoryId) return;
-  const docRef = doc(db, `users/${userId}/categories`, categoryId);
-  await deleteDoc(docRef);
-  invalidateCategoriesCache(userId);
+
+  // 1. Update local storage & memory cache immediately
+  const currentCats = (await getOfflineCategories(userId)) || defaultCategories;
+  const updatedCats = currentCats.filter((c) => c.id !== categoryId);
+  await saveOfflineCategories(userId, updatedCats);
+  memoryCache.categories.set(userId, { data: updatedCats, timestamp: Date.now() });
+
+  // 2. Queue offline sync action
+  await enqueueSyncAction(userId, {
+    type: 'DELETE_CATEGORY',
+    targetId: categoryId,
+  });
+
+  // 3. Background sync
+  flushSyncQueue(userId, db).catch(() => { });
+}
+
+/**
+ * Fully sync offline pending queue and pull remote data from Firebase Firestore.
+ */
+export async function syncUserOfflineData(userId: string): Promise<void> {
+  if (!userId) return;
+  try {
+    await flushSyncQueue(userId, db);
+    await flushUdharSyncQueue(userId);
+    const remoteData = await syncRemoteTransactions(userId, db);
+    if (remoteData && remoteData.length > 0) {
+      const sorted = sortTransactionsRecentFirst(remoteData);
+      memoryCache.transactions.set(userId, { data: sorted, timestamp: Date.now() });
+    }
+  } catch (err) {
+    console.warn('syncUserOfflineData caught:', err);
+  }
 }
 
 export async function addCustomCategory(userId: string, category: CategoryItem) {
@@ -1087,6 +1402,10 @@ export interface UserSettings {
   currency: string; // '$' | '₹'
   aiLanguage?: string; // 'Hinglish' | 'Hindi' | 'English'
   monthlyBudget?: number;
+  dailyLimit?: number;
+  voiceLocale?: 'en-IN' | 'hi-IN';
+  voicePermissionOnStartup?: boolean;
+  enableWidget?: boolean;
   isPremium?: boolean;
   premiumPlan?: 'monthly' | '3_months' | '6_months' | 'yearly' | 'lifetime' | string;
   premiumActivatedAt?: string;
@@ -1162,6 +1481,10 @@ export async function saveUserSettings(userId: string, settings: UserSettings) {
     currency: settings.currency === 'INR' ? '₹' : (settings.currency || '₹'),
     ...(settings.aiLanguage ? { aiLanguage: settings.aiLanguage } : {}),
     ...(settings.monthlyBudget !== undefined ? { monthlyBudget: settings.monthlyBudget } : {}),
+    ...(settings.dailyLimit !== undefined ? { dailyLimit: settings.dailyLimit } : {}),
+    ...(settings.voiceLocale ? { voiceLocale: settings.voiceLocale } : {}),
+    ...(settings.voicePermissionOnStartup !== undefined ? { voicePermissionOnStartup: settings.voicePermissionOnStartup } : {}),
+    ...(settings.enableWidget !== undefined ? { enableWidget: settings.enableWidget } : {}),
     ...(settings.isPremium !== undefined ? { isPremium: settings.isPremium } : {}),
     ...(settings.premiumPlan ? { premiumPlan: settings.premiumPlan } : {}),
     ...(settings.premiumActivatedAt ? { premiumActivatedAt: settings.premiumActivatedAt } : {}),
@@ -1651,7 +1974,7 @@ export function subscribeUserSupportMessages(
 ): () => void {
   if (!db || !userId) {
     callback([]);
-    return () => {};
+    return () => { };
   }
 
   try {
@@ -1702,7 +2025,7 @@ export function subscribeUserSupportMessages(
   } catch (err) {
     console.error('Failed to subscribe to user support messages:', err);
     callback([]);
-    return () => {};
+    return () => { };
   }
 }
 
