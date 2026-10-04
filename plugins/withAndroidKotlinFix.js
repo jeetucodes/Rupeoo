@@ -1,4 +1,4 @@
-const { withProjectBuildGradle } = require('@expo/config-plugins');
+const { withProjectBuildGradle } = require('expo/config-plugins');
 
 const withAndroidKotlinFix = (config) => {
   return withProjectBuildGradle(config, (config) => {

@@ -1066,8 +1066,8 @@ const styles = StyleSheet.create({
   },
   modalSheet: {
     backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
     paddingHorizontal: 20,
     paddingTop: 16,
     maxHeight: '88%',
@@ -1093,7 +1093,7 @@ const styles = StyleSheet.create({
   micBadge: {
     width: 26,
     height: 26,
-    borderRadius: 13,
+    borderRadius: 0,
     backgroundColor: '#EEF2FF',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1107,13 +1107,13 @@ const styles = StyleSheet.create({
   localeSwitcher: {
     flexDirection: 'row',
     backgroundColor: '#F1F5F9',
-    borderRadius: 8,
+    borderRadius: 0,
     padding: 2,
   },
   localeBtn: {
     paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 6,
+    borderRadius: 0,
   },
   localeBtnActive: {
     backgroundColor: '#FFFFFF',
@@ -1133,7 +1133,7 @@ const styles = StyleSheet.create({
   closeBtn: {
     width: 32,
     height: 32,
-    borderRadius: 16,
+    borderRadius: 0,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#F8FAFC',
@@ -1193,7 +1193,7 @@ const styles = StyleSheet.create({
   },
   transcriptBox: {
     backgroundColor: '#F8FAFC',
-    borderRadius: 16,
+    borderRadius: 0,
     borderWidth: 1.2,
     borderColor: '#E2E8F0',
     paddingHorizontal: 16,
@@ -1220,7 +1220,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#0F172A',
     paddingVertical: 13,
-    borderRadius: 14,
+    borderRadius: 0,
   },
   doneSpeakingText: {
     color: '#FFFFFF',
@@ -1239,7 +1239,7 @@ const styles = StyleSheet.create({
   confirmCheckCircle: {
     width: 28,
     height: 28,
-    borderRadius: 14,
+    borderRadius: 0,
     backgroundColor: '#DCFCE7',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1259,7 +1259,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#EEF2FF',
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 10,
+    borderRadius: 0,
     marginBottom: 14,
   },
   rawSpeechText: {
@@ -1275,7 +1275,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEF3C7',
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 10,
+    borderRadius: 0,
     marginBottom: 14,
   },
   friendNoticeText: {
@@ -1294,7 +1294,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 10,
-    borderRadius: 12,
+    borderRadius: 0,
     backgroundColor: '#F8FAFC',
     borderWidth: 1.2,
     borderColor: '#E2E8F0',
@@ -1329,7 +1329,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F8FAFC',
-    borderRadius: 14,
+    borderRadius: 0,
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
     paddingHorizontal: 14,
@@ -1362,7 +1362,7 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0',
     paddingHorizontal: 12,
     paddingVertical: 7,
-    borderRadius: 20,
+    borderRadius: 0,
   },
   categoryChipActive: {
     backgroundColor: '#0F172A',
@@ -1382,7 +1382,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8FAFC',
     borderWidth: 1.2,
     borderColor: '#E2E8F0',
-    borderRadius: 12,
+    borderRadius: 0,
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
@@ -1405,7 +1405,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F1F5F9',
     paddingHorizontal: 16,
     paddingVertical: 13,
-    borderRadius: 14,
+    borderRadius: 0,
   },
   tryAgainText: {
     fontSize: 13,
@@ -1414,7 +1414,7 @@ const styles = StyleSheet.create({
   },
   saveConfirmBtn: {
     flex: 1,
-    borderRadius: 14,
+    borderRadius: 0,
     overflow: 'hidden',
   },
   saveConfirmGradient: {
@@ -1436,7 +1436,7 @@ const styles = StyleSheet.create({
   stateNoticeIconCircle: {
     width: 68,
     height: 68,
-    borderRadius: 34,
+    borderRadius: 0,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 16,
@@ -1462,7 +1462,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#0F172A',
     paddingHorizontal: 24,
     paddingVertical: 12,
-    borderRadius: 14,
+    borderRadius: 0,
   },
   stateNoticeActionText: {
     color: '#FFFFFF',
@@ -1483,7 +1483,7 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0',
     paddingVertical: 9,
     paddingHorizontal: 6,
-    borderRadius: 12,
+    borderRadius: 0,
   },
   paymentModeChipActive: {
     backgroundColor: '#4F46E5',

@@ -177,7 +177,7 @@ export default function BudgetScreen() {
           <View style={{ paddingHorizontal: 20, marginTop: 24, marginBottom: 8 }}>
             <Skeleton width={140} height={20} />
           </View>
-          <View style={{ backgroundColor: '#ffffff', borderRadius: 24, marginHorizontal: 20, paddingBottom: 8 }}>
+          <View style={{ backgroundColor: '#ffffff', borderRadius: 0, marginHorizontal: 20, paddingBottom: 8 }}>
             {[1, 2, 3, 4, 5].map((i) => (
               <View key={i} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 16, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#F8FAFC' }}>
                 <Skeleton width={44} height={44} borderRadius={22} style={{ marginRight: 16 }} />
@@ -426,7 +426,7 @@ const styles = StyleSheet.create({
   backButton: {
     width: 44,
     height: 44,
-    borderRadius: 22,
+    borderRadius: 0,
     backgroundColor: '#ffffff',
     alignItems: 'center',
     justifyContent: 'center',
@@ -455,14 +455,16 @@ const styles = StyleSheet.create({
   },
   heroCard: {
     backgroundColor: '#0F0F11',
-    borderRadius: 28,
+    borderRadius: 0,
     padding: 24,
     marginBottom: 28,
-    shadowColor: '#000',
-    shadowOpacity: 0.25,
-    shadowOffset: { width: 0, height: 8 },
-    shadowRadius: 20,
-    elevation: 6,
+    borderWidth: 1,
+    borderColor: '#334155',
+    shadowColor: '#000000',
+    shadowOpacity: 0.15,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
+    elevation: 3,
   },
   heroHeader: {
     flexDirection: 'row',
@@ -490,7 +492,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFD740',
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 14,
+    borderRadius: 0,
     gap: 4,
   },
   editBudgetBtnText: {
@@ -501,13 +503,13 @@ const styles = StyleSheet.create({
   progressTrack: {
     height: 10,
     backgroundColor: '#272A30',
-    borderRadius: 5,
+    borderRadius: 0,
     overflow: 'hidden',
     marginBottom: 16,
   },
   progressBar: {
     height: '100%',
-    borderRadius: 5,
+    borderRadius: 0,
   },
   statsRow: {
     flexDirection: 'row',
@@ -529,7 +531,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#451A1A',
-    borderRadius: 12,
+    borderRadius: 0,
     paddingHorizontal: 12,
     paddingVertical: 8,
     marginTop: 16,
@@ -554,11 +556,13 @@ const styles = StyleSheet.create({
   },
   categoriesListCard: {
     backgroundColor: '#ffffff',
-    borderRadius: 24,
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowOffset: { width: 0, height: 6 },
-    shadowRadius: 16,
+    borderRadius: 0,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#000000',
+    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
     elevation: 2,
     overflow: 'hidden',
   },
@@ -574,7 +578,7 @@ const styles = StyleSheet.create({
   catIconWrap: {
     width: 44,
     height: 44,
-    borderRadius: 14,
+    borderRadius: 0,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 14,
@@ -620,12 +624,12 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 6,
     backgroundColor: '#F1F5F9',
-    borderRadius: 3,
+    borderRadius: 0,
     overflow: 'hidden',
   },
   catProgressBar: {
     height: '100%',
-    borderRadius: 3,
+    borderRadius: 0,
   },
   catProgressPct: {
     fontSize: 10.5,
@@ -661,7 +665,7 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 380,
     backgroundColor: '#ffffff',
-    borderRadius: 24,
+    borderRadius: 0,
     padding: 24,
     shadowColor: '#000',
     shadowOpacity: 0.15,
@@ -690,7 +694,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F7F8FC',
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    borderRadius: 16,
+    borderRadius: 0,
     height: 52,
     paddingHorizontal: 16,
     fontSize: 18,
@@ -701,7 +705,7 @@ const styles = StyleSheet.create({
   modalPrimaryBtn: {
     backgroundColor: '#FFD740',
     height: 50,
-    borderRadius: 16,
+    borderRadius: 0,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#F59E0B',

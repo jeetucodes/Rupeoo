@@ -201,7 +201,7 @@ export default function BudgetArcGauge({
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 22,
+    borderRadius: 0,
     paddingTop: 16,
     paddingBottom: 16,
     paddingHorizontal: 20,
@@ -211,20 +211,20 @@ const styles = StyleSheet.create({
   cardLight: {
     backgroundColor: '#FFFFFF',
     borderColor: '#E2E8F0',
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.04,
-    shadowRadius: 10,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
     elevation: 2,
   },
   cardDark: {
     backgroundColor: '#111827',
     borderColor: 'rgba(255, 255, 255, 0.08)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.35,
-    shadowRadius: 14,
-    elevation: 6,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 2,
   },
   cardHeader: {
     flexDirection: 'row',
