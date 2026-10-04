@@ -53,6 +53,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { ConfirmDialogModal } from '@/components/confirm-dialog-modal';
 import { GooglePlayReviewModal } from '@/components/GooglePlayReviewModal';
 import VoiceTransactionModal from '@/components/VoiceTransactionModal';
+import { ThreeDCalendarIcon, ThreeDQRCodeIcon } from '@/components/ThreeDIcons';
 import { formatTime12Hour, getLocalDateString, getLocalMonthString, getRelativeDateString } from '@/lib/dateUtils';
 
 const { width, height } = Dimensions.get('window');
@@ -1222,14 +1223,10 @@ export default function DashboardScreen() {
             onPress={() => router.push('/reminders')}
             activeOpacity={0.88}
           >
-            {/* Top: 3D Sugary Calendar Icon + Chevron */}
+            {/* Top: 3D Calendar Icon + Chevron */}
             <View style={styles.tileHeaderRow}>
-              <View style={styles.tileSugaryIconWrap}>
-                <ExpoImage
-                  source={require('@/assets/images/3d_sugary_calendar.png')}
-                  style={styles.tileSugaryIcon}
-                  contentFit="contain"
-                />
+              <View style={styles.tile3dIconWrapCalendar}>
+                <ThreeDCalendarIcon size={26} />
               </View>
               <Ionicons name="chevron-forward" size={14} color="#0F172A" />
             </View>
@@ -1278,14 +1275,10 @@ export default function DashboardScreen() {
             onPress={() => router.push('/split-qr' as any)}
             activeOpacity={0.88}
           >
-            {/* Top: 3D Sugary QR Icon + Chevron */}
+            {/* Top: 3D QR Icon + Chevron */}
             <View style={styles.tileHeaderRow}>
-              <View style={styles.tileSugaryIconWrap}>
-                <ExpoImage
-                  source={require('@/assets/images/3d_sugary_qr.png')}
-                  style={styles.tileSugaryIcon}
-                  contentFit="contain"
-                />
+              <View style={styles.tile3dIconWrapQr}>
+                <ThreeDQRCodeIcon size={26} />
               </View>
               <Ionicons name="chevron-forward" size={14} color="#0F172A" />
             </View>
@@ -2551,17 +2544,35 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
   },
-  tileSugaryIconWrap: {
-    width: 35,
-    height: 35,
-    borderRadius: 10,
+  tile3dIconWrapCalendar: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: '#FFF1F2',
+    borderWidth: 1,
+    borderColor: '#FFE4E6',
+    shadowColor: '#E11D48',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  tileSugaryIcon: {
-    width: 35,
-    height: 35,
-    borderRadius: 10,
+  tile3dIconWrapQr: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EEF2FF',
+    borderWidth: 1,
+    borderColor: '#E0E7FF',
+    shadowColor: '#4F46E5',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    elevation: 2,
   },
   tileTextWrap: {
     marginTop: 4,
