@@ -19,7 +19,7 @@
         "backgroundColor": "#0F0F11",
         "foregroundImage": "./assets/images/icon.png"
       },
-      "versionCode": 23,
+      "versionCode": 24,
       "permissions": [
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.VIBRATE",
@@ -62,7 +62,7 @@
             "enableProguardInReleaseBuilds": true,
             "enableShrinkResourcesInReleaseBuilds": true,
             "enableMinifyInReleaseBuilds": true,
-            "extraProguardRules": "-repackageclasses ''\n-allowaccessmodification"
+            "extraProguardRules": "-keep class com.reactnativeandroidwidget.** { *; }\n-keep class * extends com.reactnativeandroidwidget.RNWidgetProvider { *; }\n-keep class expo.modules.speechrecognition.** { *; }"
           },
           "ios": {
             "useFrameworks": "static"

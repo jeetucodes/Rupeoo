@@ -25,38 +25,38 @@ const withAndroidShortcuts = (config) => {
   <shortcut
     android:shortcutId="add_expense"
     android:enabled="true"
-    android:icon="@drawable/ic_launcher_foreground"
+    android:icon="@mipmap/ic_launcher"
     android:shortcutShortLabel="@string/shortcut_add_expense_short"
     android:shortcutLongLabel="@string/shortcut_add_expense_long">
     <intent
       android:action="android.intent.action.VIEW"
       android:targetPackage="com.innovatexlabs.paisewaise"
       android:data="rupeo://quick-add?type=expense" />
-    <categories android:name="android.shortcut.conversation" />
+    <categories android:name="android.intent.category.DEFAULT" />
   </shortcut>
   <shortcut
     android:shortcutId="add_income"
     android:enabled="true"
-    android:icon="@drawable/ic_launcher_foreground"
+    android:icon="@mipmap/ic_launcher"
     android:shortcutShortLabel="@string/shortcut_add_income_short"
     android:shortcutLongLabel="@string/shortcut_add_income_long">
     <intent
       android:action="android.intent.action.VIEW"
       android:targetPackage="com.innovatexlabs.paisewaise"
       android:data="rupeo://quick-add?type=income" />
-    <categories android:name="android.shortcut.conversation" />
+    <categories android:name="android.intent.category.DEFAULT" />
   </shortcut>
   <shortcut
     android:shortcutId="add_voice"
     android:enabled="true"
-    android:icon="@drawable/ic_launcher_foreground"
+    android:icon="@mipmap/ic_launcher"
     android:shortcutShortLabel="@string/shortcut_voice_short"
     android:shortcutLongLabel="@string/shortcut_voice_long">
     <intent
       android:action="android.intent.action.VIEW"
       android:targetPackage="com.innovatexlabs.paisewaise"
       android:data="rupeo://quick-add-voice" />
-    <categories android:name="android.shortcut.conversation" />
+    <categories android:name="android.intent.category.DEFAULT" />
   </shortcut>
 </shortcuts>
 `;
