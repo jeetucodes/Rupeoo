@@ -1,7 +1,9 @@
+import React from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import { getLocalDateString } from '@/lib/dateUtils';
 import type { UserSettings } from '@/lib/database';
+import { QuickAddWidget } from '@/widgets/QuickAddWidget';
 
 export interface WidgetData {
   enabled?: boolean;
@@ -21,7 +23,7 @@ export const DEFAULT_WIDGET_DATA: WidgetData = {
   dailyLimit: 0,
   remainingDailyLimit: null,
   currency: '₹',
-  theme: 'dark',
+  theme: 'light',
   lastUpdated: Date.now(),
 };
 
@@ -40,16 +42,25 @@ export async function getWidgetData(): Promise<WidgetData> {
 }
 
 /**
- * Triggers native Android widget UI refresh
+ * Triggers native Android widget UI refresh with valid renderWidget callback
  */
-export async function triggerWidgetUpdate(): Promise<void> {
+export async function triggerWidgetUpdate(data?: WidgetData): Promise<void> {
   if (Platform.OS !== 'android') return;
   try {
+    const widgetData = data || (await getWidgetData());
     const { requestWidgetUpdate } = require('react-native-android-widget');
-    await requestWidgetUpdate({ widgetName: 'QuickAddWidget' });
+    await requestWidgetUpdate({
+      widgetName: 'QuickAddWidget',
+      renderWidget: () =>
+        React.createElement(QuickAddWidget, {
+          todaySpent: widgetData.todaySpent,
+          dailyLimit: widgetData.dailyLimit,
+          remainingLimit: widgetData.remainingDailyLimit,
+          currency: widgetData.currency,
+        }),
+    });
   } catch (err) {
-    // Graceful fallback for environments where native widget module is not yet compiled
-    console.log('[WidgetSync] Native widget update skipped (not running in dev client or module unavailable)');
+    console.log('[WidgetSync] Native widget update skipped or unavailable:', err);
   }
 }
 
@@ -65,23 +76,6 @@ export async function syncWidgetWithTransactions(
     return DEFAULT_WIDGET_DATA;
   }
   try {
-    const prevData = await getWidgetData();
-    const isEnabled =
-      settings?.enableWidget !== undefined
-        ? settings.enableWidget !== false
-        : prevData.enabled !== false;
-
-    if (!isEnabled) {
-      const disabledData: WidgetData = {
-        ...prevData,
-        enabled: false,
-        lastUpdated: Date.now(),
-      };
-      await AsyncStorage.setItem(WIDGET_STORAGE_KEY, JSON.stringify(disabledData));
-      await triggerWidgetUpdate();
-      return disabledData;
-    }
-
     const todayStr = getLocalDateString();
     let todaySpent = 0;
 
@@ -109,12 +103,12 @@ export async function syncWidgetWithTransactions(
       dailyLimit,
       remainingDailyLimit,
       currency,
-      theme: 'dark',
+      theme: 'light',
       lastUpdated: Date.now(),
     };
 
     await AsyncStorage.setItem(WIDGET_STORAGE_KEY, JSON.stringify(widgetData));
-    await triggerWidgetUpdate();
+    await triggerWidgetUpdate(widgetData);
 
     return widgetData;
   } catch (err) {

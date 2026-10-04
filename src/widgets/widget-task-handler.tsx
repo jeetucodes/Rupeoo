@@ -12,12 +12,10 @@ export async function widgetTaskHandler(props: WidgetTaskHandlerProps) {
     case 'WIDGET_RESIZED':
       props.renderWidget(
         <QuickAddWidget
-          enabled={widgetData.enabled}
           todaySpent={widgetData.todaySpent}
           dailyLimit={widgetData.dailyLimit}
           remainingLimit={widgetData.remainingDailyLimit}
           currency={widgetData.currency}
-          theme={widgetData.theme}
         />
       );
       break;

@@ -12,6 +12,7 @@ export interface ParsedVoiceTransaction {
   note: string;
   friendName?: string;
   isUdhar?: boolean;
+  paymentMode?: 'UPI' | 'Cash' | 'Bank' | 'Card';
   confidence: number; // 0 to 1
   rawTranscript: string;
 }
@@ -462,6 +463,44 @@ export function extractExplicitCategory(
 }
 
 /**
+ * Detects payment mode from spoken transcript.
+ * Defaults to 'UPI'. If user mentions 'cash', 'bank', 'card', or 'upi', returns that mode.
+ */
+export function detectPaymentMode(text: string): {
+  paymentMode: 'UPI' | 'Cash' | 'Bank' | 'Card';
+  matchedPhrase?: string;
+} {
+  const normalized = text.toLowerCase();
+
+  // 1. Cash keywords (e.g. "cash me", "nagad", "rokad", "by cash", "haath me")
+  const cashMatch = normalized.match(/\b(cash|rokad|nagad|nakad|haath me)\b/i);
+  if (cashMatch) {
+    return { paymentMode: 'Cash', matchedPhrase: cashMatch[0] };
+  }
+
+  // 2. Bank keywords (e.g. "bank se", "netbanking", "account", "bank transfer", "cheque", "neft", "rtgs", "imps")
+  const bankMatch = normalized.match(/\b(bank transfer|netbanking|net banking|bank|account|cheque|neft|rtgs|imps)\b/i);
+  if (bankMatch) {
+    return { paymentMode: 'Bank', matchedPhrase: bankMatch[0] };
+  }
+
+  // 3. Card keywords (e.g. "credit card", "debit card", "card se", "swipe")
+  const cardMatch = normalized.match(/\b(credit card|debit card|card|swipe)\b/i);
+  if (cardMatch) {
+    return { paymentMode: 'Card', matchedPhrase: cardMatch[0] };
+  }
+
+  // 4. UPI keywords (e.g. "upi se", "gpay", "google pay", "phonepe", "paytm", "bhim", "scan", "qr")
+  const upiMatch = normalized.match(/\b(upi|gpay|google pay|googlepay|phonepe|phone pe|paytm|bhim|qr|online)\b/i);
+  if (upiMatch) {
+    return { paymentMode: 'UPI', matchedPhrase: upiMatch[0] };
+  }
+
+  // Default is UPI
+  return { paymentMode: 'UPI' };
+}
+
+/**
  * Cleans the transcript to generate a clear, human-readable transaction note
  */
 export function generateCleanNote(
@@ -469,7 +508,8 @@ export function generateCleanNote(
   matchedAmountPhrase: string,
   txType: 'debit' | 'credit',
   category: string,
-  explicitCategoryPhrase?: string
+  explicitCategoryPhrase?: string,
+  matchedPaymentPhrase?: string
 ): string {
   let cleaned = transcript.trim();
 
@@ -481,6 +521,11 @@ export function generateCleanNote(
   // Remove explicit category phrase if provided (e.g. "catagrey : office")
   if (explicitCategoryPhrase) {
     cleaned = cleaned.replace(new RegExp(explicitCategoryPhrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), '');
+  }
+
+  // Remove matched payment phrase (e.g. "cash", "bank se", "upi")
+  if (matchedPaymentPhrase) {
+    cleaned = cleaned.replace(new RegExp(`\\b${matchedPaymentPhrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\s+(?:se|me|dwara|kare|kiya|through|by|via))?\\b`, 'gi'), ' ');
   }
 
   // Remove common filler / unit words
@@ -524,6 +569,7 @@ export function parseVoiceTranscript(
       type: 'debit',
       category: 'Food',
       note: '',
+      paymentMode: 'UPI',
       confidence: 0,
       rawTranscript: '',
     };
@@ -550,10 +596,13 @@ export function parseVoiceTranscript(
   // 4. Udhar & Friend
   const { isUdhar, friendName } = detectUdharAndFriend(raw, options.knownFriends);
 
-  // 5. Note
-  const note = generateCleanNote(raw, matchedPhrase, type, category, explicitCategoryPhrase);
+  // 5. Payment Mode (Default: UPI, or detects Cash / Bank / Card if spoken)
+  const { paymentMode, matchedPhrase: matchedPaymentPhrase } = detectPaymentMode(raw);
 
-  // 6. Confidence calculation
+  // 6. Note
+  const note = generateCleanNote(raw, matchedPhrase, type, category, explicitCategoryPhrase, matchedPaymentPhrase);
+
+  // 7. Confidence calculation
   let confidence = 0.3; // base confidence for non-empty text
   if (amount !== null && amount > 0) confidence += 0.4;
   if (category && category !== 'Food') confidence += 0.2;
@@ -565,6 +614,7 @@ export function parseVoiceTranscript(
     amountText: amount !== null ? amount.toString() : undefined,
     type,
     category,
+    paymentMode,
     note: friendName && isUdhar ? `${friendName} ko udhar` : note,
     friendName,
     isUdhar,

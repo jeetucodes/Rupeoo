@@ -1028,27 +1028,6 @@ export default function SettingsScreen() {
                   thumbColor="#FFFFFF"
                 />
               </View>
-
-              <View style={styles.infoDivider} />
-
-              <View style={styles.prefRow}>
-                <View style={{ flex: 1, paddingRight: 12 }}>
-                  <Text style={styles.prefLabel}>{t('widget_enabled_title')}</Text>
-                  <Text style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>{t('widget_enabled_sub')}</Text>
-                </View>
-                <Switch
-                  value={settings?.enableWidget !== false}
-                  onValueChange={async (val) => {
-                    await updatePref('enableWidget', val);
-                    const updatedSettings: UserSettings = settings
-                      ? { ...settings, enableWidget: val }
-                      : { language: 'English', currency: '₹', enableWidget: val };
-                    syncWidgetWithTransactions(user.uid, undefined, updatedSettings).catch(() => {});
-                  }}
-                  trackColor={{ false: '#CBD5E1', true: '#10B981' }}
-                  thumbColor="#FFFFFF"
-                />
-              </View>
             </View>
           </View>
 

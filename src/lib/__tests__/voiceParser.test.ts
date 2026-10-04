@@ -162,4 +162,46 @@ test('Voice Parser Unit Tests (20 Comprehensive Test Cases)', async (t) => {
     assert.strictEqual(res.category, 'Snacks');
     assert.match(res.note.toLowerCase(), /samosa/);
   });
+
+  await t.test('25. Default payment mode is UPI', () => {
+    const res = parseVoiceTranscript('chai 20 rupaye');
+    assert.strictEqual(res.paymentMode, 'UPI');
+  });
+
+  await t.test('26. "petrol 500 cash se diya" -> paymentMode: Cash', () => {
+    const res = parseVoiceTranscript('petrol 500 cash se diya');
+    assert.strictEqual(res.amount, 500);
+    assert.strictEqual(res.paymentMode, 'Cash');
+    assert.match(res.note.toLowerCase(), /petrol/);
+    assert.doesNotMatch(res.note.toLowerCase(), /cash/);
+  });
+
+  await t.test('27. "rent 15000 bank transfer" -> paymentMode: Bank', () => {
+    const res = parseVoiceTranscript('rent 15000 bank transfer');
+    assert.strictEqual(res.amount, 15000);
+    assert.strictEqual(res.paymentMode, 'Bank');
+    assert.match(res.note.toLowerCase(), /rent/);
+    assert.doesNotMatch(res.note.toLowerCase(), /bank/);
+  });
+
+  await t.test('28. "shopping 2500 card se" -> paymentMode: Card', () => {
+    const res = parseVoiceTranscript('shopping 2500 card se');
+    assert.strictEqual(res.amount, 2500);
+    assert.strictEqual(res.paymentMode, 'Card');
+    assert.doesNotMatch(res.note.toLowerCase(), /card/);
+  });
+
+  await t.test('29. "300 gpay se pizza" -> paymentMode: UPI', () => {
+    const res = parseVoiceTranscript('300 gpay se pizza');
+    assert.strictEqual(res.amount, 300);
+    assert.strictEqual(res.paymentMode, 'UPI');
+    assert.match(res.note.toLowerCase(), /pizza/);
+  });
+
+  await t.test('30. "dawai 400 rokad diya" -> paymentMode: Cash (rokad)', () => {
+    const res = parseVoiceTranscript('dawai 400 rokad diya');
+    assert.strictEqual(res.amount, 400);
+    assert.strictEqual(res.paymentMode, 'Cash');
+    assert.match(res.note.toLowerCase(), /dawai/);
+  });
 });

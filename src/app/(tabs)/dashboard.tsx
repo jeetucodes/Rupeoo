@@ -1222,27 +1222,20 @@ export default function DashboardScreen() {
             onPress={() => router.push('/reminders')}
             activeOpacity={0.88}
           >
-            {/* Top: Icon + Chevron */}
+            {/* Top: 3D Sugary Calendar Icon + Chevron */}
             <View style={styles.tileHeaderRow}>
-              <View style={[styles.tileCleanIconWrap, { backgroundColor: '#EFF6FF', borderColor: '#DBEAFE' }]}>
-                <Svg width="21" height="21" viewBox="0 0 24 24" fill="none">
-                  <Rect x="3" y="4" width="18" height="17" rx="3.5" stroke="#2563EB" strokeWidth="1.9" />
-                  <Line x1="7.5" y1="2" x2="7.5" y2="4.5" stroke="#2563EB" strokeWidth="2" strokeLinecap="round" />
-                  <Line x1="16.5" y1="2" x2="16.5" y2="4.5" stroke="#2563EB" strokeWidth="2" strokeLinecap="round" />
-                  <Line x1="3" y1="9" x2="21" y2="9" stroke="#2563EB" strokeWidth="1.6" />
-                  <Circle cx="8" cy="12.5" r="1.1" fill="#2563EB" />
-                  <Circle cx="12" cy="12.5" r="1.1" fill="#2563EB" />
-                  <Circle cx="16" cy="12.5" r="1.1" fill="#2563EB" />
-                  <Circle cx="8" cy="16.5" r="1.1" fill="#2563EB" />
-                  <Circle cx="12" cy="16.5" r="1.1" fill="#2563EB" />
-                  <Circle cx="16" cy="16.5" r="1.1" fill="#2563EB" />
-                </Svg>
+              <View style={styles.tileSugaryIconWrap}>
+                <ExpoImage
+                  source={require('@/assets/images/3d_sugary_calendar.png')}
+                  style={styles.tileSugaryIcon}
+                  contentFit="contain"
+                />
               </View>
-              <Ionicons name="chevron-forward" size={16} color="#0F172A" />
+              <Ionicons name="chevron-forward" size={14} color="#0F172A" />
             </View>
 
             {/* Middle: Title & Subtitles */}
-            <View style={styles.tileTextWrap}>
+            <View style={[styles.tileTextWrap, { maxWidth: '58%' }]}>
               <Text style={styles.tileTitle} numberOfLines={1}>{t('upcoming_bills')}</Text>
               <Text style={styles.tileSubPrimary} numberOfLines={1}>
                 {homeUpcomingBills.length > 0
@@ -1256,14 +1249,14 @@ export default function DashboardScreen() {
                   ? getBillDueStatus(homeUpcomingBills[0].nextDueDate).label
                   : nextFutureBill
                     ? getBillDueStatus(nextFutureBill.nextDueDate).label
-                    : 'Due in 16 days'}
+                    : 'Due in 16d'}
               </Text>
             </View>
 
             {/* Bottom: Pill Badge */}
             <View style={styles.tilePaidBadge}>
               <View style={styles.tilePaidDot} />
-              <Text style={styles.tilePaidBadgeText}>
+              <Text style={styles.tilePaidBadgeText} numberOfLines={1}>
                 {recurringBills.length > 0 ? `${recurringBills.length} Active` : '3 Active'}
               </Text>
             </View>
@@ -1285,44 +1278,33 @@ export default function DashboardScreen() {
             onPress={() => router.push('/split-qr' as any)}
             activeOpacity={0.88}
           >
-            {/* Top: Icon + Chevron */}
+            {/* Top: 3D Sugary QR Icon + Chevron */}
             <View style={styles.tileHeaderRow}>
-              <View style={[styles.tileCleanIconWrap, { backgroundColor: '#F5F3FF', borderColor: '#EDE9FE' }]}>
-                <Svg width="21" height="21" viewBox="0 0 24 24" fill="none">
-                  {/* Top-Left Finder */}
-                  <Rect x="2.5" y="2.5" width="8" height="8" rx="2" stroke="#1E1B4B" strokeWidth="1.9" />
-                  <Rect x="5" y="5" width="3" height="3" rx="0.8" fill="#1E1B4B" />
-                  {/* Top-Right Finder */}
-                  <Rect x="13.5" y="2.5" width="8" height="8" rx="2" stroke="#1E1B4B" strokeWidth="1.9" />
-                  <Rect x="16" y="5" width="3" height="3" rx="0.8" fill="#1E1B4B" />
-                  {/* Bottom-Left Finder */}
-                  <Rect x="2.5" y="13.5" width="8" height="8" rx="2" stroke="#1E1B4B" strokeWidth="1.9" />
-                  <Rect x="5" y="16" width="3" height="3" rx="0.8" fill="#1E1B4B" />
-                  {/* Bottom-Right Data Bits */}
-                  <Rect x="13.5" y="13.5" width="3.2" height="3.2" rx="0.8" fill="#1E1B4B" />
-                  <Rect x="18.3" y="13.5" width="3.2" height="3.2" rx="0.8" fill="#1E1B4B" />
-                  <Rect x="13.5" y="18.3" width="3.2" height="3.2" rx="0.8" fill="#1E1B4B" />
-                  <Rect x="18.3" y="18.3" width="3.2" height="3.2" rx="0.8" fill="#1E1B4B" />
-                </Svg>
+              <View style={styles.tileSugaryIconWrap}>
+                <ExpoImage
+                  source={require('@/assets/images/3d_sugary_qr.png')}
+                  style={styles.tileSugaryIcon}
+                  contentFit="contain"
+                />
               </View>
-              <Ionicons name="chevron-forward" size={16} color="#0F172A" />
+              <Ionicons name="chevron-forward" size={14} color="#0F172A" />
             </View>
 
             {/* Middle: Title & Subtitles */}
-            <View style={styles.tileTextWrap}>
-              <Text style={styles.tileTitle} numberOfLines={1}>Split & QR Pay</Text>
+            <View style={[styles.tileTextWrap, { maxWidth: '58%' }]}>
+              <Text style={styles.tileTitle} numberOfLines={1}>QR Pay</Text>
               <Text style={styles.tileSubPrimary} numberOfLines={1}>
-                Split & Equal Bills
+                Scan & Pay
               </Text>
               <Text style={styles.tileSubSecondary} numberOfLines={1}>
-                Multiple QRs · Instant Pay
+                Equal Split
               </Text>
             </View>
 
             {/* Bottom: Pill Badge */}
             <View style={styles.tileQrBadge}>
-              <Ionicons name="git-compare-outline" size={13} color="#4338CA" style={{ marginRight: 4 }} />
-              <Text style={styles.tileQrBadgeText}>EQUAL SPLIT</Text>
+              <Ionicons name="git-compare-outline" size={10} color="#4338CA" style={{ marginRight: 3 }} />
+              <Text style={styles.tileQrBadgeText} numberOfLines={1}>Split Bills</Text>
             </View>
 
             {/* Right: 3D QR Card Graphic Illustration */}
@@ -2542,19 +2524,19 @@ const styles = StyleSheet.create({
   quickActionTile: {
     flex: 1,
     backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    padding: 15,
+    borderRadius: 20,
+    padding: 12,
     borderWidth: 1.2,
     borderColor: '#F1F5F9',
     overflow: 'hidden',
     position: 'relative',
     shadowColor: '#0F172A',
     shadowOpacity: 0.05,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    shadowRadius: 8,
     elevation: 2,
     justifyContent: 'space-between',
-    minHeight: 178,
+    minHeight: 148,
   },
   tileHeaderRow: {
     flexDirection: 'row',
@@ -2569,95 +2551,108 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
   },
+  tileSugaryIconWrap: {
+    width: 35,
+    height: 35,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tileSugaryIcon: {
+    width: 35,
+    height: 35,
+    borderRadius: 10,
+  },
   tileTextWrap: {
-    marginTop: 6,
+    marginTop: 4,
     zIndex: 2,
   },
   tileTitle: {
-    fontSize: 15.5,
+    fontSize: 14.5,
     fontWeight: '800',
     color: '#0F172A',
     letterSpacing: -0.2,
   },
   tileSubPrimary: {
-    fontSize: 12.5,
+    fontSize: 12,
     fontWeight: '700',
     color: '#64748B',
-    marginTop: 4,
+    marginTop: 2,
   },
   tileSubSecondary: {
-    fontSize: 11.5,
+    fontSize: 11,
     fontWeight: '500',
     color: '#94A3B8',
-    marginTop: 2,
+    marginTop: 1,
   },
   tilePaidBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#DCFCE7',
-    paddingHorizontal: 9.5,
-    paddingVertical: 4.5,
-    borderRadius: 14,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 10,
     alignSelf: 'flex-start',
     zIndex: 2,
-    marginTop: 12,
+    marginTop: 8,
   },
   tilePaidDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
     backgroundColor: '#16A34A',
-    marginRight: 6,
+    marginRight: 4,
   },
   tilePaidBadgeText: {
     color: '#15803D',
-    fontSize: 11.5,
+    fontSize: 10,
     fontWeight: '800',
   },
   tileQrBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#EEF2FF',
-    paddingHorizontal: 9.5,
-    paddingVertical: 4.5,
-    borderRadius: 14,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 10,
     alignSelf: 'flex-start',
     zIndex: 2,
-    marginTop: 12,
+    marginTop: 8,
+    maxWidth: '56%',
   },
   tileQrBadgeText: {
-    fontSize: 11,
+    fontSize: 9.5,
     fontWeight: '800',
     color: '#4338CA',
-    letterSpacing: 0.3,
+    letterSpacing: 0.1,
   },
   tile3dGraphicWrapCalendar: {
     position: 'absolute',
-    right: -6,
+    right: -4,
     bottom: -4,
-    width: 82,
-    height: 82,
+    width: 66,
+    height: 66,
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 1,
   },
   tile3dImageCalendar: {
-    width: 82,
-    height: 82,
+    width: 66,
+    height: 66,
   },
   tile3dGraphicWrapQr: {
     position: 'absolute',
-    right: -6,
+    right: -4,
     bottom: -4,
-    width: 86,
-    height: 86,
+    width: 68,
+    height: 68,
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 1,
   },
   tile3dImageQr: {
-    width: 86,
-    height: 86,
+    width: 68,
+    height: 68,
   },
 
   udharBannerCard: {

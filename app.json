@@ -62,7 +62,7 @@
             "enableProguardInReleaseBuilds": true,
             "enableShrinkResourcesInReleaseBuilds": true,
             "enableMinifyInReleaseBuilds": true,
-            "extraProguardRules": "-keep class com.reactnativeandroidwidget.** { *; }\n-keep class * extends com.reactnativeandroidwidget.RNWidgetProvider { *; }\n-keep class expo.modules.speechrecognition.** { *; }"
+            "extraProguardRules": "-keep class com.reactnativeandroidwidget.** { *; }\n-keep class * extends com.reactnativeandroidwidget.RNWidgetProvider { *; }\n-keep class expo.modules.speechrecognition.** { *; }\n-keepclassmembers class expo.modules.speechrecognition.** { *; }\n-dontwarn expo.modules.speechrecognition.**\n-keep class android.speech.** { *; }\n-keep interface android.speech.** { *; }"
           },
           "ios": {
             "useFrameworks": "static"
@@ -84,10 +84,13 @@
               "name": "QuickAddWidget",
               "label": "Rupeo Quick Add",
               "description": "Add expense, income, or voice transaction",
-              "minWidth": "250dp",
-              "minHeight": "100dp",
+              "minWidth": "180dp",
+              "minHeight": "50dp",
               "targetCellWidth": 4,
-              "targetCellHeight": 2,
+              "targetCellHeight": 1,
+              "maxResizeWidth": "500dp",
+              "maxResizeHeight": "200dp",
+              "resizeMode": "horizontal|vertical",
               "updatePeriodMillis": 1800000
             }
           ]

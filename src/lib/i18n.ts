@@ -1,3 +1,4 @@
+import { useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 
 export type Language = 'English' | 'Hindi' | 'Hinglish';
@@ -601,12 +602,13 @@ export function useTranslation() {
   const { settings } = useAuth();
   const lang: Language = (settings?.language as Language) || 'English';
 
-  const t = (key: keyof typeof dictionary | string): string => {
+  const t = useCallback((key: keyof typeof dictionary | string): string => {
     if (!dictionary[key]) {
       return key;
     }
     return dictionary[key][lang] || dictionary[key]['English'];
-  };
+  }, [lang]);
 
   return { t, lang };
 }
+

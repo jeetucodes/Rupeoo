@@ -78,6 +78,7 @@ export default function VoiceQuickAddScreen() {
   const [parsedTx, setParsedTx] = useState<ParsedVoiceTransaction | null>(null);
   const [editAmount, setEditAmount] = useState('');
   const [editCategory, setEditCategory] = useState('Food');
+  const [editPaymentMode, setEditPaymentMode] = useState<'UPI' | 'Cash' | 'Bank' | 'Card'>('UPI');
   const [editType, setEditType] = useState<'debit' | 'credit'>('debit');
   const [editNote, setEditNote] = useState('');
   const [isSavingManual, setIsSavingManual] = useState(false);
@@ -217,7 +218,7 @@ export default function VoiceQuickAddScreen() {
           description: parsed.note || parsed.rawTranscript,
           merchant_name: parsed.friendName || parsed.note || null,
           date: getLocalDateString(),
-          payment_mode: 'Cash',
+          payment_mode: parsed.paymentMode || 'UPI',
           source: 'widget_voice',
         };
 
@@ -276,6 +277,7 @@ export default function VoiceQuickAddScreen() {
       setParsedTx(parsed);
       setEditAmount(parsed.amount ? parsed.amount.toString() : '');
       setEditCategory(parsed.category || (parsed.type === 'credit' ? 'Salary' : 'Others'));
+      setEditPaymentMode(parsed.paymentMode || 'UPI');
       setEditType(parsed.type);
       setEditNote(parsed.note);
 
@@ -291,49 +293,267 @@ export default function VoiceQuickAddScreen() {
     [categories, knownFriends, performDirectSave]
   );
 
-  // Speech Recognition Events
+  // Refs to avoid stale closures in native speech events
+  const transcriptRef = useRef<string>('');
+  const stateRef = useRef<VoiceState>('listening');
+  const speechLocaleRef = useRef<'en-IN' | 'hi-IN'>(speechLocale);
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const speechDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isCleaningUpRef = useRef<boolean>(false);
+  const webSpeechRef = useRef<any>(null);
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  useEffect(() => {
+    speechLocaleRef.current = speechLocale;
+  }, [speechLocale]);
+
+  const clearSilenceTimers = useCallback(() => {
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+    if (speechDebounceTimerRef.current) {
+      clearTimeout(speechDebounceTimerRef.current);
+      speechDebounceTimerRef.current = null;
+    }
+  }, []);
+
+  const processTranscriptRef = useRef(processTranscript);
+  useEffect(() => {
+    processTranscriptRef.current = processTranscript;
+  }, [processTranscript]);
+
+  // Speech Recognition Events (Native Android/iOS)
   useSpeechRecognitionEvent('start', () => {
-    setIsListening(true);
-    setErrorMessage('');
+    if (Platform.OS !== 'web') {
+      setIsListening(true);
+      setErrorMessage('');
+    }
   });
 
   useSpeechRecognitionEvent('end', () => {
-    setIsListening(false);
+    if (Platform.OS !== 'web') {
+      setIsListening(false);
+      if (stateRef.current === 'listening') {
+        const captured = transcriptRef.current.trim();
+        if (captured.length > 0) {
+          clearSilenceTimers();
+          processTranscriptRef.current(captured);
+        } else {
+          setErrorMessage(t('voice_no_speech'));
+          setState('error');
+        }
+      }
+    }
   });
 
   useSpeechRecognitionEvent('result', (event) => {
-    if (event.results && event.results.length > 0) {
-      const latest = event.results[event.results.length - 1]?.transcript || '';
-      setTranscript(latest);
+    if (Platform.OS !== 'web') {
+      if (event.results && event.results.length > 0) {
+        const latest = event.results[event.results.length - 1]?.transcript || '';
+        if (latest) {
+          transcriptRef.current = latest;
+          setTranscript(latest);
+        }
 
-      if (event.isFinal) {
-        processTranscript(latest);
+        if (silenceTimerRef.current) {
+          clearTimeout(silenceTimerRef.current);
+          silenceTimerRef.current = null;
+        }
+
+        if (event.isFinal && latest.trim().length > 0) {
+          clearSilenceTimers();
+          processTranscriptRef.current(latest);
+          return;
+        }
+
+        if (speechDebounceTimerRef.current) clearTimeout(speechDebounceTimerRef.current);
+        speechDebounceTimerRef.current = setTimeout(() => {
+          const captured = transcriptRef.current.trim();
+          if (captured.length > 0 && stateRef.current === 'listening') {
+            clearSilenceTimers();
+            processTranscriptRef.current(captured);
+          }
+        }, 1800);
       }
     }
   });
 
   useSpeechRecognitionEvent('error', (event) => {
-    setIsListening(false);
-    const code = event.error;
-    if (code === 'no-speech') {
-      setErrorMessage(t('voice_no_speech'));
-    } else if (code === 'network') {
-      setErrorMessage(t('voice_offline_error'));
-    } else {
-      setErrorMessage(event.message || t('voice_offline_error'));
+    if (Platform.OS !== 'web') {
+      if (event.error === 'aborted') return;
+      const code = event.error;
+
+      if (code === 'not-allowed' || code === 'service-not-allowed') {
+        clearSilenceTimers();
+        setIsListening(false);
+        setState('permission_denied');
+        return;
+      }
+
+      if (code === 'no-speech' || code === 'speech-timeout') {
+        const captured = transcriptRef.current.trim();
+        if (captured.length > 0) {
+          clearSilenceTimers();
+          processTranscriptRef.current(captured);
+          return;
+        }
+        setErrorMessage(t('voice_no_speech'));
+      } else if (code === 'network') {
+        clearSilenceTimers();
+        setIsListening(false);
+        setErrorMessage(t('voice_offline_error'));
+        setState('error');
+      } else if (code === 'client') {
+        clearSilenceTimers();
+        setIsListening(false);
+        setErrorMessage(
+          Platform.OS === 'android'
+            ? 'Speech recognition service temporarily unavailable. Please tap Try Again.'
+            : (event.message || t('voice_offline_error'))
+        );
+        setState('error');
+      } else {
+        clearSilenceTimers();
+        setIsListening(false);
+        setErrorMessage(event.message || t('voice_offline_error'));
+        setState('error');
+      }
     }
-    setState('error');
   });
 
-  // Start listening session immediately on mount
+  // Start listening session
   const startListening = useCallback(async () => {
     try {
+      isCleaningUpRef.current = false;
+      clearSilenceTimers();
+      transcriptRef.current = '';
       setTranscript('');
       setErrorMessage('');
       setState('listening');
 
+      // 1. WEB BROWSER: Use direct, standard Web Speech API (webkitSpeechRecognition)
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        const SpeechRecognitionClass = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+        if (!SpeechRecognitionClass) {
+          setErrorMessage('Speech recognition is not supported in this browser. Please use Chrome or Edge.');
+          setState('error');
+          return;
+        }
+
+        const startWebInstance = () => {
+          if (isCleaningUpRef.current || stateRef.current !== 'listening') return;
+
+          try {
+            webSpeechRef.current?.abort();
+          } catch (_) {}
+
+          const recognition = new SpeechRecognitionClass();
+          webSpeechRef.current = recognition;
+          recognition.lang = speechLocale;
+          recognition.continuous = true;
+          recognition.interimResults = true;
+
+          recognition.onstart = () => {
+            setIsListening(true);
+            setErrorMessage('');
+          };
+
+          recognition.onresult = (event: any) => {
+            let interimTranscript = '';
+            let finalTranscript = '';
+
+            for (let i = 0; i < event.results.length; ++i) {
+              if (event.results[i].isFinal) {
+                finalTranscript += event.results[i][0].transcript + ' ';
+              } else {
+                interimTranscript += event.results[i][0].transcript;
+              }
+            }
+
+            const combined = (finalTranscript + interimTranscript).trim();
+            if (combined) {
+              transcriptRef.current = combined;
+              setTranscript(combined);
+
+              if (silenceTimerRef.current) {
+                clearTimeout(silenceTimerRef.current);
+                silenceTimerRef.current = null;
+              }
+
+              if (speechDebounceTimerRef.current) clearTimeout(speechDebounceTimerRef.current);
+              speechDebounceTimerRef.current = setTimeout(() => {
+                const captured = transcriptRef.current.trim();
+                if (captured.length > 0 && stateRef.current === 'listening') {
+                  isCleaningUpRef.current = true;
+                  try {
+                    recognition.stop();
+                  } catch (_) {}
+                  processTranscriptRef.current(captured);
+                }
+              }, 1500);
+            }
+          };
+
+          recognition.onerror = (event: any) => {
+            if (event.error === 'no-speech') return;
+            if (event.error === 'not-allowed') {
+              clearSilenceTimers();
+              setIsListening(false);
+              setState('permission_denied');
+              return;
+            }
+            if (transcriptRef.current.trim().length === 0 && stateRef.current === 'listening') {
+              clearSilenceTimers();
+              setIsListening(false);
+              setErrorMessage(event.message || t('voice_offline_error'));
+              setState('error');
+            }
+          };
+
+          recognition.onend = () => {
+            setIsListening(false);
+            const captured = transcriptRef.current.trim();
+            if (captured.length > 0 && stateRef.current === 'listening') {
+              clearSilenceTimers();
+              processTranscriptRef.current(captured);
+            } else if (stateRef.current === 'listening' && !isCleaningUpRef.current) {
+              try {
+                startWebInstance();
+              } catch (_) {}
+            }
+          };
+
+          try {
+            recognition.start();
+            triggerTransactionVibration();
+          } catch (err: any) {
+            console.warn('[WebSpeech] start error:', err);
+          }
+        };
+
+        startWebInstance();
+
+        silenceTimerRef.current = setTimeout(() => {
+          if (stateRef.current === 'listening' && transcriptRef.current.trim().length === 0) {
+            try {
+              webSpeechRef.current?.abort();
+            } catch (_) {}
+            setIsListening(false);
+            setErrorMessage(t('voice_no_speech'));
+            setState('error');
+          }
+        }, 8000);
+
+        return;
+      }
+
+      // 2. NATIVE ANDROID / IOS: Use ExpoSpeechRecognitionModule
       if (!ExpoSpeechRecognitionModule || typeof ExpoSpeechRecognitionModule.start !== 'function') {
-        setErrorMessage('Voice recognition requires an Expo development build.');
+        setErrorMessage('Voice recognition requires a supported build.');
         setState('error');
         return;
       }
@@ -344,33 +564,57 @@ export default function VoiceQuickAddScreen() {
         return;
       }
 
-      try {
-        await ExpoSpeechRecognitionModule.abort();
-      } catch {}
-
       await ExpoSpeechRecognitionModule.start({
         lang: speechLocale,
         interimResults: true,
         continuous: false,
         requiresOnDeviceRecognition: false,
       });
+
+      triggerTransactionVibration();
+
+      silenceTimerRef.current = setTimeout(() => {
+        if (stateRef.current === 'listening' && transcriptRef.current.trim().length === 0) {
+          try {
+            ExpoSpeechRecognitionModule?.abort?.();
+          } catch (_) {}
+          setIsListening(false);
+          setErrorMessage(t('voice_no_speech'));
+          setState('error');
+        }
+      }, 8000);
     } catch (err: any) {
       console.warn('[VoiceQuickAdd] Start error:', err);
+      clearSilenceTimers();
+      setIsListening(false);
       setErrorMessage(err?.message || 'Could not start speech recognition');
       setState('error');
     }
-  }, [speechLocale]);
+  }, [speechLocale, t, clearSilenceTimers]);
 
   // Trigger listening immediately on mount
   useEffect(() => {
-    startListening();
+    isCleaningUpRef.current = false;
+    const timer = setTimeout(() => {
+      startListening();
+    }, 100);
     return () => {
+      isCleaningUpRef.current = true;
+      clearTimeout(timer);
+      clearSilenceTimers();
       if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
-      try {
-        ExpoSpeechRecognitionModule?.abort?.();
-      } catch {}
+      if (Platform.OS === 'web') {
+        try {
+          webSpeechRef.current?.abort();
+        } catch (_) {}
+      } else {
+        try {
+          ExpoSpeechRecognitionModule?.abort?.();
+        } catch (_) {}
+      }
     };
-  }, [startListening]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Undo Action: Deletes the directly saved entry from Firestore
   const handleUndo = async () => {
@@ -436,7 +680,7 @@ export default function VoiceQuickAddScreen() {
         description: editNote.trim() || transcript || null,
         merchant_name: parsedTx?.friendName || editNote.trim() || null,
         date: getLocalDateString(),
-        payment_mode: 'Cash',
+        payment_mode: editPaymentMode || parsedTx?.paymentMode || 'UPI',
         source: 'widget_voice',
       };
 
@@ -585,6 +829,15 @@ export default function VoiceQuickAddScreen() {
                 </Text>
               </View>
 
+              <View style={styles.savedRow}>
+                <Text style={[styles.savedLabel, { color: theme.textSecondary }]}>Payment</Text>
+                <View style={styles.savedBadge}>
+                  <Text style={[styles.savedBadgeText, { color: theme.text }]}>
+                    {editPaymentMode}
+                  </Text>
+                </View>
+              </View>
+
               {transcript ? (
                 <View style={styles.savedRow}>
                   <Text style={[styles.savedLabel, { color: theme.textSecondary }]}>Spoken</Text>
@@ -699,6 +952,55 @@ export default function VoiceQuickAddScreen() {
                       <CategoryIcon categoryName={cat.name} iconName={cat.icon} color={cat.color} size={16} />
                       <Text style={[styles.categoryChipText, { color: isSelected ? theme.text : theme.textSecondary }]}>
                         {cat.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* Payment Mode Selector */}
+            <View style={styles.sectionContainer}>
+              <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>PAYMENT MODE</Text>
+              <View style={styles.paymentModeChipsRow}>
+                {(['UPI', 'Cash', 'Bank', 'Card'] as const).map((mode) => {
+                  const isSelected = editPaymentMode === mode;
+                  return (
+                    <TouchableOpacity
+                      key={mode}
+                      onPress={() => setEditPaymentMode(mode)}
+                      style={[
+                        styles.paymentModeChip,
+                        {
+                          backgroundColor: isSelected
+                            ? (isDark ? '#374151' : '#F1F5F9')
+                            : (isDark ? '#1F2937' : '#FFFFFF'),
+                          borderColor: isSelected ? '#10B981' : (isDark ? '#374151' : '#E5E7EB'),
+                          borderWidth: isSelected ? 2 : 1,
+                        },
+                      ]}
+                      activeOpacity={0.75}
+                    >
+                      <Ionicons
+                        name={
+                          mode === 'UPI'
+                            ? 'flash'
+                            : mode === 'Cash'
+                            ? 'cash'
+                            : mode === 'Bank'
+                            ? 'business'
+                            : 'card'
+                        }
+                        size={14}
+                        color={isSelected ? (isDark ? '#34D399' : '#059669') : theme.textSecondary}
+                      />
+                      <Text
+                        style={[
+                          styles.paymentModeChipText,
+                          { color: isSelected ? theme.text : theme.textSecondary },
+                        ]}
+                      >
+                        {mode}
                       </Text>
                     </TouchableOpacity>
                   );
@@ -1112,6 +1414,24 @@ const styles = StyleSheet.create({
   actionButtonText: {
     color: '#FFFFFF',
     fontSize: 15,
+    fontWeight: '700',
+  },
+  paymentModeChipsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  paymentModeChip: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 9,
+    paddingHorizontal: 6,
+    borderRadius: 10,
+    gap: 6,
+  },
+  paymentModeChipText: {
+    fontSize: 12,
     fontWeight: '700',
   },
 });
