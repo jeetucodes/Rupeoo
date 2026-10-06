@@ -1,7 +1,7 @@
 # Terms & Conditions for Rupeo
 
-**Effective Date:** September 21, 2026  
-**Version:** 2.1  
+**Effective Date:** October 6, 2026  
+**Version:** 2.2  
 **Application Name:** Rupeo  
 **Package Name:** `com.innovatexlabs.paisewaise`  
 **Publisher / Developer:** Innovatex Labs  
@@ -25,7 +25,7 @@ You must be at least 13 years of age to use Rupeo. By using the app, you represe
 ## 3. Description of Service & Financial Disclaimer
 
 ### A. Personal Bookkeeping Utility
-Rupeo is a personal expense tracking, budgeting, receipt generation, peer-to-peer khata (Friends & Udhar), and bill reminder tool designed to help you organize your personal finances.
+Rupeo is a personal expense tracking, budgeting, receipt generation, peer-to-peer khata (Friends & Udhar), voice transaction logging, and bill reminder tool designed to help you organize your personal finances.
 
 ### B. No Certified Financial, Legal, or Tax Advice
 Rupeo is not a registered financial planner, investment advisor, chartered accountant, broker, or tax consultant. Any AI summaries, spending wave charts, cash flow projections, budget benchmarks, or category breakdowns provided within the application are strictly for informational and personal organization purposes. You are solely responsible for evaluating your financial circumstances and consulting qualified professionals.
@@ -35,7 +35,19 @@ Rupeo is not a bank, NBFC, payment gateway, digital wallet, or money transmitter
 
 ---
 
-## 4. Friends, Udhar (Khata) & Split UPI QR Generation
+## 4. Voice Quick Add & Permissions
+
+### A. Voice Input Utility
+Rupeo offers Voice Quick Add as a convenience feature to quickly transcribe spoken entries into numerical transaction amounts and categories. 
+1. **On-Device Speech Parsing:** Speech recognition is executed locally through device APIs. Rupeo does not store, archive, or transmit your voice recordings to remote servers.
+2. **Accuracy Verification:** Speech recognition accuracy depends on audio clarity, accent, and ambient background noise. You are responsible for reviewing auto-populated transaction amounts before or after saving.
+
+### B. Contacts Integration
+The Friends & Udhar feature allows optional contact selection to streamline ledger name entry. Rupeo does not harvest, scrape, or distribute your contacts list.
+
+---
+
+## 5. Friends, Udhar (Khata) & Split UPI QR Generation
 
 ### A. Peer-to-Peer Khata Tracking
 Rupeo provides a bookkeeping ledger ("Friends & Udhar") allowing you to record shared expenses, lent amounts ("Gave"), and borrowed amounts ("Got") between yourself and personal contacts. These entries reflect personal agreements between you and your peers; Rupeo is not a party to any debt, loan, or repayment agreement.
@@ -47,21 +59,21 @@ Rupeo provides a bookkeeping ledger ("Friends & Udhar") allowing you to record s
 
 ---
 
-## 5. User Accounts & Security
+## 6. User Accounts & Security
 1. **Account Registration:** You may register using an email/password combination or Google Sign-In. You agree to provide accurate and complete information.
 2. **Account Security:** You are solely responsible for maintaining the confidentiality of your credentials and for all activities that occur under your account.
 3. **Unauthorized Use:** You must notify Innovatex Labs immediately upon becoming aware of any unauthorized use or security breach of your account.
 
 ---
 
-## 6. User-Generated Content & Receipts
+## 7. User-Generated Content & Receipts
 1. **Receipts & Bill Photos:** Rupeo allows you to attach bill photos, store proof of payment, and encode transaction references in standard ISO/IEC 16388 Code 39 barcodes.
 2. **Content Responsibility:** You are solely responsible for the authenticity, legality, and accuracy of any data, images, notes, or receipts you upload, generate, or share.
 3. **Prohibited Content:** You may not upload offensive, illegal, infringing, defamatory, or malicious content.
 
 ---
 
-## 7. In-App Purchases & VIP Subscriptions
+## 8. In-App Purchases & VIP Subscriptions
 1. **VIP / Pro Upgrades:** Rupeo offers optional paid subscription tiers that remove third-party advertisements, enable unlimited bill tracking, and unlock advanced PDF report exports.
 2. **Billing:** Subscriptions are billed through Google Play Store (or Apple App Store) in accordance with their respective in-app purchase terms.
 3. **Auto-Renewal & Cancellation:** Subscriptions renew automatically unless cancelled at least 24 hours before the end of the current billing cycle via your Google Play Store Account Settings.
@@ -69,12 +81,12 @@ Rupeo provides a bookkeeping ledger ("Friends & Udhar") allowing you to record s
 
 ---
 
-## 8. Intellectual Property Rights
+## 9. Intellectual Property Rights
 All intellectual property rights in the Rupeo application—including code, designs, UI elements, brand logos, icons, animations, and proprietary features—are owned exclusively by Innovatex Labs. You are granted a limited, personal, non-exclusive, non-transferable, revocable license to use the app for personal, non-commercial bookkeeping.
 
 ---
 
-## 9. Prohibited Conduct
+## 10. Prohibited Conduct
 You agree not to:
 - Decompile, reverse engineer, or attempt to extract the source code of the app.
 - Circumvent or bypass any security features, authentication mechanisms, or rate limits.
@@ -83,28 +95,27 @@ You agree not to:
 
 ---
 
-## 10. Termination & Account Deletion
+## 11. Termination & Account Deletion
 We reserve the right to suspend or terminate your account and access to Rupeo at our sole discretion, without prior notice, if you breach these Terms or engage in conduct detrimental to other users or the service.
 
 You may terminate your agreement with Rupeo at any time by permanently deleting your account via **Settings > Delete My Account**.
 
 ---
 
-## 11. Limitation of Liability
+## 12. Limitation of Liability
 To the fullest extent permitted by applicable law:
 - Rupeo is provided on an **"AS IS"** and **"AS AVAILABLE"** basis without warranties of any kind, whether express or implied.
 - Innovatex Labs shall not be liable for any indirect, incidental, special, consequential, or punitive damages—including lost profits, lost data, hardware failure, payment disputes, or financial decisions made based on app calculations or insights.
 
 ---
 
-## 12. Governing Law & Dispute Resolution
+## 13. Governing Law & Dispute Resolution
 These Terms shall be governed by and construed in accordance with the laws of **India**, without regard to conflict of law principles. Any legal disputes arising out of or related to these Terms shall be subject to the exclusive jurisdiction of the competent courts of India.
 
 ---
 
-## 13. Contact Information & Portal
+## 14. Contact Information & Portal
 For any questions regarding these Terms & Conditions, please contact us at:
 - **Email:** innovatexlab.services@gmail.com  
 - **Publisher:** Innovatex Labs  
 - **Official Portal:** https://rupeoo.vercel.app/download  
-

@@ -12,9 +12,9 @@ import {
   BackHandler,
   ActivityIndicator,
   useColorScheme,
+  KeyboardAvoidingView,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
 import {
@@ -38,14 +38,6 @@ import { parseVoiceTranscript, ParsedVoiceTransaction } from '@/lib/voiceParser'
 import { Colors } from '@/constants/theme';
 import CategoryIcon from '@/components/CategoryIcon';
 
-/**
- * NOTE ON ANDROID WIDGET MICROPHONE ACCESS:
- * Android AppWidgets render via RemoteViews inside the System Home Screen process
- * and cannot directly initialize or hold an AudioRecord / SpeechRecognizer session.
- * Therefore, tapping the widget Voice button deep-links to rupeo://quick-add-voice,
- * which opens this lightweight screen and immediately starts voice recognition with 0 extra taps.
- */
-
 type VoiceState =
   | 'listening'
   | 'direct_saved_confirm'
@@ -55,7 +47,8 @@ type VoiceState =
 
 export default function VoiceQuickAddScreen() {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
+  const params = useLocalSearchParams<{ fromWidget?: string }>();
+  const isFromWidget = params.fromWidget === '1' || !router.canGoBack();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
   const theme = isDark ? Colors.dark : Colors.light;
@@ -83,8 +76,8 @@ export default function VoiceQuickAddScreen() {
   const [editNote, setEditNote] = useState('');
   const [isSavingManual, setIsSavingManual] = useState(false);
 
-  // Auto-close countdown (4 seconds)
-  const [secondsLeft, setSecondsLeft] = useState(4);
+  // Snappy auto-close countdown (2 seconds)
+  const [secondsLeft, setSecondsLeft] = useState(2);
   const countdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Context data
@@ -191,7 +184,13 @@ export default function VoiceQuickAddScreen() {
       ExpoSpeechRecognitionModule?.abort?.();
     } catch {}
 
-    if (router.canGoBack()) {
+    if (isFromWidget) {
+      if (Platform.OS === 'android') {
+        BackHandler.exitApp();
+      } else {
+        router.replace('/(tabs)/dashboard');
+      }
+    } else if (router.canGoBack()) {
       router.back();
     } else {
       if (Platform.OS === 'android') {
@@ -200,7 +199,7 @@ export default function VoiceQuickAddScreen() {
         router.replace('/(tabs)/dashboard');
       }
     }
-  }, [router]);
+  }, [router, isFromWidget]);
 
   // Direct Save Execution
   const performDirectSave = useCallback(
@@ -208,7 +207,6 @@ export default function VoiceQuickAddScreen() {
       if (!user?.uid || !parsed.amount || parsed.amount <= 0) return;
 
       try {
-        // Fallback category to 'Others' if category was not clearly identified
         const resolvedCategory = parsed.category || (parsed.type === 'credit' ? 'Salary' : 'Others');
         const now = new Date();
         const saveDate = parsed.date || getLocalDateString(now);
@@ -230,7 +228,6 @@ export default function VoiceQuickAddScreen() {
         const newId = await insertTransaction(user.uid, payload);
         triggerTransactionVibration();
 
-        // If friend name detected and Udhar feature applies, sync to Udhar
         if (parsed.isUdhar && parsed.friendName) {
           try {
             const friend = await saveFriend(user.uid, { name: parsed.friendName });
@@ -250,8 +247,8 @@ export default function VoiceQuickAddScreen() {
         setSavedTxId(newId);
         setState('direct_saved_confirm');
 
-        // Start 4-second auto-close countdown
-        setSecondsLeft(4);
+        // Start 2-second snappy auto-close countdown
+        setSecondsLeft(2);
         if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
         countdownTimerRef.current = setInterval(() => {
           setSecondsLeft((prev) => {
@@ -265,7 +262,6 @@ export default function VoiceQuickAddScreen() {
         }, 1000);
       } catch (saveErr) {
         console.error('[VoiceQuickAdd] Direct save error:', saveErr);
-        // If Firestore offline, write is queued locally and will sync later
         setState('direct_saved_confirm');
       }
     },
@@ -287,19 +283,15 @@ export default function VoiceQuickAddScreen() {
       setEditType(parsed.type);
       setEditNote(parsed.note);
 
-      // DIRECT SAVE RULE:
-      // If a valid amount (> 0) and type are parsed, save immediately to Firestore!
       if (parsed.amount && parsed.amount > 0) {
         performDirectSave(parsed);
       } else {
-        // If no amount can be parsed, do NOT save. Show transcript and let user fix manually.
         setState('manual_fix');
       }
     },
     [categories, knownFriends, performDirectSave]
   );
 
-  // Refs to avoid stale closures in native speech events
   const transcriptRef = useRef<string>('');
   const stateRef = useRef<VoiceState>('listening');
   const speechLocaleRef = useRef<'en-IN' | 'hi-IN'>(speechLocale);
@@ -332,7 +324,6 @@ export default function VoiceQuickAddScreen() {
     processTranscriptRef.current = processTranscript;
   }, [processTranscript]);
 
-  // Speech Recognition Events (Native Android/iOS)
   useSpeechRecognitionEvent('start', () => {
     if (Platform.OS !== 'web') {
       setIsListening(true);
@@ -431,7 +422,6 @@ export default function VoiceQuickAddScreen() {
     }
   });
 
-  // Start listening session
   const startListening = useCallback(async () => {
     try {
       isCleaningUpRef.current = false;
@@ -441,7 +431,6 @@ export default function VoiceQuickAddScreen() {
       setErrorMessage('');
       setState('listening');
 
-      // 1. WEB BROWSER: Use direct, standard Web Speech API (webkitSpeechRecognition)
       if (Platform.OS === 'web' && typeof window !== 'undefined') {
         const SpeechRecognitionClass = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
         if (!SpeechRecognitionClass) {
@@ -557,7 +546,6 @@ export default function VoiceQuickAddScreen() {
         return;
       }
 
-      // 2. NATIVE ANDROID / IOS: Use ExpoSpeechRecognitionModule
       if (!ExpoSpeechRecognitionModule || typeof ExpoSpeechRecognitionModule.start !== 'function') {
         setErrorMessage('Voice recognition requires a supported build.');
         setState('error');
@@ -598,7 +586,6 @@ export default function VoiceQuickAddScreen() {
     }
   }, [speechLocale, t, clearSilenceTimers]);
 
-  // Trigger listening immediately on mount
   useEffect(() => {
     isCleaningUpRef.current = false;
     const timer = setTimeout(() => {
@@ -619,10 +606,8 @@ export default function VoiceQuickAddScreen() {
         } catch (_) {}
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Undo Action: Deletes the directly saved entry from Firestore
   const handleUndo = async () => {
     if (countdownTimerRef.current) {
       clearInterval(countdownTimerRef.current);
@@ -649,7 +634,6 @@ export default function VoiceQuickAddScreen() {
     }, 400);
   };
 
-  // Edit Action: Pause auto-close timer and switch to manual fix view
   const handleSwitchToEdit = () => {
     if (countdownTimerRef.current) {
       clearInterval(countdownTimerRef.current);
@@ -658,7 +642,6 @@ export default function VoiceQuickAddScreen() {
     setState('manual_fix');
   };
 
-  // Manual Fix Save Action
   const handleSaveManualFix = async () => {
     const val = parseFloat(editAmount);
     if (isNaN(val) || val <= 0) {
@@ -678,7 +661,6 @@ export default function VoiceQuickAddScreen() {
     try {
       setIsSavingManual(true);
 
-      // If updating the previously auto-saved record or inserting new
       const now = new Date();
       const saveDate = parsedTx?.date || getLocalDateString(now);
       const timeStr = formatTime12Hour(now);
@@ -697,7 +679,6 @@ export default function VoiceQuickAddScreen() {
       };
 
       if (savedTxId) {
-        // Update existing record
         const { updateTransaction } = await import('@/lib/database');
         await updateTransaction(user.uid, savedTxId, payload);
       } else {
@@ -726,513 +707,635 @@ export default function VoiceQuickAddScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]} edges={['top', 'bottom']}>
-      {/* Top Header */}
-      <View style={[styles.header, { borderBottomColor: theme.border }]}>
-        <TouchableOpacity
-          onPress={handleClose}
-          style={[styles.iconButton, { backgroundColor: isDark ? '#1F2937' : '#F1F5F9' }]}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <Ionicons name="close" size={20} color={theme.text} />
-        </TouchableOpacity>
+    <View style={styles.modalBackdrop}>
+      {/* Tap backdrop to dismiss & exit cleanly */}
+      <TouchableOpacity
+        style={StyleSheet.absoluteFill}
+        activeOpacity={1}
+        onPress={handleClose}
+      />
 
-        <Text style={[styles.headerTitle, { color: theme.text }]}>
-          {t('voice_quick_add_title')}
-        </Text>
-
-        {/* Speech locale indicator */}
-        <View style={[styles.localePill, { backgroundColor: isDark ? '#1F2937' : '#E2E8F0' }]}>
-          <Text style={[styles.localeText, { color: theme.textSecondary }]}>
-            {speechLocale === 'hi-IN' ? 'हिन्दी (hi-IN)' : 'EN (en-IN)'}
-          </Text>
-        </View>
-      </View>
-
-      <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
-        keyboardShouldPersistTaps="handled"
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.dialogWrapper}
       >
-        {/* 1. LISTENING VIEW */}
-        {state === 'listening' && (
-          <View style={styles.centerContainer}>
-            {/* Pulsing Mic Indicator */}
-            <View style={styles.micWrapper}>
-              <Animated.View
+        <View
+          style={[
+            styles.dialogCard,
+            {
+              backgroundColor: isDark ? '#0F172A' : '#FFFFFF',
+              borderColor: isDark ? '#1E293B' : '#E2E8F0',
+            },
+          ]}
+        >
+          {/* Header Row */}
+          <View style={[styles.dialogHeader, { borderBottomColor: isDark ? '#1E293B' : '#F1F5F9' }]}>
+            <View style={styles.statusBadge}>
+              <View
                 style={[
-                  styles.micWave,
+                  styles.statusDot,
                   {
-                    borderColor: '#10B981',
-                    transform: [{ scale: waveAnim1.interpolate({ inputRange: [0, 1], outputRange: [1, 2.1] }) }],
-                    opacity: waveAnim1.interpolate({ inputRange: [0, 1], outputRange: [0.6, 0] }),
+                    backgroundColor:
+                      state === 'listening'
+                        ? '#10B981'
+                        : state === 'direct_saved_confirm'
+                        ? '#10B981'
+                        : '#6366F1',
                   },
                 ]}
               />
-              <Animated.View
+              <Text
                 style={[
-                  styles.micWave,
+                  styles.statusText,
                   {
-                    borderColor: '#059669',
-                    transform: [{ scale: waveAnim2.interpolate({ inputRange: [0, 1], outputRange: [1, 2.4] }) }],
-                    opacity: waveAnim2.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0] }),
+                    color:
+                      state === 'listening'
+                        ? '#10B981'
+                        : state === 'direct_saved_confirm'
+                        ? '#10B981'
+                        : '#818CF8',
                   },
                 ]}
-              />
-              <Animated.View style={[styles.micCircle, { transform: [{ scale: pulseAnim }] }]}>
-                <Ionicons name="mic" size={44} color="#FFFFFF" />
-              </Animated.View>
+              >
+                {state === 'listening'
+                  ? 'LISTENING'
+                  : state === 'direct_saved_confirm'
+                  ? 'SAVED'
+                  : 'VOICE ENTRY'}
+              </Text>
             </View>
 
-            <Text style={[styles.listeningTitle, { color: theme.text }]}>
-              {transcript ? transcript : t('voice_listening')}
-            </Text>
+            <View style={styles.headerRightControls}>
+              <View style={[styles.localePill, { backgroundColor: isDark ? '#1E293B' : '#F1F5F9' }]}>
+                <Text style={[styles.localeText, { color: isDark ? '#94A3B8' : '#64748B' }]}>
+                  {speechLocale === 'hi-IN' ? 'हिन्दी' : 'EN'}
+                </Text>
+              </View>
 
-            <Text style={[styles.listeningSubtitle, { color: theme.textSecondary }]}>
-              {t('voice_speak_prompt')}
-            </Text>
-
-            {/* Examples Pill */}
-            <View style={[styles.exampleBox, { backgroundColor: isDark ? '#1F2937' : '#F1F5F9' }]}>
-              <Text style={[styles.exampleTitle, { color: theme.textSecondary }]}>EXAMPLES</Text>
-              <Text style={[styles.exampleText, { color: theme.text }]}>
-                "chai 20 rupaye" • "auto ke 50" • "salary 25000 aaya"
-              </Text>
+              <TouchableOpacity
+                onPress={handleClose}
+                style={[styles.closeButton, { backgroundColor: isDark ? '#1E293B' : '#F1F5F9' }]}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="close" size={18} color={theme.text} />
+              </TouchableOpacity>
             </View>
           </View>
-        )}
 
-        {/* 2. DIRECT SAVE CONFIRMATION CARD (4-Second Auto Close) */}
-        {state === 'direct_saved_confirm' && (
-          <View style={styles.confirmContainer}>
-            {/* Auto-close Banner */}
-            <View style={[styles.countdownPill, { backgroundColor: isDark ? '#064E3B' : '#ECFDF5' }]}>
-              <Ionicons name="timer-outline" size={16} color="#059669" style={{ marginRight: 6 }} />
-              <Text style={[styles.countdownText, { color: '#059669' }]}>
-                {t('closing_in_seconds')} {secondsLeft}s
-              </Text>
-            </View>
-
-            {/* Success Card */}
-            <View style={[styles.savedCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              <View style={styles.savedCardHeader}>
-                <View style={styles.checkCircle}>
-                  <Ionicons name="checkmark" size={24} color="#FFFFFF" />
+          {/* Dialog Scrollable Content */}
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.dialogScrollBody}
+            keyboardShouldPersistTaps="handled"
+          >
+            {/* 1. LISTENING VIEW */}
+            {state === 'listening' && (
+              <View style={styles.centerContainer}>
+                {/* Glowing Concentric Pulsing Mic Waves */}
+                <View style={styles.micWrapper}>
+                  <Animated.View
+                    style={[
+                      styles.micWave,
+                      {
+                        borderColor: '#4F46E5',
+                        transform: [{ scale: waveAnim1.interpolate({ inputRange: [0, 1], outputRange: [1, 2] }) }],
+                        opacity: waveAnim1.interpolate({ inputRange: [0, 1], outputRange: [0.65, 0] }),
+                      },
+                    ]}
+                  />
+                  <Animated.View
+                    style={[
+                      styles.micWave,
+                      {
+                        borderColor: '#6366F1',
+                        transform: [{ scale: waveAnim2.interpolate({ inputRange: [0, 1], outputRange: [1, 2.35] }) }],
+                        opacity: waveAnim2.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0] }),
+                      },
+                    ]}
+                  />
+                  <Animated.View style={[styles.micCircle, { transform: [{ scale: pulseAnim }] }]}>
+                    <Ionicons name="mic" size={38} color="#FFFFFF" />
+                  </Animated.View>
                 </View>
-                <Text style={[styles.savedTitle, { color: theme.text }]}>
-                  {t('direct_save_added')}: {currency}{parsedTx?.amount}
-                </Text>
-              </View>
 
-              <View style={[styles.savedDivider, { backgroundColor: theme.border }]} />
+                {transcript ? (
+                  <View style={[styles.liveTranscriptCard, { backgroundColor: isDark ? '#1E293B' : '#F1F5F9' }]}>
+                    <Ionicons name="chatbubble-ellipses-outline" size={16} color="#818CF8" style={{ marginRight: 6 }} />
+                    <Text style={[styles.liveTranscriptText, { color: theme.text }]}>
+                      "{transcript}"
+                    </Text>
+                  </View>
+                ) : (
+                  <>
+                    <Text style={[styles.listeningTitle, { color: theme.text }]}>
+                      {t('voice_listening')}
+                    </Text>
+                    <Text style={[styles.listeningSubtitle, { color: theme.textSecondary }]}>
+                      {t('voice_speak_prompt')}
+                    </Text>
+                  </>
+                )}
 
-              <View style={styles.savedRow}>
-                <Text style={[styles.savedLabel, { color: theme.textSecondary }]}>Category</Text>
-                <View style={styles.savedBadge}>
-                  <Text style={[styles.savedBadgeText, { color: theme.text }]}>
-                    {editCategory}
+                {/* Example Hints */}
+                <View style={[styles.exampleBox, { backgroundColor: isDark ? '#1E293B50' : '#F8FAFC', borderColor: isDark ? '#334155' : '#E2E8F0' }]}>
+                  <Text style={[styles.exampleTitle, { color: isDark ? '#818CF8' : '#6366F1' }]}>EXAMPLES</Text>
+                  <Text style={[styles.exampleText, { color: theme.textSecondary }]}>
+                    "chai 20" • "auto 50" • "salary 25000"
                   </Text>
                 </View>
-              </View>
 
-              <View style={styles.savedRow}>
-                <Text style={[styles.savedLabel, { color: theme.textSecondary }]}>Type</Text>
-                <Text style={[styles.savedValue, { color: editType === 'credit' ? '#10B981' : '#EF4444' }]}>
-                  {editType === 'credit' ? 'Income' : 'Expense'}
-                </Text>
-              </View>
-
-              <View style={styles.savedRow}>
-                <Text style={[styles.savedLabel, { color: theme.textSecondary }]}>Payment</Text>
-                <View style={styles.savedBadge}>
-                  <Text style={[styles.savedBadgeText, { color: theme.text }]}>
-                    {editPaymentMode}
-                  </Text>
-                </View>
-              </View>
-
-              {transcript ? (
-                <View style={styles.savedRow}>
-                  <Text style={[styles.savedLabel, { color: theme.textSecondary }]}>Spoken</Text>
-                  <Text style={[styles.savedTranscript, { color: theme.textSecondary }]} numberOfLines={2}>
-                    "{transcript}"
-                  </Text>
-                </View>
-              ) : null}
-
-              {/* Action Buttons: Undo & Edit */}
-              <View style={styles.cardActionsRow}>
-                <TouchableOpacity
-                  onPress={handleUndo}
-                  style={[styles.undoButton, { borderColor: '#EF4444' }]}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="arrow-undo-outline" size={18} color="#EF4444" style={{ marginRight: 6 }} />
-                  <Text style={styles.undoButtonText}>{t('undo')}</Text>
-                </TouchableOpacity>
-
+                {/* Manual Edit Fallback */}
                 <TouchableOpacity
                   onPress={handleSwitchToEdit}
-                  style={[styles.editButton, { backgroundColor: isDark ? '#1F2937' : '#F1F5F9' }]}
-                  activeOpacity={0.8}
+                  style={styles.switchManualButton}
                 >
-                  <Ionicons name="create-outline" size={18} color={theme.text} style={{ marginRight: 6 }} />
-                  <Text style={[styles.editButtonText, { color: theme.text }]}>{t('edit')}</Text>
+                  <Text style={[styles.switchManualText, { color: '#818CF8' }]}>
+                    Type manually instead ›
+                  </Text>
                 </TouchableOpacity>
               </View>
-            </View>
-          </View>
-        )}
+            )}
 
-        {/* 3. MANUAL FIX VIEW (When amount cannot be parsed or user taps Edit) */}
-        {state === 'manual_fix' && (
-          <View style={styles.manualFixContainer}>
-            <View style={[styles.transcriptNotice, { backgroundColor: isDark ? '#1F2937' : '#F1F5F9' }]}>
-              <Text style={[styles.transcriptNoticeLabel, { color: theme.textSecondary }]}>Spoken Text:</Text>
-              <Text style={[styles.transcriptNoticeValue, { color: theme.text }]}>
-                "{transcript || 'No speech recorded'}"
-              </Text>
-            </View>
+            {/* 2. DIRECT SAVE CONFIRMATION (Snappy 2s Auto Close + Immediate Exit) */}
+            {state === 'direct_saved_confirm' && (
+              <View style={styles.confirmContainer}>
+                {/* Auto-close Banner */}
+                <View style={[styles.countdownPill, { backgroundColor: isDark ? '#064E3B40' : '#ECFDF5', borderColor: '#05966950' }]}>
+                  <Ionicons name="timer-outline" size={15} color="#059669" style={{ marginRight: 6 }} />
+                  <Text style={[styles.countdownText, { color: '#059669' }]}>
+                    {t('closing_in_seconds')} {secondsLeft}s
+                  </Text>
+                </View>
 
-            {/* Type selector */}
-            <View style={[styles.typeToggleContainer, { backgroundColor: isDark ? '#1F2937' : '#F1F5F9' }]}>
-              <TouchableOpacity
-                onPress={() => setEditType('debit')}
-                style={[
-                  styles.typeToggleButton,
-                  editType === 'debit' && { backgroundColor: '#EF4444' },
-                ]}
-              >
-                <Text style={[styles.typeToggleText, { color: editType === 'debit' ? '#FFFFFF' : theme.textSecondary }]}>
-                  {t('widget_add_expense')}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => setEditType('credit')}
-                style={[
-                  styles.typeToggleButton,
-                  editType === 'credit' && { backgroundColor: '#10B981' },
-                ]}
-              >
-                <Text style={[styles.typeToggleText, { color: editType === 'credit' ? '#FFFFFF' : theme.textSecondary }]}>
-                  {t('widget_add_income')}
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Amount Input */}
-            <View style={[styles.inputCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>{t('enter_amount')}</Text>
-              <View style={styles.amountRow}>
-                <Text style={[styles.currencyPrefix, { color: editType === 'debit' ? '#EF4444' : '#10B981' }]}>
-                  {currency}
-                </Text>
-                <TextInput
-                  style={[styles.amountInput, { color: theme.text }]}
-                  placeholder="0"
-                  placeholderTextColor={isDark ? '#4B5563' : '#9CA3AF'}
-                  keyboardType="decimal-pad"
-                  value={editAmount}
-                  onChangeText={(val) => {
-                    if (/^\d*\.?\d{0,2}$/.test(val)) setEditAmount(val);
-                  }}
-                  autoFocus
-                />
-              </View>
-            </View>
-
-            {/* Category selector chips */}
-            <View style={styles.sectionContainer}>
-              <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>CATEGORY</Text>
-              <View style={styles.chipsWrap}>
-                {categories.slice(0, 12).map((cat) => {
-                  const isSelected = editCategory.toLowerCase() === cat.name.toLowerCase();
-                  return (
-                    <TouchableOpacity
-                      key={cat.name}
-                      onPress={() => setEditCategory(cat.name)}
-                      style={[
-                        styles.categoryChip,
-                        {
-                          backgroundColor: isSelected
-                            ? (isDark ? '#374151' : '#F1F5F9')
-                            : (isDark ? '#1F2937' : '#FFFFFF'),
-                          borderColor: isSelected ? '#10B981' : (isDark ? '#374151' : '#E5E7EB'),
-                          borderWidth: isSelected ? 2 : 1,
-                        },
-                      ]}
-                    >
-                      <CategoryIcon categoryName={cat.name} iconName={cat.icon} color={cat.color} size={16} />
-                      <Text style={[styles.categoryChipText, { color: isSelected ? theme.text : theme.textSecondary }]}>
-                        {cat.name}
+                {/* Success Card */}
+                <View style={[styles.savedCard, { backgroundColor: isDark ? '#1E293B' : '#F8FAFC', borderColor: isDark ? '#334155' : '#E2E8F0' }]}>
+                  <View style={styles.savedCardHeader}>
+                    <View style={styles.checkCircle}>
+                      <Ionicons name="checkmark" size={24} color="#FFFFFF" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.savedTitle, { color: theme.text }]}>
+                        {currency}{parsedTx?.amount} Added
                       </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-
-            {/* Payment Mode Selector */}
-            <View style={styles.sectionContainer}>
-              <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>PAYMENT MODE</Text>
-              <View style={styles.paymentModeChipsRow}>
-                {(['UPI', 'Cash', 'Bank', 'Card'] as const).map((mode) => {
-                  const isSelected = editPaymentMode === mode;
-                  return (
-                    <TouchableOpacity
-                      key={mode}
-                      onPress={() => setEditPaymentMode(mode)}
-                      style={[
-                        styles.paymentModeChip,
-                        {
-                          backgroundColor: isSelected
-                            ? (isDark ? '#374151' : '#F1F5F9')
-                            : (isDark ? '#1F2937' : '#FFFFFF'),
-                          borderColor: isSelected ? '#10B981' : (isDark ? '#374151' : '#E5E7EB'),
-                          borderWidth: isSelected ? 2 : 1,
-                        },
-                      ]}
-                      activeOpacity={0.75}
-                    >
-                      <Ionicons
-                        name={
-                          mode === 'UPI'
-                            ? 'flash'
-                            : mode === 'Cash'
-                            ? 'cash'
-                            : mode === 'Bank'
-                            ? 'business'
-                            : 'card'
-                        }
-                        size={14}
-                        color={isSelected ? (isDark ? '#34D399' : '#059669') : theme.textSecondary}
-                      />
-                      <Text
-                        style={[
-                          styles.paymentModeChipText,
-                          { color: isSelected ? theme.text : theme.textSecondary },
-                        ]}
-                      >
-                        {mode}
+                      <Text style={[styles.savedSubTitle, { color: editType === 'credit' ? '#10B981' : '#EF4444' }]}>
+                        {editType === 'credit' ? '+ Income' : '- Expense'} • {editCategory}
                       </Text>
+                    </View>
+                  </View>
+
+                  {transcript ? (
+                    <View style={[styles.spokenBubble, { backgroundColor: isDark ? '#0F172A' : '#FFFFFF', borderColor: isDark ? '#334155' : '#E2E8F0' }]}>
+                      <Ionicons name="mic" size={14} color="#818CF8" style={{ marginRight: 6 }} />
+                      <Text style={[styles.savedTranscript, { color: theme.textSecondary }]} numberOfLines={2}>
+                        "{transcript}"
+                      </Text>
+                    </View>
+                  ) : null}
+
+                  {/* Actions: Undo, Edit, and Done */}
+                  <View style={styles.cardActionsRow}>
+                    <TouchableOpacity
+                      onPress={handleUndo}
+                      style={[styles.undoButton, { borderColor: '#EF4444' }]}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="arrow-undo-outline" size={16} color="#EF4444" style={{ marginRight: 4 }} />
+                      <Text style={styles.undoButtonText}>{t('undo')}</Text>
                     </TouchableOpacity>
-                  );
-                })}
+
+                    <TouchableOpacity
+                      onPress={handleSwitchToEdit}
+                      style={[styles.editButton, { backgroundColor: isDark ? '#0F172A' : '#FFFFFF', borderColor: isDark ? '#334155' : '#CBD5E1' }]}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="create-outline" size={16} color={theme.text} style={{ marginRight: 4 }} />
+                      <Text style={[styles.editButtonText, { color: theme.text }]}>{t('edit')}</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      onPress={handleClose}
+                      style={[styles.doneButton, { backgroundColor: '#10B981' }]}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="checkmark" size={16} color="#FFFFFF" style={{ marginRight: 4 }} />
+                      <Text style={styles.doneButtonText}>Done</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
               </View>
-            </View>
+            )}
 
-            {/* Optional Note */}
-            <View style={[styles.inputCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              <TextInput
-                style={[styles.noteInput, { color: theme.text }]}
-                placeholder={t('optional_note')}
-                placeholderTextColor={isDark ? '#6B7280' : '#9CA3AF'}
-                value={editNote}
-                onChangeText={setEditNote}
-              />
-            </View>
+            {/* 3. MANUAL FIX VIEW */}
+            {state === 'manual_fix' && (
+              <View style={styles.manualFixContainer}>
+                {transcript ? (
+                  <View style={[styles.transcriptNotice, { backgroundColor: isDark ? '#1E293B' : '#F1F5F9' }]}>
+                    <Text style={[styles.transcriptNoticeLabel, { color: theme.textSecondary }]}>Heard:</Text>
+                    <Text style={[styles.transcriptNoticeValue, { color: theme.text }]}>
+                      "{transcript}"
+                    </Text>
+                  </View>
+                ) : null}
 
-            {/* Save Manual */}
-            <TouchableOpacity
-              onPress={handleSaveManualFix}
-              disabled={isSavingManual || !editAmount}
-              style={[
-                styles.saveButton,
-                {
-                  backgroundColor: editType === 'debit' ? '#EF4444' : '#10B981',
-                  opacity: isSavingManual || !editAmount ? 0.6 : 1,
-                },
-              ]}
-            >
-              {isSavingManual ? (
-                <ActivityIndicator color="#FFFFFF" size="small" />
-              ) : (
-                <Text style={styles.saveButtonText}>{t('save')}</Text>
-              )}
-            </TouchableOpacity>
-          </View>
-        )}
+                {/* Type toggle: Expense / Income */}
+                <View style={[styles.typeToggleContainer, { backgroundColor: isDark ? '#1E293B' : '#F1F5F9' }]}>
+                  <TouchableOpacity
+                    onPress={() => setEditType('debit')}
+                    style={[
+                      styles.typeToggleButton,
+                      editType === 'debit' && { backgroundColor: '#EF4444' },
+                    ]}
+                  >
+                    <Text style={[styles.typeToggleText, { color: editType === 'debit' ? '#FFFFFF' : theme.textSecondary }]}>
+                      {t('widget_add_expense')}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => setEditType('credit')}
+                    style={[
+                      styles.typeToggleButton,
+                      editType === 'credit' && { backgroundColor: '#10B981' },
+                    ]}
+                  >
+                    <Text style={[styles.typeToggleText, { color: editType === 'credit' ? '#FFFFFF' : theme.textSecondary }]}>
+                      {t('widget_add_income')}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
 
-        {/* 4. PERMISSION DENIED */}
-        {state === 'permission_denied' && (
-          <View style={styles.centerContainer}>
-            <View style={[styles.errorCircle, { backgroundColor: '#FEE2E2' }]}>
-              <Ionicons name="mic-off" size={40} color="#EF4444" />
-            </View>
-            <Text style={[styles.errorTitle, { color: theme.text }]}>Microphone Permission Needed</Text>
-            <Text style={[styles.errorSubtitle, { color: theme.textSecondary }]}>
-              {t('voice_mic_permission')}
-            </Text>
-            <TouchableOpacity
-              onPress={startListening}
-              style={[styles.actionButton, { backgroundColor: '#10B981' }]}
-            >
-              <Text style={styles.actionButtonText}>Grant Permission</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+                {/* Amount Input */}
+                <View style={[styles.inputCard, { backgroundColor: isDark ? '#1E293B' : '#F8FAFC', borderColor: isDark ? '#334155' : '#E2E8F0' }]}>
+                  <Text style={[styles.inputLabel, { color: theme.textSecondary }]}>{t('enter_amount')}</Text>
+                  <View style={styles.amountRow}>
+                    <Text style={[styles.currencyPrefix, { color: editType === 'debit' ? '#EF4444' : '#10B981' }]}>
+                      {currency}
+                    </Text>
+                    <TextInput
+                      style={[styles.amountInput, { color: theme.text }]}
+                      placeholder="0"
+                      placeholderTextColor={isDark ? '#4B5563' : '#9CA3AF'}
+                      keyboardType="decimal-pad"
+                      value={editAmount}
+                      onChangeText={(val) => {
+                        if (/^\d*\.?\d{0,2}$/.test(val)) setEditAmount(val);
+                      }}
+                      autoFocus
+                    />
+                  </View>
+                </View>
 
-        {/* 5. ERROR / NO SPEECH */}
-        {state === 'error' && (
-          <View style={styles.centerContainer}>
-            <View style={[styles.errorCircle, { backgroundColor: isDark ? '#374151' : '#F1F5F9' }]}>
-              <Ionicons name="alert-circle-outline" size={40} color={theme.textSecondary} />
-            </View>
-            <Text style={[styles.errorTitle, { color: theme.text }]}>
-              {errorMessage || t('voice_no_speech')}
-            </Text>
-            <TouchableOpacity
-              onPress={startListening}
-              style={[styles.actionButton, { backgroundColor: '#10B981' }]}
-            >
-              <Ionicons name="refresh" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
-              <Text style={styles.actionButtonText}>{t('voice_try_again')}</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      </ScrollView>
-    </SafeAreaView>
+                {/* Category Chips */}
+                <View style={styles.sectionContainer}>
+                  <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>CATEGORY</Text>
+                  <View style={styles.chipsWrap}>
+                    {categories.slice(0, 8).map((cat) => {
+                      const isSelected = editCategory.toLowerCase() === cat.name.toLowerCase();
+                      return (
+                        <TouchableOpacity
+                          key={cat.name}
+                          onPress={() => setEditCategory(cat.name)}
+                          style={[
+                            styles.categoryChip,
+                            {
+                              backgroundColor: isSelected
+                                ? (isDark ? '#374151' : '#E2E8F0')
+                                : (isDark ? '#1E293B' : '#FFFFFF'),
+                              borderColor: isSelected ? '#10B981' : (isDark ? '#374151' : '#E5E7EB'),
+                              borderWidth: isSelected ? 2 : 1,
+                            },
+                          ]}
+                        >
+                          <CategoryIcon categoryName={cat.name} iconName={cat.icon} color={cat.color} size={15} />
+                          <Text style={[styles.categoryChipText, { color: isSelected ? theme.text : theme.textSecondary }]}>
+                            {cat.name}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                {/* Payment Mode Selector */}
+                <View style={styles.sectionContainer}>
+                  <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>PAYMENT MODE</Text>
+                  <View style={styles.paymentModeChipsRow}>
+                    {(['UPI', 'Cash', 'Bank', 'Card'] as const).map((mode) => {
+                      const isSelected = editPaymentMode === mode;
+                      return (
+                        <TouchableOpacity
+                          key={mode}
+                          onPress={() => setEditPaymentMode(mode)}
+                          style={[
+                            styles.paymentModeChip,
+                            {
+                              backgroundColor: isSelected
+                                ? (isDark ? '#374151' : '#E2E8F0')
+                                : (isDark ? '#1E293B' : '#FFFFFF'),
+                              borderColor: isSelected ? '#10B981' : (isDark ? '#374151' : '#E5E7EB'),
+                              borderWidth: isSelected ? 2 : 1,
+                            },
+                          ]}
+                          activeOpacity={0.75}
+                        >
+                          <Ionicons
+                            name={
+                              mode === 'UPI'
+                                ? 'flash'
+                                : mode === 'Cash'
+                                ? 'cash'
+                                : mode === 'Bank'
+                                ? 'business'
+                                : 'card'
+                            }
+                            size={13}
+                            color={isSelected ? (isDark ? '#34D399' : '#059669') : theme.textSecondary}
+                          />
+                          <Text
+                            style={[
+                              styles.paymentModeChipText,
+                              { color: isSelected ? theme.text : theme.textSecondary },
+                            ]}
+                          >
+                            {mode}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                {/* Save Button */}
+                <TouchableOpacity
+                  onPress={handleSaveManualFix}
+                  disabled={isSavingManual || !editAmount}
+                  style={[
+                    styles.saveButton,
+                    {
+                      backgroundColor: editType === 'debit' ? '#EF4444' : '#10B981',
+                      opacity: isSavingManual || !editAmount ? 0.6 : 1,
+                    },
+                  ]}
+                >
+                  {isSavingManual ? (
+                    <ActivityIndicator color="#FFFFFF" size="small" />
+                  ) : (
+                    <Text style={styles.saveButtonText}>{t('save')}</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* 4. PERMISSION DENIED */}
+            {state === 'permission_denied' && (
+              <View style={styles.centerContainer}>
+                <View style={[styles.errorCircle, { backgroundColor: '#FEE2E2' }]}>
+                  <Ionicons name="mic-off" size={36} color="#EF4444" />
+                </View>
+                <Text style={[styles.errorTitle, { color: theme.text }]}>Microphone Permission Needed</Text>
+                <Text style={[styles.errorSubtitle, { color: theme.textSecondary }]}>
+                  {t('voice_mic_permission')}
+                </Text>
+                <View style={styles.errorActionsRow}>
+                  <TouchableOpacity
+                    onPress={handleClose}
+                    style={[styles.cancelActionBtn, { borderColor: isDark ? '#334155' : '#CBD5E1' }]}
+                  >
+                    <Text style={[styles.cancelActionText, { color: theme.textSecondary }]}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={startListening}
+                    style={[styles.actionButton, { backgroundColor: '#10B981' }]}
+                  >
+                    <Text style={styles.actionButtonText}>Grant</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {/* 5. ERROR / NO SPEECH */}
+            {state === 'error' && (
+              <View style={styles.centerContainer}>
+                <View style={[styles.errorCircle, { backgroundColor: isDark ? '#1E293B' : '#F1F5F9' }]}>
+                  <Ionicons name="alert-circle-outline" size={36} color={theme.textSecondary} />
+                </View>
+                <Text style={[styles.errorTitle, { color: theme.text }]}>
+                  {errorMessage || t('voice_no_speech')}
+                </Text>
+                <View style={styles.errorActionsRow}>
+                  <TouchableOpacity
+                    onPress={handleClose}
+                    style={[styles.cancelActionBtn, { borderColor: isDark ? '#334155' : '#CBD5E1' }]}
+                  >
+                    <Text style={[styles.cancelActionText, { color: theme.textSecondary }]}>Close</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={startListening}
+                    style={[styles.actionButton, { backgroundColor: '#10B981' }]}
+                  >
+                    <Ionicons name="refresh" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                    <Text style={styles.actionButtonText}>{t('voice_try_again')}</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+          </ScrollView>
+        </View>
+      </KeyboardAvoidingView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
+  modalBackdrop: {
     flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.72)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 18,
   },
-  header: {
-    height: 56,
+  dialogWrapper: {
+    width: '100%',
+    maxWidth: 390,
+    alignItems: 'center',
+  },
+  dialogCard: {
+    width: '100%',
+    maxHeight: '90%',
+    borderRadius: 26,
+    borderWidth: 1.5,
+    overflow: 'hidden',
+    shadowColor: '#000000',
+    shadowOpacity: 0.35,
+    shadowOffset: { width: 0, height: 12 },
+    shadowRadius: 24,
+    elevation: 20,
+  },
+  dialogHeader: {
+    height: 52,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: 1,
   },
-  iconButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+  statusBadge: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 6,
   },
-  headerTitle: {
-    fontSize: 17,
-    fontWeight: '700',
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  statusText: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  headerRightControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   localePill: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
   },
   localeText: {
     fontSize: 11,
     fontWeight: '700',
   },
-  content: {
-    padding: 20,
-    flexGrow: 1,
+  closeButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
     justifyContent: 'center',
+  },
+  dialogScrollBody: {
+    padding: 18,
+    alignItems: 'center',
   },
   centerContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 20,
+    width: '100%',
+    paddingVertical: 10,
   },
   micWrapper: {
-    width: 140,
-    height: 140,
+    width: 120,
+    height: 120,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 28,
+    marginBottom: 20,
   },
   micWave: {
     position: 'absolute',
-    width: 110,
-    height: 110,
-    borderRadius: 55,
-    borderWidth: 2,
-  },
-  micCircle: {
     width: 96,
     height: 96,
     borderRadius: 48,
-    backgroundColor: '#10B981',
+    borderWidth: 2,
+  },
+  micCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#4F46E5',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#10B981',
+    shadowColor: '#4F46E5',
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.4,
+    shadowOpacity: 0.45,
     shadowRadius: 12,
-    elevation: 8,
+    elevation: 10,
+  },
+  liveTranscriptCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 14,
+    marginBottom: 16,
+    maxWidth: '95%',
+  },
+  liveTranscriptText: {
+    fontSize: 15,
+    fontWeight: '700',
+    fontStyle: 'italic',
+    textAlign: 'center',
   },
   listeningTitle: {
-    fontSize: 20,
-    fontWeight: '700',
+    fontSize: 18,
+    fontWeight: '800',
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 4,
   },
   listeningSubtitle: {
-    fontSize: 14,
+    fontSize: 13,
     textAlign: 'center',
-    marginBottom: 24,
+    marginBottom: 16,
   },
   exampleBox: {
-    borderRadius: 0,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#000000',
-    shadowOpacity: 0.04,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
-    elevation: 1,
-    padding: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     width: '100%',
     alignItems: 'center',
+    marginBottom: 14,
   },
   exampleTitle: {
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 1,
-    marginBottom: 6,
+    marginBottom: 4,
   },
   exampleText: {
-    fontSize: 13,
+    fontSize: 12,
     textAlign: 'center',
+  },
+  switchManualButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  switchManualText: {
+    fontSize: 13,
+    fontWeight: '700',
   },
   confirmContainer: {
     alignItems: 'center',
+    width: '100%',
   },
   countdownPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 20,
-    marginBottom: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginBottom: 14,
   },
   countdownText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
   },
   savedCard: {
     width: '100%',
-    borderRadius: 0,
-    padding: 20,
+    borderRadius: 18,
+    padding: 16,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#000000',
-    shadowOpacity: 0.05,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
-    elevation: 2,
   },
   savedCardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   checkCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: '#10B981',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1240,52 +1343,35 @@ const styles = StyleSheet.create({
   },
   savedTitle: {
     fontSize: 20,
-    fontWeight: '800',
+    fontWeight: '900',
   },
-  savedDivider: {
-    height: 1,
-    width: '100%',
+  savedSubTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  spokenBubble: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
     marginBottom: 14,
   },
-  savedRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  savedLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  savedValue: {
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  savedBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-    backgroundColor: '#10B98120',
-  },
-  savedBadgeText: {
-    fontSize: 14,
-    fontWeight: '700',
-  },
   savedTranscript: {
-    fontSize: 13,
+    fontSize: 12,
     fontStyle: 'italic',
-    maxWidth: '65%',
-    textAlign: 'right',
+    flex: 1,
   },
   cardActionsRow: {
     flexDirection: 'row',
-    gap: 12,
-    marginTop: 18,
+    gap: 8,
   },
   undoButton: {
     flex: 1,
-    height: 44,
-    borderRadius: 12,
+    height: 40,
+    borderRadius: 10,
     borderWidth: 1.5,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1293,183 +1379,200 @@ const styles = StyleSheet.create({
   },
   undoButtonText: {
     color: '#EF4444',
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
   },
   editButton: {
     flex: 1,
-    height: 44,
-    borderRadius: 12,
+    height: 40,
+    borderRadius: 10,
+    borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
   },
   editButtonText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
+  },
+  doneButton: {
+    flex: 1.2,
+    height: 40,
+    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  doneButtonText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
   },
   manualFixContainer: {
     width: '100%',
   },
   transcriptNotice: {
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 16,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 12,
   },
   transcriptNoticeLabel: {
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
     marginBottom: 2,
   },
   transcriptNoticeValue: {
-    fontSize: 14,
+    fontSize: 13,
     fontStyle: 'italic',
   },
   typeToggleContainer: {
     flexDirection: 'row',
-    borderRadius: 12,
-    padding: 4,
-    marginBottom: 16,
+    borderRadius: 10,
+    padding: 3,
+    marginBottom: 12,
   },
   typeToggleButton: {
     flex: 1,
-    paddingVertical: 10,
+    paddingVertical: 8,
     borderRadius: 8,
     alignItems: 'center',
   },
   typeToggleText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
   },
   inputCard: {
-    borderRadius: 0,
-    padding: 14,
+    borderRadius: 14,
+    padding: 12,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#000000',
-    shadowOpacity: 0.04,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
-    elevation: 1,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   inputLabel: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
-    marginBottom: 6,
+    letterSpacing: 0.8,
+    marginBottom: 4,
   },
   amountRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   currencyPrefix: {
-    fontSize: 26,
-    fontWeight: '800',
+    fontSize: 24,
+    fontWeight: '900',
     marginRight: 6,
   },
   amountInput: {
-    fontSize: 28,
-    fontWeight: '800',
+    fontSize: 26,
+    fontWeight: '900',
     flex: 1,
     padding: 0,
   },
-  noteInput: {
-    fontSize: 14,
-    padding: 0,
-  },
   sectionContainer: {
-    marginBottom: 16,
+    marginBottom: 12,
   },
   sectionTitle: {
-    fontSize: 11,
-    fontWeight: '700',
-    marginBottom: 8,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    marginBottom: 6,
   },
   chipsWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 6,
   },
   categoryChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 0,
-    gap: 6,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    borderRadius: 8,
+    gap: 5,
   },
   categoryChipText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
-  },
-  saveButton: {
-    height: 50,
-    borderRadius: 0,
-    borderWidth: 1,
-    borderColor: '#059669',
-    shadowColor: '#000000',
-    shadowOpacity: 0.1,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
-    elevation: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 8,
-  },
-  saveButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  errorCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-  },
-  errorTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  errorSubtitle: {
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 20,
-    paddingHorizontal: 20,
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 12,
-  },
-  actionButtonText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
   },
   paymentModeChipsRow: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
   },
   paymentModeChip: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 9,
-    paddingHorizontal: 6,
-    borderRadius: 10,
-    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    borderRadius: 8,
+    gap: 4,
   },
   paymentModeChipText: {
-    fontSize: 12,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  saveButton: {
+    height: 46,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 6,
+  },
+  saveButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  errorCircle: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  errorTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginBottom: 6,
+  },
+  errorSubtitle: {
+    fontSize: 13,
+    textAlign: 'center',
+    marginBottom: 16,
+    paddingHorizontal: 10,
+  },
+  errorActionsRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  cancelActionBtn: {
+    height: 40,
+    paddingHorizontal: 18,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelActionText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  actionButton: {
+    height: 40,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    borderRadius: 10,
+  },
+  actionButtonText: {
+    color: '#FFFFFF',
+    fontSize: 13,
     fontWeight: '700',
   },
 });

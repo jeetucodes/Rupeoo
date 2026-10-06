@@ -69,7 +69,8 @@
     "build": "expo export",
     "export": "expo export",
     "test": "node --test src/lib/__tests__/voiceParser.test.ts",
-    "check:images": "python scripts/check-images.py"
+    "check:images": "python scripts/check-images.py",
+    "postinstall": "node scripts/fix-expo-go-modules.js"
   },
   "private": true
 }

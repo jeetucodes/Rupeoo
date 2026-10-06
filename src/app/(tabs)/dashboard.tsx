@@ -16,6 +16,7 @@ import {
   Animated,
   Easing,
   Dimensions,
+  useWindowDimensions,
 } from 'react-native';
 import Toast from 'react-native-toast-message';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -341,6 +342,7 @@ const MONTH_NAMES = [
 const WEEKDAY_NAMES = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
 export default function DashboardScreen() {
+  const { width: windowWidth } = useWindowDimensions();
   const { user, settings, isPremium, appConfig } = useAuth();
   const { t, lang } = useTranslation();
   const router = useRouter();
@@ -352,6 +354,11 @@ export default function DashboardScreen() {
   const monthlyBudget = Number(settings?.monthlyBudget) || 0;
 
   const todayStr = useMemo(() => getLocalDateString(), []);
+
+  // Responsive 3D hero image size calculated dynamically per phone screen width
+  const heroImageSize = useMemo(() => {
+    return Math.min(Math.max(Math.round(windowWidth * 0.175), 60), 72);
+  }, [windowWidth]);
 
   const [totalSpend, setTotalSpend] = useState<number>(0);
   const [totalCredit, setTotalCredit] = useState<number>(0);
@@ -1372,17 +1379,21 @@ export default function DashboardScreen() {
               </Text>
             </View>
 
-            {/* Right: 3D Calendar Scene with Floating Micro-Animation & Organic Cloud Blob */}
+            {/* Right: 3D Calendar Scene with Floating Micro-Animation */}
             <Animated.View
               style={[
                 styles.tileHeroSceneWrap,
-                { transform: [{ translateY: tileFloatAnimCalendar }] },
+                {
+                  width: heroImageSize,
+                  height: heroImageSize,
+                  transform: [{ translateY: tileFloatAnimCalendar }],
+                },
               ]}
               pointerEvents="none"
             >
               <ExpoImage
-                source={require('@/assets/images/3d_calendar_scene.png')}
-                style={styles.tileHeroSceneImage}
+                source={require('@/assets/images/3d_calendar_pink_loop.png')}
+                style={{ width: heroImageSize, height: heroImageSize }}
                 contentFit="contain"
                 cachePolicy="memory-disk"
               />
@@ -1425,22 +1436,25 @@ export default function DashboardScreen() {
 
             {/* Bottom: Pill Badge */}
             <View style={styles.tileQrBadge}>
-              <Ionicons name="people" size={13} color="#4F46E5" />
+              <Ionicons name="people" size={12} color="#4F46E5" />
               <Text style={styles.tileQrBadgeText} numberOfLines={1}>Split Bills</Text>
             </View>
 
-            {/* Right: 3D QR Scene with Floating Micro-Animation, Organic Cloud Blob & Bottom Glow */}
+            {/* Right: 3D QR Scene with Floating Micro-Animation */}
             <Animated.View
               style={[
                 styles.tileHeroSceneWrapQr,
-                { transform: [{ translateY: tileFloatAnimQr }] },
+                {
+                  width: heroImageSize,
+                  height: heroImageSize,
+                  transform: [{ translateY: tileFloatAnimQr }],
+                },
               ]}
               pointerEvents="none"
             >
-              <View style={styles.tileQrGroundGlow} />
               <ExpoImage
-                source={require('@/assets/images/3d_qr_scene.png')}
-                style={styles.tileHeroSceneImage}
+                source={require('@/assets/images/3d_qr_card_loop.png')}
+                style={{ width: heroImageSize, height: heroImageSize }}
                 contentFit="contain"
                 cachePolicy="memory-disk"
               />
@@ -2659,10 +2673,10 @@ const styles = StyleSheet.create({
   quickActionTile: {
     flex: 1,
     backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    paddingHorizontal: 14,
-    paddingTop: 14,
-    paddingBottom: 14,
+    borderRadius: 22,
+    paddingHorizontal: 13,
+    paddingTop: 13,
+    paddingBottom: 13,
     borderWidth: 1,
     borderColor: '#F1F5F9',
     overflow: 'hidden',
@@ -2670,10 +2684,10 @@ const styles = StyleSheet.create({
     shadowColor: '#000000',
     shadowOpacity: 0.04,
     shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 12,
+    shadowRadius: 10,
     elevation: 3,
     justifyContent: 'space-between',
-    minHeight: 168,
+    minHeight: 164,
   },
   tileHeaderRow: {
     flexDirection: 'row',
@@ -2681,9 +2695,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   tileChevronBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     backgroundColor: '#F8FAFC',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2697,26 +2711,26 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   tile3dIconWrapCalendar: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
+    width: 38,
+    height: 38,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#FFF0F3',
   },
   tile3dIconWrapQr: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
+    width: 38,
+    height: 38,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#EEF2FF',
   },
   tileTextWrap: {
-    marginTop: 8,
+    marginTop: 6,
     marginBottom: 6,
     zIndex: 2,
-    maxWidth: '78%',
+    maxWidth: '64%',
   },
   tileTitle: {
     fontSize: 13.5,
@@ -2727,28 +2741,28 @@ const styles = StyleSheet.create({
   tileSubPrimaryRow: {
     flexDirection: 'row',
     alignItems: 'baseline',
-    marginTop: 4,
+    marginTop: 3,
   },
   tileSubPrefix: {
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: '600',
     color: '#64748B',
   },
   tileSubAmount: {
-    fontSize: 14.5,
+    fontSize: 14,
     fontWeight: '800',
     color: '#0F172A',
   },
   tileSubPrimaryQr: {
     fontSize: 13,
-    fontWeight: '600',
-    color: '#64748B',
-    marginTop: 4,
+    fontWeight: '700',
+    color: '#0F172A',
+    marginTop: 3,
   },
   tileSubSecondaryRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 3,
+    marginTop: 2,
   },
   tileSubSecondary: {
     fontSize: 11,
@@ -2758,83 +2772,80 @@ const styles = StyleSheet.create({
   tileSubSecondaryQr: {
     fontSize: 11,
     fontWeight: '500',
-    color: '#94A3B8',
-    marginTop: 3,
+    color: '#64748B',
+    marginTop: 2,
   },
   tilePaidBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#ECFDF5',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 20,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 16,
     alignSelf: 'flex-start',
     zIndex: 2,
+    maxWidth: '65%',
   },
   tilePaidDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
     backgroundColor: '#10B981',
-    marginRight: 6,
+    marginRight: 5,
   },
   tilePaidBadgeText: {
     color: '#059669',
-    fontSize: 11,
+    fontSize: 10.5,
     fontWeight: '700',
   },
   tileQrBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#EEF2FF',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 20,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 16,
     alignSelf: 'flex-start',
     zIndex: 2,
+    maxWidth: '65%',
   },
   tileQrBadgeText: {
-    fontSize: 11,
+    fontSize: 10.5,
     fontWeight: '700',
     color: '#4F46E5',
-    marginLeft: 5,
+    marginLeft: 4,
   },
   tileHeroSceneWrap: {
     position: 'absolute',
-    right: -6,
-    bottom: 2,
-    width: 104,
-    height: 104,
+    right: 2,
+    bottom: 4,
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 1,
   },
   tileHeroSceneWrapQr: {
     position: 'absolute',
-    right: 4,
-    bottom: 2,
-    width: 104,
-    height: 104,
+    right: 2,
+    bottom: 4,
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 1,
   },
   tileQrGroundGlow: {
     position: 'absolute',
-    bottom: 6,
-    width: 64,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: 'rgba(129, 140, 248, 0.40)',
+    bottom: 2,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: 'rgba(129, 140, 248, 0.35)',
     shadowColor: '#6366F1',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.55,
-    shadowRadius: 10,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.40,
+    shadowRadius: 6,
+    elevation: 2,
   },
   tileHeroSceneImage: {
-    width: 104,
-    height: 104,
+    width: 68,
+    height: 68,
   },
 
   udharBannerCard: {

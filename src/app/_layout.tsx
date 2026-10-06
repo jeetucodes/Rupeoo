@@ -250,6 +250,9 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
+  const segments = useSegments();
+  const currentSegment = segments[0] as string | undefined;
+  const isTransparentOverlay = currentSegment === 'quick-add' || currentSegment === 'quick-add-voice';
 
   useEffect(() => {
     initDatabase().catch((e) => console.error('Database init error:', e));
@@ -268,13 +271,13 @@ export default function RootLayout() {
       <RootErrorBoundary>
         <AuthProvider>
           <AuthGuard>
-            <View style={styles.appContainer}>
-              <View style={styles.appContent}>
+            <View style={[styles.appContainer, isTransparentOverlay && { backgroundColor: 'transparent' }]}>
+              <View style={[styles.appContent, isTransparentOverlay && { backgroundColor: 'transparent' }]}>
                 <Stack
                   screenOptions={{
                     headerShown: false,
                     animation: 'none',
-                    contentStyle: { backgroundColor: '#F1F5F9' }
+                    contentStyle: { backgroundColor: isTransparentOverlay ? 'transparent' : '#F1F5F9' }
                   }}
                 >
                   <Stack.Screen name="index" />
@@ -303,15 +306,17 @@ export default function RootLayout() {
                   <Stack.Screen
                     name="quick-add"
                     options={{
-                      presentation: 'modal',
-                      animation: 'slide_from_bottom'
+                      presentation: 'transparentModal',
+                      animation: 'fade',
+                      contentStyle: { backgroundColor: 'transparent' }
                     }}
                   />
                   <Stack.Screen
                     name="quick-add-voice"
                     options={{
-                      presentation: 'modal',
-                      animation: 'fade'
+                      presentation: 'transparentModal',
+                      animation: 'fade',
+                      contentStyle: { backgroundColor: 'transparent' }
                     }}
                   />
                 </Stack>

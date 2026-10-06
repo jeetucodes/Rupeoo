@@ -46,7 +46,7 @@ import { useTranslation } from '@/lib/i18n';
 
 const { width } = Dimensions.get('window');
 
-export interface BrandProvider {
+interface BrandProvider {
   id: string;
   name: string;
   badge: string;
@@ -276,7 +276,7 @@ const brandLogoStyles = StyleSheet.create({
   },
 });
 
-export interface BrandCardTheme {
+interface BrandCardTheme {
   id: string;
   name: string;
   cardBg: string;
@@ -292,7 +292,7 @@ export interface BrandCardTheme {
   category: string;
 }
 
-export function resolveBrandTheme(providerId?: string, title?: string, category?: string): BrandCardTheme {
+function resolveBrandTheme(providerId?: string, title?: string, category?: string): BrandCardTheme {
   const normTitle = (title || '').toLowerCase().trim();
   const id = (providerId || '').toLowerCase().trim();
 

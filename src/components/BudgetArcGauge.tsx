@@ -13,6 +13,7 @@ interface BudgetArcGaugeProps {
   style?: any;
   theme?: 'light' | 'dark';
   title?: string;
+  limitLabel?: string;
 }
 
 export default function BudgetArcGauge({
@@ -25,6 +26,7 @@ export default function BudgetArcGauge({
   style,
   theme = 'light',
   title,
+  limitLabel,
 }: BudgetArcGaugeProps) {
   const isDark = theme === 'dark';
   const now = new Date();
@@ -163,7 +165,7 @@ export default function BudgetArcGauge({
 
         <View style={[styles.statCol, { alignItems: 'flex-end' }]}>
           <Text style={[styles.statLabel, isDark ? styles.subLabelDark : styles.subLabelLight]}>
-            Limit
+            {limitLabel || 'Limit'}
           </Text>
           <Text style={[styles.statValue, isDark ? styles.textLight : styles.textDark]}>
             {currency}
@@ -183,14 +185,18 @@ export default function BudgetArcGauge({
               Over budget by {currency}{(spent - limit).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
             </Text>
           ) : limit === 0 ? (
-            'Tap pencil to set monthly budget limit.'
+            'Tap pencil to set budget limit.'
+          ) : daysLeft === 0 ? (
+            <Text style={{ color: '#10B981', fontWeight: '800' }}>
+              Cycle completed • {currency}{remaining.toLocaleString('en-IN', { minimumFractionDigits: 2 })} under budget.
+            </Text>
           ) : (
             <>
               Safe to spend:{' '}
               <Text style={isDark ? styles.safeSpendHighlightDark : styles.safeSpendHighlightLight}>
                 {currency}{formattedSafePerDay}/day
               </Text>{' '}
-              for rest of {currentMonth}.
+              ({daysLeft} days left in cycle).
             </>
           )}
         </Text>
@@ -201,7 +207,7 @@ export default function BudgetArcGauge({
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 0,
+    borderRadius: 22,
     paddingTop: 16,
     paddingBottom: 16,
     paddingHorizontal: 20,

@@ -1,5 +1,6 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createNotification } from './database';
 import { getLocalDateString } from './dateUtils';
@@ -207,7 +208,8 @@ export function startRealtimeNotificationWatcher(userId?: string) {
 }
 
 export async function registerDeviceForPushNotifications(userId: string): Promise<string | null> {
-  if (Platform.OS === 'web' || !userId) return null;
+  const isExpoGo = Constants?.executionEnvironment === ExecutionEnvironment.StoreClient;
+  if (Platform.OS === 'web' || !userId || isExpoGo) return null;
 
   try {
     const { status } = await Notifications.getPermissionsAsync();

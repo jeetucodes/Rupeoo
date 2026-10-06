@@ -18,6 +18,7 @@ import {
   Animated,
   Easing,
   NativeModules,
+  Linking,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image as ExpoImage } from 'expo-image';
@@ -324,11 +325,13 @@ export default function TransactionDetailScreen() {
     const formattedAmt = `${sign}${currency}${parseFloat(amount || '0').toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     const receiptText = [
       `🧾 Rupeo Transaction Receipt: ${formattedAmt}`,
+      `Ref ID: ${barcodeValue}`,
       `Paid to: ${merchant || 'Unknown Payee'}`,
       `Date: ${date || 'Not set'}${time ? ` at ${formatTime12Hour(time)}` : ''}`,
       `Category: ${category} | Payment Mode: ${paymentMode}`,
       ...(description ? [`Note: ${description}`] : []),
       '',
+      '🔍 Verify Receipt Authenticity: https://rupeoo.vercel.app/scanner',
       'Track every expense smartly with Rupeo.',
       '📲 Download Rupeo on Google Play Store: https://play.google.com/store/apps/details?id=com.innovatexlabs.paisewaise',
     ].join('\n');
@@ -834,6 +837,16 @@ export default function TransactionDetailScreen() {
               >
                 Tracked with Rupeo • Smart Expense Tracker
               </Animated.Text>
+              <TouchableOpacity
+                onPress={() => Linking.openURL('https://rupeoo.vercel.app/scanner').catch(() => {})}
+                activeOpacity={0.7}
+                style={styles.verifyPillSlip}
+              >
+                <Ionicons name="shield-checkmark" size={10} color="#0F172A" style={{ marginRight: 3.5 }} />
+                <Text style={styles.verifyPillSlipText}>
+                  Verify: rupeoo.vercel.app/scanner
+                </Text>
+              </TouchableOpacity>
             </View>
 
           </Animated.View>
@@ -2069,5 +2082,23 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 13,
     fontWeight: '700',
+  },
+  verifyPillSlip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    marginTop: 5,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  verifyPillSlipText: {
+    fontSize: 9.5,
+    fontWeight: '700',
+    fontStyle: 'italic',
+    color: '#0F172A',
+    letterSpacing: 0.2,
   },
 });

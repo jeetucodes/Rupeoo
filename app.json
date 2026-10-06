@@ -87,12 +87,12 @@
               "name": "QuickAddWidget",
               "label": "Rupeo Quick Add",
               "description": "Add expense, income, or voice transaction",
-              "minWidth": "180dp",
-              "minHeight": "50dp",
+              "minWidth": "200dp",
+              "minHeight": "100dp",
               "targetCellWidth": 4,
-              "targetCellHeight": 1,
+              "targetCellHeight": 2,
               "maxResizeWidth": "500dp",
-              "maxResizeHeight": "200dp",
+              "maxResizeHeight": "320dp",
               "resizeMode": "horizontal|vertical",
               "updatePeriodMillis": 1800000
             }

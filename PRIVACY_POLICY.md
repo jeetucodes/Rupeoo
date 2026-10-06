@@ -1,7 +1,7 @@
 # Privacy Policy for Rupeo
 
-**Effective Date:** September 21, 2026  
-**Version:** 2.1  
+**Effective Date:** October 6, 2026  
+**Version:** 2.2  
 **Application Name:** Rupeo  
 **Package Name:** `com.innovatexlabs.paisewaise`  
 **Publisher / Developer:** Innovatex Labs  
@@ -11,9 +11,9 @@
 ---
 
 ## 1. Introduction
-Innovatex Labs ("we", "us", or "our") develops and operates the **Rupeo** personal finance and bookkeeping application. We are committed to transparency, user privacy, and data security. This Privacy Policy details our principles and practices regarding the collection, use, storage, and protection of personal and financial information when you use Rupeo on Android or iOS devices.
+Innovatex Labs ("we", "us", or "our") develops and operates the **Rupeo** personal finance, budgeting, and bookkeeping application. We are committed to transparency, user privacy, and rigorous data protection. This Privacy Policy details our principles and practices regarding the collection, use, processing, storage, and protection of personal and financial information when you access or use Rupeo on Android or iOS devices.
 
-By installing, registering, or using Rupeo, you consent to the collection and use of information in accordance with this Privacy Policy.
+By installing, registering, accessing, or using Rupeo, you consent to the collection and use of your information in accordance with this Privacy Policy.
 
 ---
 
@@ -21,36 +21,47 @@ By installing, registering, or using Rupeo, you consent to the collection and us
 
 ### A. Account & Profile Information
 When you create an account or sign in to Rupeo:
-- **Email & Display Name:** Used to authenticate your account, synchronize personal finance preferences, and personalize your experience.
+- **Email & Display Name:** Used to authenticate your account, synchronize your financial records, and personalize your experience.
 - **Profile Photo URL:** If signing in via Google Sign-In, we store your public Google profile avatar URL to display within your in-app profile.
-- **Firebase Authentication UID:** A unique anonymized identifier assigned to your account for secure cloud data isolation.
+- **Firebase Authentication UID:** A unique, anonymized identifier assigned to your account for secure cloud data isolation.
 
 ### B. Financial Transactions & Ledger Data
-Rupeo is an expense tracking, budgeting, and bookkeeping ledger where you may input:
+Rupeo is an expense tracking, budgeting, and bookkeeping utility where you may input:
 - **Transaction Records:** Income and expense amounts, timestamps, payment modes (UPI, Cash, Debit/Credit Card, Net Banking).
-- **Categories:** System-defined or custom user categories (e.g., Food, Groceries, Shopping, Bills, Fuel, Health, Salary, Freelance).
+- **Categories:** System-defined or custom user categories (e.g., Food, Groceries, Shopping, Bills, Fuel, Health, Salary, Freelance, Investments).
 - **Descriptions & Memos:** Custom text notes or remarks attached to transactions.
-- **Budget Benchmarks & Goals:** Monthly category spending targets and overall budget allocations.
+- **Budget Benchmarks & Goals:** Monthly category spending targets, daily limits, and overall budget allocations.
 
-### C. Friends & Udhar (Peer-to-Peer Khata) Data
+### C. Voice Input & Audio Processing (Voice Quick Add)
+Rupeo features a **Voice Quick Add** capability allowing you to log expenses and income using voice commands:
+- **Speech Recognition:** Your spoken audio is converted to text using on-device Speech Recognition APIs (Android SpeechRecognizer / iOS Speech / Web Speech API).
+- **On-Device Parsing:** Spoken phrases (e.g., *"Chai 20 rupaye"*, *"Auto 50"*) are analyzed locally solely to identify transaction amounts and categories.
+- **Strict Audio Privacy:** **Rupeo does NOT record, upload, retain, or store your raw voice recordings on any remote server.** Audio processing is ephemeral and ceases immediately after speech-to-text recognition completes. We do not sell or share voice data with third-party data brokers.
+
+### D. Friends & Udhar (Peer-to-Peer Khata)
 When you use the Friends & Udhar tracking feature:
-- **Friend Contact Details:** Names and optional mobile numbers you provide for contacts with whom you track shared expenses or loans.
+- **Friend Contact Details:** Names and optional mobile numbers you provide for contacts with whom you track shared expenses, split bills, or loans.
 - **Ledger Entries:** Lent ("Gave") and borrowed ("Got") amounts, payment notes, and settlement records.
-- **Security:** Friends and ledger data are isolated under your personal authenticated Firestore account and never exposed publicly.
+- **Privacy:** Friends and ledger data are isolated under your personal authenticated Firestore account and are never accessible to other users or third parties.
 
-### D. UPI QR Generation & Payment Requests
-- **UPI ID (VPA):** When generating a Split UPI QR code or requesting payment from friends, your provided UPI Virtual Payment Address (e.g. `username@bank`) is used solely to construct the standard NPCI UPI payment deep link (`upi://pay?...`) and rendered into scannable QR codes.
+### E. Contacts Information (Optional)
+- **Contact Selection:** With your explicit runtime permission (`android.permission.READ_CONTACTS`), Rupeo allows you to conveniently select friend names and numbers from your address book for the Friends & Udhar ledger.
+- **No Contact Scraping:** **We do NOT upload, scrape, store, or transmit your entire contact list to our servers.** Only the specific contact(s) you actively choose to add to your ledger are saved in your personal account.
+
+### F. UPI QR Generation & Payment Requests
+- **UPI ID (VPA):** When generating a Split UPI QR code or requesting payment from friends, your provided UPI Virtual Payment Address (e.g., `username@bank`) is used solely to construct standard NPCI UPI payment deep links (`upi://pay?...`) and rendered into scannable QR passes.
 - **QR Pass Capture:** The app generates a local graphical payment pass image on your device that you can voluntarily share via WhatsApp or system share dialogs.
 
-### E. Receipts & Bill Images
+### G. Receipts & Bill Images
 - **Physical Bills & Invoices:** Photos you capture using your device camera or select from your photo library.
 - **Storage:** Receipt images are compressed and stored securely via Cloudinary CDN, linked strictly to your authenticated account.
 
-### F. Recurring Bill Reminders
+### H. Recurring Bill Reminders
 - **Utility & Subscription Reminders:** Service provider names (e.g., Jio, Airtel, Vi, BSNL, Rent, Tiffin/Mess, Milk Delivery, Maid Salary, Electricity, Water, WiFi, EMI), billing frequency, amount due, and due dates.
 
-### G. Device & Diagnostic Data
-- **Device Model & OS Version:** To optimize user interface performance and maintain compatibility.
+### I. Device, Widget & Diagnostic Data
+- **Android Home Screen Widgets:** Home screen widget data (Today's spend summary and remaining budget) is rendered locally on your device via Android RemoteViews.
+- **Device Model & OS Version:** Used to optimize user interface performance and maintain compatibility.
 - **Push Notification Tokens:** Managed through Expo Notifications to deliver scheduled bill reminders and budget alerts.
 - **Crash Telemetry:** Aggregated, non-identifiable telemetry to resolve app crashes and improve reliability.
 
@@ -68,6 +79,8 @@ To protect your financial security:
 
 | Permission | Technical Name | Purpose |
 | :--- | :--- | :--- |
+| **Microphone** | `android.permission.RECORD_AUDIO` | Enables hands-free Voice Quick Add to transcribe expense amounts and categories. Audio is processed on-device and never stored remotely. |
+| **Contacts** | `android.permission.READ_CONTACTS` | Allows you to quickly select friend names and numbers when adding contacts to the Friends & Udhar bookkeeping ledger. |
 | **Camera** | `android.permission.CAMERA` | Allows you to photograph physical bill receipts, invoices, or payment confirmations. |
 | **Media / Photos** | `READ_MEDIA_IMAGES` / `READ_EXTERNAL_STORAGE` | Allows you to choose receipt photos from your gallery and save exported receipts/PDFs. |
 | **Notifications** | `android.permission.POST_NOTIFICATIONS` | Delivers timely bill due date alerts, recharge expiration warnings, and budget notifications. |
@@ -116,7 +129,7 @@ Rupeo is intended for users aged 13 and older. We do not knowingly collect perso
 ---
 
 ## 10. Changes to This Privacy Policy
-We may update this Privacy Policy from time to time. We will notify you of any changes by updating the "Effective Date" at the top of this document and publishing the updated policy inside the app.
+We may update this Privacy Policy periodically. We will notify you of any changes by updating the "Effective Date" at the top of this document and publishing the updated policy inside the app.
 
 ---
 

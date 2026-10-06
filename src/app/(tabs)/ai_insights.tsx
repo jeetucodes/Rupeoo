@@ -637,6 +637,83 @@ export default function ReportsScreen() {
     };
   }, [metrics]);
 
+  // Scaled Budget Arc calculation based on active period
+  const periodBudgetInfo = useMemo(() => {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+    const totalDaysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+    const currentDay = Math.max(1, now.getDate());
+    const daysLeftInMonth = Math.max(1, totalDaysInMonth - currentDay + 1);
+
+    let multiplier = 1;
+    let title = 'Monthly Budget Arc';
+    let remainingDays = daysLeftInMonth;
+    let limitLabel = 'Limit';
+
+    if (period === 'this_month') {
+      multiplier = 1;
+      title = "This Month's Budget Arc";
+      remainingDays = daysLeftInMonth;
+      limitLabel = 'Monthly Limit';
+    } else if (period === 'last_month') {
+      multiplier = 1;
+      title = "Last Month's Budget Arc";
+      remainingDays = 0; // Completed cycle
+      limitLabel = 'Month Limit';
+    } else if (period === '3_months') {
+      multiplier = 3;
+      title = '3-Month Budget Arc';
+      remainingDays = daysLeftInMonth;
+      limitLabel = '3-Mo Limit';
+    } else if (period === 'this_year') {
+      const elapsedMonths = Math.max(1, currentMonth + 1);
+      multiplier = elapsedMonths;
+      title = `Yearly Budget Arc (${elapsedMonths} Mo)`;
+      const endOfYear = new Date(currentYear, 11, 31, 23, 59, 59);
+      remainingDays = Math.max(1, Math.ceil((endOfYear.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+      limitLabel = `YTD Limit (${elapsedMonths} Mo)`;
+    } else if (period === 'all') {
+      let allMonths = 1;
+      if (transactions.length > 0) {
+        const earliest = transactions.reduce((min, t) => {
+          const time = new Date(t.date).getTime();
+          return !isNaN(time) && time < min ? time : min;
+        }, now.getTime());
+        const dEarliest = new Date(earliest);
+        const diffMonths = (currentYear - dEarliest.getFullYear()) * 12 + (currentMonth - dEarliest.getMonth()) + 1;
+        allMonths = Math.max(1, diffMonths);
+      }
+      multiplier = allMonths;
+      title = `All-Time Budget Arc (${allMonths} Mo)`;
+      remainingDays = daysLeftInMonth;
+      limitLabel = `Total Limit (${allMonths} Mo)`;
+    }
+
+    const userBaseBudget = settings?.monthlyBudget && Number(settings.monthlyBudget) > 0
+      ? Number(settings.monthlyBudget)
+      : 0;
+
+    let scaledLimit = 0;
+    if (userBaseBudget > 0) {
+      scaledLimit = userBaseBudget * multiplier;
+    } else if (metrics.income > 0) {
+      scaledLimit = metrics.income;
+    } else if (metrics.expense > 0) {
+      scaledLimit = Math.round(metrics.expense * 1.2);
+    } else {
+      scaledLimit = 5000 * multiplier;
+    }
+
+    return {
+      multiplier,
+      title,
+      scaledLimit,
+      remainingDays,
+      limitLabel,
+    };
+  }, [period, settings?.monthlyBudget, metrics.income, metrics.expense, transactions]);
+
   // 50 / 30 / 20 Budget Rule Breakdown
   const rule503020 = useMemo(() => {
     const expenseTx = filteredTransactions.filter(t => t.type === 'expense');
@@ -1880,18 +1957,33 @@ export default function ReportsScreen() {
           <Text style={styles.screenSubtitle}>{t('income_expense_analytics')}</Text>
         </View>
 
-        <TouchableOpacity
-          style={styles.shareBtn}
-          onPress={() => setShowExportModal(true)}
-          activeOpacity={0.75}
-          disabled={isGeneratingPDF}
-        >
-          {isGeneratingPDF ? (
-            <ActivityIndicator size="small" color="#0F172A" />
-          ) : (
-            <Ionicons name="share-social-outline" size={18} color="#1C1C1E" />
-          )}
-        </TouchableOpacity>
+        <View style={styles.headerActionRow}>
+          {/* QUICK STATEMENT PDF EXPORT BUTTON */}
+          <TouchableOpacity
+            style={styles.quickPdfBtn}
+            onPress={handleExportPDF}
+            activeOpacity={0.75}
+            disabled={isGeneratingPDF}
+          >
+            {isGeneratingPDF ? (
+              <ActivityIndicator size="small" color="#DC2626" />
+            ) : (
+              <>
+                <Ionicons name="document-text" size={14} color="#DC2626" style={{ marginRight: 4 }} />
+                <Text style={styles.quickPdfBtnText}>PDF</Text>
+              </>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.shareBtn}
+            onPress={() => setShowExportModal(true)}
+            activeOpacity={0.75}
+            disabled={isGeneratingPDF}
+          >
+            <Ionicons name="share-social-outline" size={17} color="#1C1C1E" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView
@@ -1937,6 +2029,28 @@ export default function ReportsScreen() {
                 );
               })}
             </ScrollView>
+          </View>
+
+          {/* ACTIVE STATEMENT EXECUTIVE RIBBON */}
+          <View style={styles.statementRibbon}>
+            <View style={styles.statementRibbonLeft}>
+              <View style={styles.statementPulseDot} />
+              <Text style={styles.statementRibbonTitle}>
+                {filteredTransactions.length} Transactions
+              </Text>
+              <Text style={styles.statementRibbonSub}>
+                • Net {metrics.net >= 0 ? '+' : ''}{curr}{metrics.net.toLocaleString('en-IN')}
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={styles.statementExportChip}
+              onPress={() => setShowExportModal(true)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="download-outline" size={12} color="#2563EB" style={{ marginRight: 3 }} />
+              <Text style={styles.statementExportChipText}>Statement</Text>
+            </TouchableOpacity>
           </View>
 
           {/* HERO NET SAVINGS CARD */}
@@ -1993,16 +2107,41 @@ export default function ReportsScreen() {
                 </Text>
               </View>
             </View>
+
+            {/* Executive KPI Micro-Strip */}
+            <View style={styles.heroMicroKpiRow}>
+              <View style={styles.microKpiItem}>
+                <Text style={styles.microKpiLabel}>Cash Flow</Text>
+                <Text style={[styles.microKpiVal, { color: metrics.net >= 0 ? '#10B981' : '#EF4444' }]}>
+                  {metrics.net >= 0 ? 'Surplus' : 'Deficit'}
+                </Text>
+              </View>
+              <View style={styles.microKpiDivider} />
+              <View style={styles.microKpiItem}>
+                <Text style={styles.microKpiLabel}>Avg / Outflow</Text>
+                <Text style={styles.microKpiVal}>
+                  {curr}{metrics.avgTxn.toLocaleString('en-IN')}
+                </Text>
+              </View>
+              <View style={styles.microKpiDivider} />
+              <View style={styles.microKpiItem}>
+                <Text style={styles.microKpiLabel}>Savings Health</Text>
+                <Text style={[styles.microKpiVal, { color: metrics.savingsRate >= 20 ? '#10B981' : '#F59E0B' }]}>
+                  {metrics.savingsRate >= 20 ? 'Optimal 🎯' : 'Grow Fund 📈'}
+                </Text>
+              </View>
+            </View>
           </View>
 
           {/* 1. 3D BUDGET ARC GAUGE (WHITE THEME SPEEDOMETER) */}
           <BudgetArcGauge
             spent={metrics.expense}
-            limit={settings?.monthlyBudget || (metrics.income > 0 ? metrics.income : metrics.expense * 1.2)}
+            limit={periodBudgetInfo.scaledLimit}
             currency={curr}
-            remainingDays={safeToSpend.remainingDays}
+            remainingDays={periodBudgetInfo.remainingDays}
             onEditLimit={() => router.push('/budget')}
-            title="Monthly Budget Arc"
+            title={periodBudgetInfo.title}
+            limitLabel={periodBudgetInfo.limitLabel}
             theme="light"
             style={{ marginBottom: 14 }}
           />
@@ -2623,20 +2762,41 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontWeight: '500',
   },
+  headerActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  quickPdfBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 14,
+  },
+  quickPdfBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#DC2626',
+    letterSpacing: 0.3,
+  },
   shareBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 38,
+    height: 38,
+    borderRadius: 12,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: '#E2E8F0',
     shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
-    elevation: 2,
+    shadowOpacity: 0.04,
+    shadowOffset: { width: 0, height: 1 },
+    shadowRadius: 3,
+    elevation: 1,
   },
   scrollContent: {
     paddingHorizontal: 20,
@@ -2646,7 +2806,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F1F5F9',
     borderRadius: 14,
     padding: 4,
-    marginBottom: 14,
+    marginBottom: 10,
   },
   periodScrollContent: {
     flexDirection: 'row',
@@ -2679,17 +2839,77 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
 
+  // STATEMENT EXECUTIVE RIBBON
+  statementRibbon: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginBottom: 14,
+    shadowColor: '#000',
+    shadowOpacity: 0.02,
+    shadowOffset: { width: 0, height: 1 },
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  statementRibbonLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 8,
+  },
+  statementPulseDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: '#10B981',
+    marginRight: 7,
+  },
+  statementRibbonTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  statementRibbonSub: {
+    fontSize: 11.5,
+    fontWeight: '600',
+    color: '#64748B',
+    marginLeft: 3,
+  },
+  statementExportChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 9,
+    paddingVertical: 4.5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
+  },
+  statementExportChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#2563EB',
+  },
+
   // HERO NET SAVINGS CARD - PERFORMANCE OPTIMIZED
   heroOverviewCard: {
     backgroundColor: '#EEF2FF',
-    borderRadius: 0,
+    borderRadius: 24,
     padding: 18,
     marginBottom: 16,
-    shadowColor: '#000000',
-    shadowOpacity: 0.05,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#E0E7FF',
+    shadowColor: '#4F46E5',
+    shadowOpacity: 0.06,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 10,
+    elevation: 3,
     position: 'relative',
     overflow: 'hidden',
   },
@@ -2769,14 +2989,16 @@ const styles = StyleSheet.create({
   heroIncomeCard: {
     flex: 1,
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 14,
     paddingVertical: 8,
     paddingHorizontal: 7,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
     shadowColor: '#000000',
-    shadowOpacity: 0.04,
+    shadowOpacity: 0.03,
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 4,
-    elevation: 2,
+    elevation: 1,
   },
   heroIncomeIconCircle: {
     width: 18,
@@ -2789,14 +3011,16 @@ const styles = StyleSheet.create({
   heroExpenseCard: {
     flex: 1,
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 14,
     paddingVertical: 8,
     paddingHorizontal: 7,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
     shadowColor: '#000000',
-    shadowOpacity: 0.04,
+    shadowOpacity: 0.03,
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 4,
-    elevation: 2,
+    elevation: 1,
   },
   heroExpenseIconCircle: {
     width: 18,
@@ -2809,14 +3033,16 @@ const styles = StyleSheet.create({
   heroDailyCard: {
     flex: 1,
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 14,
     paddingVertical: 8,
     paddingHorizontal: 7,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
     shadowColor: '#000000',
-    shadowOpacity: 0.04,
+    shadowOpacity: 0.03,
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 4,
-    elevation: 2,
+    elevation: 1,
   },
   heroDailyIconCircle: {
     width: 18,
@@ -2825,6 +3051,39 @@ const styles = StyleSheet.create({
     backgroundColor: '#EEF2FF',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  heroMicroKpiRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  microKpiItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  microKpiLabel: {
+    fontSize: 9.5,
+    fontWeight: '700',
+    color: '#64748B',
+    textTransform: 'uppercase',
+    letterSpacing: 0.2,
+    marginBottom: 2,
+  },
+  microKpiVal: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#0F172A',
+  },
+  microKpiDivider: {
+    width: 1,
+    height: 20,
+    backgroundColor: '#E2E8F0',
   },
   heroInnerCardLabel: {
     fontSize: 9,
@@ -2887,13 +3146,13 @@ const styles = StyleSheet.create({
   // CHART CARDS
   chartWrapperCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 22,
     padding: 18,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     marginBottom: 14,
     shadowColor: '#000000',
-    shadowOpacity: 0.05,
+    shadowOpacity: 0.04,
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 6,
     elevation: 2,
@@ -3259,13 +3518,13 @@ const styles = StyleSheet.create({
   // SMART AI FINANCIAL HEALTH CARD
   aiHealthCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
-    padding: 16,
+    borderRadius: 22,
+    padding: 18,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     marginBottom: 14,
     shadowColor: '#000000',
-    shadowOpacity: 0.05,
+    shadowOpacity: 0.04,
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 6,
     elevation: 2,
@@ -3392,13 +3651,13 @@ const styles = StyleSheet.create({
   // SECTION CARDS
   sectionCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 22,
     padding: 18,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     marginBottom: 14,
     shadowColor: '#000000',
-    shadowOpacity: 0.05,
+    shadowOpacity: 0.04,
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 6,
     elevation: 2,
@@ -3822,13 +4081,13 @@ const styles = StyleSheet.create({
   // VELOCITY CARD
   velocityCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
-    padding: 16,
-    marginBottom: 12,
+    borderRadius: 22,
+    padding: 18,
+    marginBottom: 14,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     shadowColor: '#000000',
-    shadowOpacity: 0.05,
+    shadowOpacity: 0.04,
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 6,
     elevation: 2,
@@ -4003,13 +4262,13 @@ const styles = StyleSheet.create({
   // 50/30/20 RULE
   ruleCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
-    padding: 16,
-    marginBottom: 12,
+    borderRadius: 22,
+    padding: 18,
+    marginBottom: 14,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     shadowColor: '#000000',
-    shadowOpacity: 0.05,
+    shadowOpacity: 0.04,
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 6,
     elevation: 2,

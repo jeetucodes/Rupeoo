@@ -1,30 +1,54 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  Image,
+  Dimensions,
+  PanResponder,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
+import Animated, {
+  FadeInDown,
+  FadeIn,
+  useSharedValue,
+  useAnimatedStyle,
+  withRepeat,
+  withTiming,
+  Easing,
+} from 'react-native-reanimated';
 import { requestNotificationPermissions } from '@/lib/notifications';
-import Animated, { FadeInDown, ZoomIn, FadeIn, withRepeat, withTiming, useSharedValue, useAnimatedStyle, Easing } from 'react-native-reanimated';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const SLIDES = [
   {
     id: '1',
-    title: 'Track Money',
-    description: 'Log expenses instantly. No bank linking required.',
-    icon: 'wallet',
+    titlePrefix: 'Track ',
+    titleHighlight: 'Money',
+    description: 'Log expenses instantly.\nNo bank linking required.',
+    image: require('@/assets/images/onboarding_track_money.png'),
+    buttonText: 'Continue',
   },
   {
     id: '2',
-    title: 'Smart Insights',
-    description: 'See exactly where your money goes with simple charts.',
-    icon: 'bar-chart',
+    titlePrefix: 'Smart ',
+    titleHighlight: 'Insights',
+    description: 'See exactly where your money goes\nwith simple charts.',
+    image: require('@/assets/images/onboarding_smart_insights.png'),
+    buttonText: 'Continue',
   },
   {
     id: '3',
-    title: '100% Private',
-    description: 'Your data stays on your device. Safe and secure.',
-    icon: 'shield-checkmark',
+    titlePrefix: '100% ',
+    titleHighlight: 'Private',
+    description: 'Your data stays on your device.\nSafe and secure.',
+    image: require('@/assets/images/onboarding_private.png'),
+    buttonText: 'Get Started',
   },
 ];
 
@@ -32,43 +56,38 @@ export default function OnboardingScreen() {
   const [currentSlide, setCurrentSlide] = useState(0);
   const router = useRouter();
 
-  // Floating background animation
+  // Gentle ambient background animation
   const floatAnim1 = useSharedValue(0);
   const floatAnim2 = useSharedValue(0);
 
   useEffect(() => {
     requestNotificationPermissions().catch(() => {});
-    
-    // Start floating background animation
+
     floatAnim1.value = withRepeat(
-      withTiming(1, { duration: 4000, easing: Easing.inOut(Easing.ease) }),
+      withTiming(1, { duration: 4500, easing: Easing.inOut(Easing.ease) }),
       -1,
       true
     );
     floatAnim2.value = withRepeat(
-      withTiming(1, { duration: 5000, easing: Easing.inOut(Easing.ease) }),
+      withTiming(1, { duration: 5500, easing: Easing.inOut(Easing.ease) }),
       -1,
       true
     );
   }, []);
 
-  const animatedStyle1 = useAnimatedStyle(() => {
-    return {
-      transform: [
-        { translateY: floatAnim1.value * 20 },
-        { scale: 1 + floatAnim1.value * 0.1 },
-      ],
-    };
-  });
+  const animatedBlob1 = useAnimatedStyle(() => ({
+    transform: [
+      { translateY: floatAnim1.value * 15 },
+      { scale: 1 + floatAnim1.value * 0.08 },
+    ],
+  }));
 
-  const animatedStyle2 = useAnimatedStyle(() => {
-    return {
-      transform: [
-        { translateY: floatAnim2.value * -30 },
-        { scale: 1 + floatAnim2.value * 0.15 },
-      ],
-    };
-  });
+  const animatedBlob2 = useAnimatedStyle(() => ({
+    transform: [
+      { translateY: floatAnim2.value * -18 },
+      { scale: 1 + floatAnim2.value * 0.1 },
+    ],
+  }));
 
   const handleNext = () => {
     requestNotificationPermissions().catch(() => {});
@@ -79,69 +98,111 @@ export default function OnboardingScreen() {
     }
   };
 
+  const handleSkip = () => {
+    requestNotificationPermissions().catch(() => {});
+    router.replace('/login');
+  };
+
+  // Swipe gesture support
+  const panResponder = PanResponder.create({
+    onStartShouldSetPanResponder: () => false,
+    onMoveShouldSetPanResponder: (_, gestureState) => {
+      return Math.abs(gestureState.dx) > 20 && Math.abs(gestureState.dy) < 30;
+    },
+    onPanResponderRelease: (_, gestureState) => {
+      if (gestureState.dx < -50) {
+        // Swiped Left -> Next
+        if (currentSlide < SLIDES.length - 1) {
+          setCurrentSlide((prev) => prev + 1);
+        } else {
+          router.replace('/login');
+        }
+      } else if (gestureState.dx > 50) {
+        // Swiped Right -> Previous
+        if (currentSlide > 0) {
+          setCurrentSlide((prev) => prev - 1);
+        }
+      }
+    },
+  });
+
   const slide = SLIDES[currentSlide];
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <StatusBar style="dark" />
-      <Animated.View style={[styles.meshCircle1, animatedStyle1]} />
-      <Animated.View style={[styles.meshCircle2, animatedStyle2]} />
 
-      <View style={styles.content}>
-        <Animated.View 
-          key={`icon-${currentSlide}`}
-          entering={ZoomIn.duration(600).springify()}
-          style={styles.iconWrapper}
+      {/* Ambient Warm Golden Blobs */}
+      <Animated.View style={[styles.ambientBlobTop, animatedBlob1]} />
+      <Animated.View style={[styles.ambientBlobBottom, animatedBlob2]} />
+
+      {/* Top Bar with Skip Button */}
+      <View style={styles.topBar}>
+        <View style={{ width: 60 }} />
+        <TouchableOpacity
+          onPress={handleSkip}
+          style={styles.skipButton}
+          activeOpacity={0.7}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
         >
-          <View style={styles.iconRing}>
-            <Ionicons name={slide.icon as any} size={80} color="#0F0F11" />
-          </View>
-          <Animated.View 
-            entering={ZoomIn.delay(300).springify()}
-            style={styles.sparkleBadge}
-          >
-            <Ionicons name="sparkles" size={20} color="#FFD740" />
-          </Animated.View>
-        </Animated.View>
-
-        <View style={styles.textContainer}>
-          <Animated.Text 
-            key={`title-${currentSlide}`}
-            entering={FadeInDown.duration(600).delay(200)}
-            style={styles.title}
-          >
-            {slide.title}
-          </Animated.Text>
-          <Animated.Text 
-            key={`desc-${currentSlide}`}
-            entering={FadeInDown.duration(600).delay(350)}
-            style={styles.description}
-          >
-            {slide.description}
-          </Animated.Text>
-        </View>
+          <Text style={styles.skipText}>Skip</Text>
+        </TouchableOpacity>
       </View>
 
-      <Animated.View entering={FadeIn.delay(500)} style={styles.footer}>
+      {/* Center Slide Body with Swipe gesture */}
+      <View style={styles.content} {...panResponder.panHandlers}>
+        {/* 3D Illustration */}
+        <Animated.View
+          key={`img-${currentSlide}`}
+          entering={FadeIn.duration(450)}
+          style={styles.imageWrapper}
+        >
+          <Image
+            source={slide.image}
+            style={styles.illustration}
+            resizeMode="contain"
+          />
+        </Animated.View>
+
+        {/* Text Section */}
+        <Animated.View
+          key={`text-${currentSlide}`}
+          entering={FadeInDown.duration(450)}
+          style={styles.textContainer}
+        >
+          <Text style={styles.title}>
+            {slide.titlePrefix}
+            <Text style={styles.titleHighlight}>{slide.titleHighlight}</Text>
+          </Text>
+          <Text style={styles.description}>{slide.description}</Text>
+        </Animated.View>
+      </View>
+
+      {/* Footer: Pagination Dots & Action Pill Button */}
+      <View style={styles.footer}>
+        {/* Pagination Dots */}
         <View style={styles.pagination}>
           {SLIDES.map((_, index) => (
-            <Animated.View
+            <View
               key={index}
               style={[
                 styles.dot,
-                currentSlide === index ? styles.activeDot : null,
+                currentSlide === index ? styles.activeDot : styles.inactiveDot,
               ]}
             />
           ))}
         </View>
 
-        <TouchableOpacity style={styles.button} activeOpacity={0.8} onPress={handleNext}>
-          <Text style={styles.buttonText}>
-            {currentSlide === SLIDES.length - 1 ? 'Get Started' : 'Continue'}
-          </Text>
-          <Ionicons name="arrow-forward" size={24} color="#0F0F11" style={{ marginLeft: 8 }} />
+        {/* Action Button */}
+        <TouchableOpacity
+          style={styles.button}
+          activeOpacity={0.85}
+          onPress={handleNext}
+        >
+          <Text style={styles.buttonText}>{slide.buttonText}</Text>
+          <Ionicons name="arrow-forward" size={19} color="#0F172A" />
         </TouchableOpacity>
-      </Animated.View>
+      </View>
     </SafeAreaView>
   );
 }
@@ -149,133 +210,133 @@ export default function OnboardingScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8F9FA', // App background
+    backgroundColor: '#FEFCF7', // Warm ivory cream background from reference
   },
-  meshCircle1: {
+  ambientBlobTop: {
     position: 'absolute',
-    top: -100,
-    right: -50,
-    width: 320,
-    height: 320,
-    borderRadius: 160,
-    backgroundColor: 'rgba(255, 215, 64, 0.3)', // Accent Yellow
-    filter: 'blur(10px)',
-  },
-  meshCircle2: {
-    position: 'absolute',
-    bottom: 50,
-    left: -120,
+    top: -60,
+    right: -40,
     width: 280,
     height: 280,
     borderRadius: 140,
-    backgroundColor: 'rgba(255, 215, 64, 0.15)', // Accent Yellow (lighter)
-    filter: 'blur(10px)',
+    backgroundColor: 'rgba(254, 240, 138, 0.45)',
+  },
+  ambientBlobBottom: {
+    position: 'absolute',
+    bottom: 80,
+    left: -70,
+    width: 260,
+    height: 260,
+    borderRadius: 130,
+    backgroundColor: 'rgba(253, 224, 71, 0.25)',
+  },
+  topBar: {
+    height: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 22,
+  },
+  skipButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  skipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#334155',
   },
   content: {
     flex: 1,
-    justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 30,
+    justifyContent: 'center',
+    paddingHorizontal: 24,
   },
-  iconWrapper: {
-    marginBottom: 60,
+  imageWrapper: {
+    width: SCREEN_WIDTH * 0.72,
+    height: SCREEN_WIDTH * 0.72,
+    maxWidth: 270,
+    maxHeight: 270,
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: 28,
   },
-  iconRing: {
-    width: 170,
-    height: 170,
-    borderRadius: 85,
-    backgroundColor: '#FFD740', // Theme Accent
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 4,
-    borderColor: '#ffffff',
-    shadowColor: '#000000',
-    shadowOpacity: 0.15,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 10,
-    elevation: 4,
-  },
-  sparkleBadge: {
-    position: 'absolute',
-    bottom: -5,
-    right: -5,
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#0F0F11', // Theme Primary
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#ffffff',
-    shadowColor: '#000000',
-    shadowOpacity: 0.15,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
-    elevation: 2,
+  illustration: {
+    width: '100%',
+    height: '100%',
   },
   textContainer: {
     alignItems: 'center',
+    paddingHorizontal: 10,
   },
   title: {
-    fontSize: 34,
+    fontSize: 32,
     fontWeight: '900',
-    color: '#0F0F11', // Theme Primary
-    marginBottom: 16,
+    color: '#0F172A',
+    marginBottom: 10,
     textAlign: 'center',
-    letterSpacing: -0.8,
+    letterSpacing: -0.5,
+  },
+  titleHighlight: {
+    color: '#EAB308', // Vibrant warm gold accent
   },
   description: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#60646C', // Theme textSecondary
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#64748B',
     textAlign: 'center',
-    lineHeight: 26,
-    paddingHorizontal: 15,
+    lineHeight: 22,
+    paddingHorizontal: 12,
   },
   footer: {
-    paddingHorizontal: 30,
-    paddingBottom: 50,
+    paddingHorizontal: 24,
+    paddingBottom: 24,
   },
   pagination: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginBottom: 40,
+    alignItems: 'center',
+    marginBottom: 32,
+    gap: 8,
   },
   dot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: '#E8ECF2', // Theme border/light
-    marginHorizontal: 6,
-    borderWidth: 2,
-    borderColor: '#D1D5DB',
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   activeDot: {
-    backgroundColor: '#0F0F11', // Theme Primary
-    borderColor: '#0F0F11',
-    width: 32,
+    backgroundColor: '#0F172A',
+  },
+  inactiveDot: {
+    backgroundColor: '#CBD5E1',
   },
   button: {
     flexDirection: 'row',
-    backgroundColor: '#FFD740', // Theme Accent
-    paddingVertical: 18,
-    borderRadius: 0,
+    backgroundColor: '#FFCA28', // Warm rich golden yellow from reference
+    height: 56,
+    borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: '#F59E0B',
-    shadowColor: '#000000',
-    shadowOpacity: 0.1,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
+    gap: 8,
+    shadowColor: '#F59E0B',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.28,
+    shadowRadius: 8,
     elevation: 3,
   },
   buttonText: {
-    color: '#0F0F11', // Theme Primary
-    fontSize: 22,
-    fontWeight: '900',
-    letterSpacing: 0.5,
+    color: '#0F172A',
+    fontSize: 17,
+    fontWeight: '800',
+    letterSpacing: -0.2,
   },
 });
