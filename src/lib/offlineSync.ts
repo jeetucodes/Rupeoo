@@ -205,7 +205,7 @@ export async function flushSyncQueue(
             const txDocRef = doc(db, `users/${userId}/transactions`, item.targetId);
             await setDoc(txDocRef, {
               ...item.payload,
-              created_at: serverTimestamp(),
+              created_at: item.payload?.created_at || Date.now(),
             });
             success++;
             break;
@@ -290,9 +290,9 @@ export async function syncRemoteTransactions(
       snapshot = await getDocs(txsRef);
     }
 
-    const remoteList = snapshot.docs.map((d) => ({
+    const remoteList: any[] = snapshot.docs.map((d) => ({
       id: d.id,
-      ...d.data(),
+      ...d.data({ serverTimestamps: 'estimate' }),
     }));
 
     // 3. Merge remote items with local items:
@@ -316,7 +316,17 @@ export async function syncRemoteTransactions(
     // 2. Overlay / add remote transactions (excluding items pending deletion)
     for (const tx of remoteList) {
       if (tx?.id && !pendingDeleteIds.has(tx.id)) {
-        mergedMap.set(tx.id, { ...(mergedMap.get(tx.id) || {}), ...tx });
+        const existing = mergedMap.get(tx.id) || {};
+        const remoteCreated = tx.created_at;
+        const resolvedCreatedAt =
+          remoteCreated !== undefined && remoteCreated !== null
+            ? remoteCreated
+            : existing.created_at || Date.now();
+        mergedMap.set(tx.id, {
+          ...existing,
+          ...tx,
+          created_at: resolvedCreatedAt,
+        });
       }
     }
 

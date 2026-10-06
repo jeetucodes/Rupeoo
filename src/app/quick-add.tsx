@@ -26,7 +26,7 @@ import {
   CategoryItem,
   defaultCategories,
 } from '@/lib/database';
-import { getLocalDateString } from '@/lib/dateUtils';
+import { getLocalDateString, formatTime12Hour } from '@/lib/dateUtils';
 import { triggerTransactionVibration } from '@/lib/sound';
 import { Colors } from '@/constants/theme';
 import CategoryIcon from '@/components/CategoryIcon';
@@ -188,15 +188,20 @@ export default function QuickAddScreen() {
     try {
       setIsSaving(true);
 
+      const now = new Date();
+      const timeStr = formatTime12Hour(now);
+
       const payload = {
         amount: parsedAmount,
         type: txType,
         category: selectedCategory || (txType === 'credit' ? 'Salary' : 'Others'),
         description: note.trim() || null,
         merchant_name: note.trim() || null,
-        date: getLocalDateString(),
+        date: getLocalDateString(now),
+        time: timeStr,
         payment_mode: 'Cash',
         source: 'widget_quick_add',
+        created_at: Date.now(),
       };
 
       await insertTransaction(user.uid, payload);

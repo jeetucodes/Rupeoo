@@ -25,7 +25,7 @@ import { useTranslation } from '@/lib/i18n';
 import { parseVoiceTranscript, ParsedVoiceTransaction } from '@/lib/voiceParser';
 import { insertTransaction, getUserCategories, CategoryItem, defaultCategories } from '@/lib/database';
 import { getAllFriendsSummaries, getFriends, saveFriend, addUdharEntry } from '@/lib/udharStorage';
-import { getLocalDateString } from '@/lib/dateUtils';
+import { getLocalDateString, getRelativeDateString, formatTime12Hour } from '@/lib/dateUtils';
 import { triggerTransactionVibration } from '@/lib/sound';
 import { useAuth } from '@/context/AuthContext';
 import CategoryIcon from '@/components/CategoryIcon';
@@ -74,6 +74,7 @@ export const VoiceTransactionModal: React.FC<VoiceTransactionModalProps> = ({
   const [note, setNote] = useState<string>('');
   const [friendName, setFriendName] = useState<string>('');
   const [isUdhar, setIsUdhar] = useState<boolean>(false);
+  const [txDate, setTxDate] = useState<string>(getLocalDateString());
 
   // Categories & Friends list
   const [categories, setCategories] = useState<CategoryItem[]>(propCategories || defaultCategories);
@@ -216,6 +217,7 @@ export const VoiceTransactionModal: React.FC<VoiceTransactionModalProps> = ({
     setNote(parsed.note || textToParse);
     setFriendName(parsed.friendName || '');
     setIsUdhar(Boolean(parsed.isUdhar));
+    setTxDate(parsed.date || getLocalDateString());
 
     setModalStep('confirm');
   }, [categories, knownFriends, clearSilenceTimers]);
@@ -564,12 +566,17 @@ export const VoiceTransactionModal: React.FC<VoiceTransactionModalProps> = ({
       return;
     }
 
+    const now = new Date();
+    const saveDate = txDate || getLocalDateString(now);
+    const timeStr = formatTime12Hour(now);
+
     const parsedTx: ParsedVoiceTransaction = {
       amount: numAmount,
       amountText: numAmount.toString(),
       type: txType,
       category,
       paymentMode,
+      date: saveDate,
       note: note.trim() || category,
       friendName: friendName || undefined,
       isUdhar,
@@ -597,8 +604,6 @@ export const VoiceTransactionModal: React.FC<VoiceTransactionModalProps> = ({
       }
 
       setIsSaving(true);
-      const todayStr = getLocalDateString();
-      const timeStr = new Date().toTimeString().slice(0, 5);
 
       const createdTxId = await insertTransaction(user.uid, {
         amount: numAmount,
@@ -606,9 +611,10 @@ export const VoiceTransactionModal: React.FC<VoiceTransactionModalProps> = ({
         category: txType === 'credit' && category === 'Food' ? 'Income' : category,
         merchant_name: friendName || note.trim() || category,
         description: note.trim() || undefined,
-        date: todayStr,
+        date: saveDate,
         time: timeStr,
         payment_mode: paymentMode,
+        created_at: Date.now(),
       });
 
       if (isUdhar && friendName) {
@@ -623,7 +629,7 @@ export const VoiceTransactionModal: React.FC<VoiceTransactionModalProps> = ({
               friendId: targetFriend.id,
               amount: numAmount,
               type: txType === 'debit' ? 'gave' : 'got',
-              date: todayStr,
+              date: saveDate,
               time: timeStr,
               note: note.trim() || (txType === 'debit' ? `Udhar to ${friendName}` : `Udhar from ${friendName}`),
               linkedTxId: createdTxId || undefined,
@@ -922,6 +928,44 @@ export const VoiceTransactionModal: React.FC<VoiceTransactionModalProps> = ({
                     );
                   })}
                 </ScrollView>
+              </View>
+
+              {/* Date Selection: Today vs Yesterday */}
+              <View style={styles.fieldSection}>
+                <Text style={styles.inputLabel}>{t('date').toUpperCase()}</Text>
+                <View style={styles.paymentModeChipsRow}>
+                  <TouchableOpacity
+                    style={[styles.paymentModeChip, txDate === getLocalDateString() && styles.paymentModeChipActive]}
+                    onPress={() => setTxDate(getLocalDateString())}
+                    activeOpacity={0.75}
+                  >
+                    <Ionicons
+                      name="today"
+                      size={13}
+                      color={txDate === getLocalDateString() ? '#FFFFFF' : '#64748B'}
+                      style={{ marginRight: 5 }}
+                    />
+                    <Text style={[styles.paymentModeChipText, txDate === getLocalDateString() && styles.paymentModeChipTextActive]}>
+                      Today
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.paymentModeChip, txDate === getRelativeDateString(-1) && styles.paymentModeChipActive]}
+                    onPress={() => setTxDate(getRelativeDateString(-1))}
+                    activeOpacity={0.75}
+                  >
+                    <Ionicons
+                      name="time"
+                      size={13}
+                      color={txDate === getRelativeDateString(-1) ? '#FFFFFF' : '#64748B'}
+                      style={{ marginRight: 5 }}
+                    />
+                    <Text style={[styles.paymentModeChipText, txDate === getRelativeDateString(-1) && styles.paymentModeChipTextActive]}>
+                      Yesterday
+                    </Text>
+                  </TouchableOpacity>
+                </View>
               </View>
 
               {/* Payment Mode Selector */}

@@ -32,7 +32,7 @@ import {
   defaultCategories,
 } from '@/lib/database';
 import { getAllFriendsSummaries, saveFriend, addUdharEntry } from '@/lib/udharStorage';
-import { getLocalDateString } from '@/lib/dateUtils';
+import { getLocalDateString, formatTime12Hour } from '@/lib/dateUtils';
 import { triggerTransactionVibration } from '@/lib/sound';
 import { parseVoiceTranscript, ParsedVoiceTransaction } from '@/lib/voiceParser';
 import { Colors } from '@/constants/theme';
@@ -210,6 +210,9 @@ export default function VoiceQuickAddScreen() {
       try {
         // Fallback category to 'Others' if category was not clearly identified
         const resolvedCategory = parsed.category || (parsed.type === 'credit' ? 'Salary' : 'Others');
+        const now = new Date();
+        const saveDate = parsed.date || getLocalDateString(now);
+        const timeStr = formatTime12Hour(now);
 
         const payload = {
           amount: parsed.amount,
@@ -217,9 +220,11 @@ export default function VoiceQuickAddScreen() {
           category: resolvedCategory,
           description: parsed.note || parsed.rawTranscript,
           merchant_name: parsed.friendName || parsed.note || null,
-          date: getLocalDateString(),
+          date: saveDate,
+          time: timeStr,
           payment_mode: parsed.paymentMode || 'UPI',
           source: 'widget_voice',
+          created_at: Date.now(),
         };
 
         const newId = await insertTransaction(user.uid, payload);
@@ -234,7 +239,8 @@ export default function VoiceQuickAddScreen() {
               amount: parsed.amount,
               type: parsed.type === 'credit' ? 'got' : 'gave',
               note: parsed.note || 'Voice quick entry',
-              date: getLocalDateString(),
+              date: saveDate,
+              time: timeStr,
             });
           } catch (udharErr) {
             console.warn('[VoiceQuickAdd] Udhar sync error:', udharErr);
@@ -673,15 +679,21 @@ export default function VoiceQuickAddScreen() {
       setIsSavingManual(true);
 
       // If updating the previously auto-saved record or inserting new
+      const now = new Date();
+      const saveDate = parsedTx?.date || getLocalDateString(now);
+      const timeStr = formatTime12Hour(now);
+
       const payload = {
         amount: val,
         type: editType,
         category: editCategory || (editType === 'credit' ? 'Salary' : 'Others'),
         description: editNote.trim() || transcript || null,
         merchant_name: parsedTx?.friendName || editNote.trim() || null,
-        date: getLocalDateString(),
+        date: saveDate,
+        time: timeStr,
         payment_mode: editPaymentMode || parsedTx?.paymentMode || 'UPI',
         source: 'widget_voice',
+        created_at: Date.now(),
       };
 
       if (savedTxId) {

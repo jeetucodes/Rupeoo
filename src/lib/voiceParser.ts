@@ -1,8 +1,4 @@
-/**
- * Rupeo Voice Transaction Parser
- * Rule-based local NLP parser for Hindi, English, and Hinglish speech.
- * Converts spoken phrases into structured transactions without any paid API.
- */
+import { getLocalDateString, getRelativeDateString } from './dateUtils.ts';
 
 export interface ParsedVoiceTransaction {
   amount: number | null;
@@ -13,6 +9,7 @@ export interface ParsedVoiceTransaction {
   friendName?: string;
   isUdhar?: boolean;
   paymentMode?: 'UPI' | 'Cash' | 'Bank' | 'Card';
+  date?: string;
   confidence: number; // 0 to 1
   rawTranscript: string;
 }
@@ -501,6 +498,36 @@ export function detectPaymentMode(text: string): {
 }
 
 /**
+ * Detects relative date mentions in spoken voice, e.g. "kal" (yesterday), "parso" (day before yesterday), "aaj" (today).
+ */
+export function extractSpokenDate(text: string): {
+  date?: string;
+  matchedPhrase?: string;
+} {
+  const normalized = text.toLowerCase();
+
+  // 1. Day before yesterday ("parso", "parson", "day before yesterday", "tarso")
+  const dayBeforeMatch = normalized.match(/\b(parso|parson|tarso|day before yesterday)\b/i);
+  if (dayBeforeMatch) {
+    return { date: getRelativeDateString(-2), matchedPhrase: dayBeforeMatch[0] };
+  }
+
+  // 2. Yesterday ("kal", "yesterday", "beete kal", "bite kal")
+  const yesterdayMatch = normalized.match(/\b(beete kal|bite kal|yesterday|kal)\b/i);
+  if (yesterdayMatch) {
+    return { date: getRelativeDateString(-1), matchedPhrase: yesterdayMatch[0] };
+  }
+
+  // 3. Today ("aaj", "today")
+  const todayMatch = normalized.match(/\b(aaj|today)\b/i);
+  if (todayMatch) {
+    return { date: getLocalDateString(), matchedPhrase: todayMatch[0] };
+  }
+
+  return {};
+}
+
+/**
  * Cleans the transcript to generate a clear, human-readable transaction note
  */
 export function generateCleanNote(
@@ -509,7 +536,8 @@ export function generateCleanNote(
   txType: 'debit' | 'credit',
   category: string,
   explicitCategoryPhrase?: string,
-  matchedPaymentPhrase?: string
+  matchedPaymentPhrase?: string,
+  matchedDatePhrase?: string
 ): string {
   let cleaned = transcript.trim();
 
@@ -526,6 +554,11 @@ export function generateCleanNote(
   // Remove matched payment phrase (e.g. "cash", "bank se", "upi")
   if (matchedPaymentPhrase) {
     cleaned = cleaned.replace(new RegExp(`\\b${matchedPaymentPhrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\s+(?:se|me|dwara|kare|kiya|through|by|via))?\\b`, 'gi'), ' ');
+  }
+
+  // Remove matched date phrase (e.g. "kal", "parso", "aaj", "yesterday")
+  if (matchedDatePhrase) {
+    cleaned = cleaned.replace(new RegExp(`\\b${matchedDatePhrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi'), ' ');
   }
 
   // Remove common filler / unit words
@@ -599,10 +632,13 @@ export function parseVoiceTranscript(
   // 5. Payment Mode (Default: UPI, or detects Cash / Bank / Card if spoken)
   const { paymentMode, matchedPhrase: matchedPaymentPhrase } = detectPaymentMode(raw);
 
-  // 6. Note
-  const note = generateCleanNote(raw, matchedPhrase, type, category, explicitCategoryPhrase, matchedPaymentPhrase);
+  // 6. Date (e.g. "kal" -> yesterday, "parso" -> day before yesterday, "aaj" -> today)
+  const { date: spokenDate, matchedPhrase: matchedDatePhrase } = extractSpokenDate(raw);
 
-  // 7. Confidence calculation
+  // 7. Note
+  const note = generateCleanNote(raw, matchedPhrase, type, category, explicitCategoryPhrase, matchedPaymentPhrase, matchedDatePhrase);
+
+  // 8. Confidence calculation
   let confidence = 0.3; // base confidence for non-empty text
   if (amount !== null && amount > 0) confidence += 0.4;
   if (category && category !== 'Food') confidence += 0.2;
@@ -615,6 +651,7 @@ export function parseVoiceTranscript(
     type,
     category,
     paymentMode,
+    date: spokenDate,
     note: friendName && isUdhar ? `${friendName} ko udhar` : note,
     friendName,
     isUdhar,

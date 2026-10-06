@@ -196,10 +196,13 @@ export async function insertTransaction(userId: string, tx: any, statementId?: n
   const newDocRef = doc(txsRef);
   const txId = newDocRef.id;
 
+  const now = new Date();
+  const currentTime12 = formatTime12Hour(now);
+
   const txPayload = {
     id: txId,
     date: normalizeDate(tx.date),
-    time: tx.time || null,
+    time: tx.time ? formatTime12Hour(tx.time) : currentTime12,
     amount: Number(tx.amount) || 0,
     type: (tx.type || 'debit').toLowerCase(),
     merchant_name: tx.merchant_name || null,
@@ -213,7 +216,7 @@ export async function insertTransaction(userId: string, tx: any, statementId?: n
     source: tx.source || 'manual',
     source_statement_id: statementId || null,
     is_manually_edited: tx.is_manually_edited ? 1 : 0,
-    created_at: Date.now(),
+    created_at: tx.created_at ? (getCreatedAtMillis(tx.created_at) || Date.now()) : Date.now(),
   };
 
   // 2. Gather existing transactions from memory cache AND local persistent storage
@@ -474,31 +477,44 @@ export function getCreatedAtMillis(createdAt: any): number {
 export function sortTransactionsRecentFirst<T extends Record<string, any>>(list: T[]): T[] {
   if (!Array.isArray(list)) return [];
   return [...list].sort((a: any, b: any) => {
-    // 1. Primary: Compare date string (YYYY-MM-DD) descending (Newer date first)
-    const dateA = a.date || '';
-    const dateB = b.date || '';
+    // 1. Primary: Compare normalized date string (YYYY-MM-DD) descending (Newer date first)
+    const dateA = normalizeDate(a?.date);
+    const dateB = normalizeDate(b?.date);
     if (dateA !== dateB) {
       return dateB.localeCompare(dateA);
     }
 
-    // 2. Secondary: If same date, compare time (e.g. "08:30 PM", "14:30") descending
-    const timeA = parseTimeToMinutes(a.time);
-    const timeB = parseTimeToMinutes(b.time);
+    // 2. Extract created_at milliseconds
+    const createdA = getCreatedAtMillis(a?.created_at);
+    const createdB = getCreatedAtMillis(b?.created_at);
+
+    // 3. Secondary: If same date, compare time (e.g. "08:30 PM", "14:30") descending
+    let timeA = parseTimeToMinutes(a?.time);
+    let timeB = parseTimeToMinutes(b?.time);
+
+    // If time is missing or null, derive minutes from created_at timestamp so it never drops below
+    if (timeA === null && createdA > 0) {
+      const dA = new Date(createdA);
+      timeA = dA.getHours() * 60 + dA.getMinutes();
+    }
+    if (timeB === null && createdB > 0) {
+      const dB = new Date(createdB);
+      timeB = dB.getHours() * 60 + dB.getMinutes();
+    }
+
     if (timeA !== null && timeB !== null && timeA !== timeB) {
       return timeB - timeA;
     }
     if (timeA !== null && timeB === null) return -1;
     if (timeA === null && timeB !== null) return 1;
 
-    // 3. Tertiary: Compare created_at timestamp descending (Latest created first)
-    const createdA = getCreatedAtMillis(a.created_at);
-    const createdB = getCreatedAtMillis(b.created_at);
-    if (createdA !== 0 && createdB !== 0 && createdA !== createdB) {
-      return createdB - createdA;
+    // 4. Tertiary: If same minute, compare created_at timestamp descending (Latest created first)
+    if (createdA !== createdB) {
+      return (createdB || 0) - (createdA || 0);
     }
 
-    // 4. Stable fallback
-    return (b.id || '').localeCompare(a.id || '');
+    // 5. Stable fallback
+    return (b?.id || '').localeCompare(a?.id || '');
   });
 }
 

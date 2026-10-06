@@ -29,6 +29,7 @@ const dictionary: Record<string, Record<Language, string>> = {
   recent_transaction: { English: 'Recent Transactions', Hindi: 'हाल के लेन-देन', Hinglish: 'Recent Transactions' },
   see_all: { English: 'View All', Hindi: 'सभी देखें', Hinglish: 'View All' },
   from_last_month: { English: 'from last month', Hindi: 'पिछले महीने से', Hinglish: 'pichle mahine se' },
+  smart_qr_pay: { English: 'Smart QR Pay', Hindi: 'स्मार्ट क्यूआर पे', Hinglish: 'Smart QR Pay' },
 
   // Add & Edit Transaction
   add_transaction: { English: 'Add Transaction', Hindi: 'लेन-देन जोड़ें', Hinglish: 'Transaction Add Karein' },
@@ -448,7 +449,7 @@ const dictionary: Record<string, Record<Language, string>> = {
   no_transactions_yet: { English: 'No transactions yet', Hindi: 'अभी कोई लेन-देन नहीं', Hinglish: 'Abhi koi transaction nahi' },
   tap_to_add: { English: 'Tap + to add your first transaction', Hindi: 'पहला लेन-देन जोड़ने के लिए + दबाएं', Hinglish: '+ dabao apna pehla transaction add karne ke liye' },
   spent_today: { English: 'Spent Today', Hindi: 'आज का खर्च', Hinglish: 'Aaj ka Kharcha' },
-  upcoming_bills: { English: 'Upcoming Bills', Hindi: 'आगामी बिल', Hinglish: 'Aane wale Bills' },
+  upcoming_bills: { English: 'Upcoming Bills', Hindi: 'आगामी बिल', Hinglish: 'Upcoming Bills' },
   auto_alerts: { English: 'Auto Alerts', Hindi: 'ऑटो अलर्ट', Hinglish: 'Auto Alerts' },
   track_dues_desc: { English: 'Track Jio, Airtel, Rent, Tiffin & utility dues', Hindi: 'जियो, एयरटेल, किराया, टिफिन और बिजली बिल ट्रैक करें', Hinglish: 'Jio, Airtel, Rent, Tiffin aur utility dues track karein' },
   all_bills_clear: { English: '✨ All upcoming bills are clear', Hindi: '✨ सभी आगामी बिल चुकता हैं', Hinglish: '✨ Saare aane wale bills clear hain' },
@@ -531,6 +532,10 @@ const dictionary: Record<string, Record<Language, string>> = {
   edit_friend: { English: 'Edit Friend', Hindi: 'दोस्त का विवरण बदलें', Hinglish: 'Friend Edit Karein' },
   upload_photo: { English: 'Upload Photo', Hindi: 'फोटो लगाएं', Hinglish: 'Photo Lagayein' },
   remove_photo: { English: 'Remove Photo', Hindi: 'फोटो हटाएं', Hinglish: 'Photo Hatayein' },
+  import_from_contacts: { English: 'Import from Contacts', Hindi: 'कॉन्टैक्ट्स से जोड़ें', Hinglish: 'Contacts se Chunein' },
+  import_from_contacts_sub: { English: 'Auto-fill name, phone & photo in 1 tap', Hindi: '1 टैप में नाम, फ़ोन व फोटो भरें', Hinglish: '1 tap me naam, phone aur photo bharein' },
+  search_contacts: { English: 'Search contacts...', Hindi: 'कॉन्टैक्ट खोजें...', Hinglish: 'Contacts search karein...' },
+  or_enter_manually: { English: 'OR ENTER MANUALLY', Hindi: 'या खुद से दर्ज करें', Hinglish: 'YA MANUALLY ENTER KAREIN' },
   settle_modal_title: { English: 'Settle Balance', Hindi: 'हिसाब चुकता करें', Hinglish: 'Hisaab Clear Karein' },
   settle_modal_desc_got: { English: 'Record payment received to clear pending dues', Hindi: 'बकाया राशि चुकता करने के लिए प्राप्त भुगतान दर्ज करें', Hinglish: 'Pending dues clear karne ke liye received payment record karein' },
   settle_modal_desc_gave: { English: 'Record payment given to clear pending dues', Hindi: 'बकाया राशि चुकता करने के लिए दिया गया भुगतान दर्ज करें', Hinglish: 'Pending dues clear karne ke liye paid payment record karein' },

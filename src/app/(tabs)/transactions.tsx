@@ -22,7 +22,9 @@ import {
   getUserCategories,
   CategoryItem,
   subscribeTransactions,
+  normalizeDate,
 } from '@/lib/database';
+import VoiceTransactionModal from '@/components/VoiceTransactionModal';
 import { useAuth } from '@/context/AuthContext';
 import { useTranslation } from '@/lib/i18n';
 import { formatTime12Hour, getLocalDateString, getRelativeDateString } from '@/lib/dateUtils';
@@ -316,6 +318,7 @@ export default function TransactionsScreen() {
   const [minAmount, setMinAmount] = useState('');
   const [maxAmount, setMaxAmount] = useState('');
   const [showChart, setShowChart] = useState(true);
+  const [voiceModalVisible, setVoiceModalVisible] = useState(false);
 
   useEffect(() => {
     setDisplayLimit(20);
@@ -552,7 +555,7 @@ export default function TransactionsScreen() {
     const visibleList = isSearching ? sortedList : sortedList.slice(0, displayLimit);
 
     visibleList.forEach(tx => {
-      const dateKey = tx.date || 'Unknown Date';
+      const dateKey = normalizeDate(tx.date);
       if (!groups[dateKey]) {
         let label = dateKey;
         if (dateKey === todayStr) label = 'Today';
@@ -670,6 +673,15 @@ export default function TransactionsScreen() {
         </View>
 
         <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={styles.voiceHeaderBtn}
+            onPress={() => setVoiceModalVisible(true)}
+            activeOpacity={0.75}
+            accessibilityLabel="Voice Entry"
+          >
+            <Ionicons name="mic" size={18} color="#059669" />
+          </TouchableOpacity>
+
           <TouchableOpacity
             style={styles.addShortcutBtn}
             onPress={() => router.push('/add')}
@@ -1247,6 +1259,16 @@ export default function TransactionsScreen() {
           </View>
         )}
       </ScrollView>
+
+      {/* Voice Transaction Modal */}
+      <VoiceTransactionModal
+        visible={voiceModalVisible}
+        onClose={() => setVoiceModalVisible(false)}
+        onSuccess={() => {
+          loadData(true);
+        }}
+        availableCategories={categories}
+      />
     </SafeAreaView>
   );
 }
@@ -1282,6 +1304,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+  },
+  voiceHeaderBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#ECFDF5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
   },
   headerIconBtn: {
     width: 38,

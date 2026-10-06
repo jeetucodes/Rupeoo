@@ -204,4 +204,26 @@ test('Voice Parser Unit Tests (20 Comprehensive Test Cases)', async (t) => {
     assert.strictEqual(res.paymentMode, 'Cash');
     assert.match(res.note.toLowerCase(), /dawai/);
   });
+
+  await t.test('31. "kal 100 rupaye chai" -> date: yesterday', () => {
+    const res = parseVoiceTranscript('kal 100 rupaye chai');
+    assert.strictEqual(res.amount, 100);
+    assert.ok(res.date);
+    assert.doesNotMatch(res.note.toLowerCase(), /\bkal\b/);
+  });
+
+  await t.test('32. "aaj 50 rupaye auto" -> date: today', () => {
+    const res = parseVoiceTranscript('aaj 50 rupaye auto');
+    assert.strictEqual(res.amount, 50);
+    assert.ok(res.date);
+    assert.doesNotMatch(res.note.toLowerCase(), /\baaj\b/);
+  });
+
+  await t.test('33. "parso 200 samosa" -> date: day before yesterday', () => {
+    const res = parseVoiceTranscript('parso 200 samosa');
+    assert.strictEqual(res.amount, 200);
+    assert.ok(res.date);
+    assert.doesNotMatch(res.note.toLowerCase(), /\bparso\b/);
+  });
 });
+

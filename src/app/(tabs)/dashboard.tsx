@@ -27,6 +27,7 @@ import {
   getAllTransactions,
   sortTransactionsRecentFirst,
   insertTransaction,
+  subscribeTransactions,
   getUserCategories,
   getUserNotifications,
   getRecurringBills,
@@ -464,6 +465,72 @@ export default function DashboardScreen() {
     return () => colorLoop.stop();
   }, [colorFade1, colorFade2]);
 
+  // Floating & pulsing micro-animations for Quick Access 3D Tiles
+  const tileFloatAnimCalendar = useRef(new Animated.Value(0)).current;
+  const tileFloatAnimQr = useRef(new Animated.Value(0)).current;
+  const tileDotPulseAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    const floatLoopCalendar = Animated.loop(
+      Animated.sequence([
+        Animated.timing(tileFloatAnimCalendar, {
+          toValue: -3.5,
+          duration: 1800,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(tileFloatAnimCalendar, {
+          toValue: 0,
+          duration: 1800,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+
+    const floatLoopQr = Animated.loop(
+      Animated.sequence([
+        Animated.timing(tileFloatAnimQr, {
+          toValue: -3.5,
+          duration: 2100,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(tileFloatAnimQr, {
+          toValue: 0,
+          duration: 2100,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+
+    const pulseLoopDot = Animated.loop(
+      Animated.sequence([
+        Animated.timing(tileDotPulseAnim, {
+          toValue: 0.35,
+          duration: 900,
+          useNativeDriver: true,
+        }),
+        Animated.timing(tileDotPulseAnim, {
+          toValue: 1,
+          duration: 900,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+
+    floatLoopCalendar.start();
+    floatLoopQr.start();
+    pulseLoopDot.start();
+
+    return () => {
+      floatLoopCalendar.stop();
+      floatLoopQr.stop();
+      pulseLoopDot.stop();
+    };
+  }, [tileFloatAnimCalendar, tileFloatAnimQr, tileDotPulseAnim]);
+
 
 
 
@@ -569,6 +636,38 @@ export default function DashboardScreen() {
       }
     }, [user?.uid])
   );
+
+  // Instant real-time & voice transaction listener: immediately updates dashboard transactions list at top
+  useEffect(() => {
+    const unsub = subscribeTransactions((freshTxs) => {
+      if (Array.isArray(freshTxs)) {
+        const sorted = sortTransactionsRecentFirst(freshTxs);
+        setTransactions(sorted);
+
+        let totalS = 0;
+        let totalC = 0;
+        let curMonthS = 0;
+        const currentMonthKey = getLocalMonthString();
+
+        freshTxs.forEach((tx: any) => {
+          const amt = Number(tx.amount) || 0;
+          if (tx.type === 'debit') {
+            totalS += amt;
+            if (tx.date && tx.date.startsWith(currentMonthKey)) {
+              curMonthS += amt;
+            }
+          } else {
+            totalC += amt;
+          }
+        });
+
+        setTotalSpend(totalS);
+        setTotalCredit(totalC);
+        setThisMonthSpend(curMonthS);
+      }
+    });
+    return () => unsub();
+  }, []);
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -1223,50 +1322,71 @@ export default function DashboardScreen() {
             onPress={() => router.push('/reminders')}
             activeOpacity={0.88}
           >
-            {/* Top: 3D Calendar Icon + Chevron */}
+            {/* Top: 3D Calendar Icon + Circular Chevron */}
             <View style={styles.tileHeaderRow}>
               <View style={styles.tile3dIconWrapCalendar}>
-                <ThreeDCalendarIcon size={26} />
+                <ThreeDCalendarIcon size={24} />
               </View>
-              <Ionicons name="chevron-forward" size={14} color="#0F172A" />
+              <View style={styles.tileChevronBtn}>
+                <Ionicons name="chevron-forward" size={14} color="#334155" />
+              </View>
             </View>
 
             {/* Middle: Title & Subtitles */}
-            <View style={[styles.tileTextWrap, { maxWidth: '58%' }]}>
-              <Text style={styles.tileTitle} numberOfLines={1}>{t('upcoming_bills')}</Text>
-              <Text style={styles.tileSubPrimary} numberOfLines={1}>
-                {homeUpcomingBills.length > 0
-                  ? `Next: ${curr}${formatAmount(homeUpcomingBills[0].amount)}`
-                  : nextFutureBill
-                    ? `Next: ${curr}${formatAmount(nextFutureBill.amount)}`
-                    : 'Next: ₹3,000.00'}
+            <View style={styles.tileTextWrap}>
+              <Text
+                style={styles.tileTitle}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.65}
+              >
+                {t('upcoming_bills')}
               </Text>
-              <Text style={styles.tileSubSecondary} numberOfLines={1}>
-                {homeUpcomingBills.length > 0
-                  ? getBillDueStatus(homeUpcomingBills[0].nextDueDate).label
-                  : nextFutureBill
-                    ? getBillDueStatus(nextFutureBill.nextDueDate).label
-                    : 'Due in 16d'}
+              <Text style={styles.tileSubPrimaryRow} numberOfLines={1}>
+                <Text style={styles.tileSubPrefix}>Next </Text>
+                <Text style={styles.tileSubAmount}>
+                  {homeUpcomingBills.length > 0
+                    ? `${curr}${formatAmount(homeUpcomingBills[0].amount)}`
+                    : nextFutureBill
+                      ? `${curr}${formatAmount(nextFutureBill.amount)}`
+                      : '₹3,000.00'}
+                </Text>
               </Text>
+              <View style={styles.tileSubSecondaryRow}>
+                <Ionicons name="time-outline" size={12} color="#64748B" style={{ marginRight: 3 }} />
+                <Text style={styles.tileSubSecondary} numberOfLines={1}>
+                  {homeUpcomingBills.length > 0
+                    ? getBillDueStatus(homeUpcomingBills[0].nextDueDate).label
+                    : nextFutureBill
+                      ? getBillDueStatus(nextFutureBill.nextDueDate).label
+                      : 'Due in 15d'}
+                </Text>
+              </View>
             </View>
 
             {/* Bottom: Pill Badge */}
             <View style={styles.tilePaidBadge}>
-              <View style={styles.tilePaidDot} />
+              <Animated.View style={[styles.tilePaidDot, { opacity: tileDotPulseAnim }]} />
               <Text style={styles.tilePaidBadgeText} numberOfLines={1}>
                 {recurringBills.length > 0 ? `${recurringBills.length} Active` : '3 Active'}
               </Text>
             </View>
 
-            {/* Right: 3D Calendar Graphic Illustration */}
-            <View style={styles.tile3dGraphicWrapCalendar} pointerEvents="none">
+            {/* Right: 3D Calendar Scene with Floating Micro-Animation & Organic Cloud Blob */}
+            <Animated.View
+              style={[
+                styles.tileHeroSceneWrap,
+                { transform: [{ translateY: tileFloatAnimCalendar }] },
+              ]}
+              pointerEvents="none"
+            >
               <ExpoImage
-                source={require('@/assets/images/3d_calendar_pink.png')}
-                style={styles.tile3dImageCalendar}
+                source={require('@/assets/images/3d_calendar_scene.png')}
+                style={styles.tileHeroSceneImage}
                 contentFit="contain"
                 cachePolicy="memory-disk"
               />
-            </View>
+            </Animated.View>
           </TouchableOpacity>
 
           {/* 2. SMART QR PAY CARD */}
@@ -1275,40 +1395,56 @@ export default function DashboardScreen() {
             onPress={() => router.push('/split-qr' as any)}
             activeOpacity={0.88}
           >
-            {/* Top: 3D QR Icon + Chevron */}
+            {/* Top: 3D QR Icon + Circular Chevron */}
             <View style={styles.tileHeaderRow}>
               <View style={styles.tile3dIconWrapQr}>
-                <ThreeDQRCodeIcon size={26} />
+                <ThreeDQRCodeIcon size={24} />
               </View>
-              <Ionicons name="chevron-forward" size={14} color="#0F172A" />
+              <View style={styles.tileChevronBtn}>
+                <Ionicons name="chevron-forward" size={14} color="#334155" />
+              </View>
             </View>
 
             {/* Middle: Title & Subtitles */}
-            <View style={[styles.tileTextWrap, { maxWidth: '58%' }]}>
-              <Text style={styles.tileTitle} numberOfLines={1}>QR Pay</Text>
-              <Text style={styles.tileSubPrimary} numberOfLines={1}>
+            <View style={styles.tileTextWrap}>
+              <Text
+                style={styles.tileTitle}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.65}
+              >
+                {t('smart_qr_pay')}
+              </Text>
+              <Text style={styles.tileSubPrimaryQr} numberOfLines={1}>
                 Scan & Pay
               </Text>
-              <Text style={styles.tileSubSecondary} numberOfLines={1}>
+              <Text style={styles.tileSubSecondaryQr} numberOfLines={1}>
                 Equal Split
               </Text>
             </View>
 
             {/* Bottom: Pill Badge */}
             <View style={styles.tileQrBadge}>
-              <Ionicons name="git-compare-outline" size={10} color="#4338CA" style={{ marginRight: 3 }} />
+              <Ionicons name="people" size={13} color="#4F46E5" />
               <Text style={styles.tileQrBadgeText} numberOfLines={1}>Split Bills</Text>
             </View>
 
-            {/* Right: 3D QR Card Graphic Illustration */}
-            <View style={styles.tile3dGraphicWrapQr} pointerEvents="none">
+            {/* Right: 3D QR Scene with Floating Micro-Animation, Organic Cloud Blob & Bottom Glow */}
+            <Animated.View
+              style={[
+                styles.tileHeroSceneWrapQr,
+                { transform: [{ translateY: tileFloatAnimQr }] },
+              ]}
+              pointerEvents="none"
+            >
+              <View style={styles.tileQrGroundGlow} />
               <ExpoImage
-                source={require('@/assets/images/3d_qr_card.png')}
-                style={styles.tile3dImageQr}
+                source={require('@/assets/images/3d_qr_scene.png')}
+                style={styles.tileHeroSceneImage}
                 contentFit="contain"
                 cachePolicy="memory-disk"
               />
-            </View>
+            </Animated.View>
           </TouchableOpacity>
         </View>
 
@@ -2523,24 +2659,34 @@ const styles = StyleSheet.create({
   quickActionTile: {
     flex: 1,
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
-    padding: 12,
+    borderRadius: 24,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 14,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: '#F1F5F9',
     overflow: 'hidden',
     position: 'relative',
     shadowColor: '#000000',
-    shadowOpacity: 0.05,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
-    elevation: 2,
+    shadowOpacity: 0.04,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 12,
+    elevation: 3,
     justifyContent: 'space-between',
-    minHeight: 148,
+    minHeight: 168,
   },
   tileHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  tileChevronBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F8FAFC',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   tileCleanIconWrap: {
     width: 38,
@@ -2551,125 +2697,144 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   tile3dIconWrapCalendar: {
-    width: 36,
-    height: 36,
-    borderRadius: 0,
+    width: 42,
+    height: 42,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FFF1F2',
-    borderWidth: 1,
-    borderColor: '#FFE4E6',
-    shadowColor: '#E11D48',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 4,
-    elevation: 2,
+    backgroundColor: '#FFF0F3',
   },
   tile3dIconWrapQr: {
-    width: 36,
-    height: 36,
-    borderRadius: 0,
+    width: 42,
+    height: 42,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#EEF2FF',
-    borderWidth: 1,
-    borderColor: '#E0E7FF',
-    shadowColor: '#4F46E5',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 4,
-    elevation: 2,
   },
   tileTextWrap: {
-    marginTop: 4,
+    marginTop: 8,
+    marginBottom: 6,
     zIndex: 2,
+    maxWidth: '78%',
   },
   tileTitle: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: '#0F172A',
+    letterSpacing: -0.3,
+  },
+  tileSubPrimaryRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    marginTop: 4,
+  },
+  tileSubPrefix: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  tileSubAmount: {
     fontSize: 14.5,
     fontWeight: '800',
     color: '#0F172A',
-    letterSpacing: -0.2,
   },
-  tileSubPrimary: {
-    fontSize: 12,
-    fontWeight: '700',
+  tileSubPrimaryQr: {
+    fontSize: 13,
+    fontWeight: '600',
     color: '#64748B',
-    marginTop: 2,
+    marginTop: 4,
+  },
+  tileSubSecondaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 3,
   },
   tileSubSecondary: {
     fontSize: 11,
     fontWeight: '500',
+    color: '#64748B',
+  },
+  tileSubSecondaryQr: {
+    fontSize: 11,
+    fontWeight: '500',
     color: '#94A3B8',
-    marginTop: 1,
+    marginTop: 3,
   },
   tilePaidBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#DCFCE7',
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 0,
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
     alignSelf: 'flex-start',
     zIndex: 2,
-    marginTop: 8,
   },
   tilePaidDot: {
     width: 6,
     height: 6,
-    borderRadius: 0,
-    backgroundColor: '#16A34A',
-    marginRight: 4,
+    borderRadius: 3,
+    backgroundColor: '#10B981',
+    marginRight: 6,
   },
   tilePaidBadgeText: {
-    color: '#15803D',
-    fontSize: 10,
-    fontWeight: '800',
+    color: '#059669',
+    fontSize: 11,
+    fontWeight: '700',
   },
   tileQrBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#EEF2FF',
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 0,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
     alignSelf: 'flex-start',
     zIndex: 2,
-    marginTop: 8,
-    maxWidth: '56%',
   },
   tileQrBadgeText: {
-    fontSize: 9.5,
-    fontWeight: '800',
-    color: '#4338CA',
-    letterSpacing: 0.1,
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#4F46E5',
+    marginLeft: 5,
   },
-  tile3dGraphicWrapCalendar: {
+  tileHeroSceneWrap: {
     position: 'absolute',
-    right: -4,
-    bottom: -4,
-    width: 66,
-    height: 66,
+    right: -6,
+    bottom: 2,
+    width: 104,
+    height: 104,
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 1,
   },
-  tile3dImageCalendar: {
-    width: 66,
-    height: 66,
-  },
-  tile3dGraphicWrapQr: {
+  tileHeroSceneWrapQr: {
     position: 'absolute',
-    right: -4,
-    bottom: -4,
-    width: 68,
-    height: 68,
+    right: 4,
+    bottom: 2,
+    width: 104,
+    height: 104,
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 1,
   },
-  tile3dImageQr: {
-    width: 68,
-    height: 68,
+  tileQrGroundGlow: {
+    position: 'absolute',
+    bottom: 6,
+    width: 64,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: 'rgba(129, 140, 248, 0.40)',
+    shadowColor: '#6366F1',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.55,
+    shadowRadius: 10,
+    elevation: 3,
+  },
+  tileHeroSceneImage: {
+    width: 104,
+    height: 104,
   },
 
   udharBannerCard: {

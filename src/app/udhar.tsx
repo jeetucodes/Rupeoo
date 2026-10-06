@@ -18,6 +18,7 @@ import {
   Clipboard,
   NativeModules,
   Switch,
+  PermissionsAndroid,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -30,6 +31,8 @@ import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { captureRef } from 'react-native-view-shot';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as Contacts from 'expo-contacts';
+import * as LegacyContacts from 'expo-contacts/legacy';
 
 // Safe dynamic getter for expo-media-library that avoids crashing on Web / environments without native module
 const getMediaLibrary = () => {
@@ -147,6 +150,11 @@ export default function UdharScreen() {
   const [newFriendPhone, setNewFriendPhone] = useState<string>('');
   const [newFriendPhotoUri, setNewFriendPhotoUri] = useState<string | null>(null);
   const [isSavingFriend, setIsSavingFriend] = useState<boolean>(false);
+  const [isImportingContact, setIsImportingContact] = useState<boolean>(false);
+  const [isContactListModalOpen, setIsContactListModalOpen] = useState<boolean>(false);
+  const [deviceContacts, setDeviceContacts] = useState<Array<{ id: string; name: string; phone: string; photoUri?: string }>>([]);
+  const [isLoadingContacts, setIsLoadingContacts] = useState<boolean>(false);
+  const [contactSearchQuery, setContactSearchQuery] = useState<string>('');
 
   // Add Entry Modal
   const [isAddEntryModalOpen, setIsAddEntryModalOpen] = useState<boolean>(false);
@@ -391,6 +399,193 @@ export default function UdharScreen() {
     setNewFriendPhotoUri(friend.photoUri || null);
     setIsAddFriendModalOpen(true);
   };
+
+  // Apply selected contact details to Add Friend form
+  const applyContactToFriend = (contact: any) => {
+    let name = (contact.name || '').trim();
+    if (!name) {
+      name = [contact.firstName, contact.middleName, contact.lastName].filter(Boolean).join(' ').trim();
+    }
+    if (name) {
+      setNewFriendName(name);
+    }
+
+    let phoneStr = '';
+    if (Array.isArray(contact.phoneNumbers) && contact.phoneNumbers.length > 0) {
+      phoneStr = contact.phoneNumbers[0]?.number || '';
+    } else if (typeof contact.phone === 'string') {
+      phoneStr = contact.phone;
+    }
+
+    if (phoneStr) {
+      let clean = phoneStr.replace(/[^\d+]/g, '');
+      if (clean.startsWith('+91')) {
+        clean = clean.slice(3);
+      } else if (clean.startsWith('91') && clean.length === 12) {
+        clean = clean.slice(2);
+      } else if (clean.startsWith('0') && clean.length === 11) {
+        clean = clean.slice(1);
+      }
+      clean = clean.replace(/\D/g, '').slice(-10);
+      setNewFriendPhone(clean);
+    }
+
+    const photo = contact.image?.uri || contact.rawImage?.uri || contact.photoUri || null;
+    if (photo) {
+      setNewFriendPhotoUri(photo);
+    }
+
+    Toast.show({
+      type: 'success',
+      text1: 'Contact Imported ✨',
+      text2: name ? `${name} details auto-filled.` : 'Details auto-filled.',
+      position: 'top',
+    });
+  };
+
+  // Open native contact picker or fallback to in-app contact browser
+  const handlePickFromContacts = async () => {
+    try {
+      setIsImportingContact(true);
+
+      let hasPermission = false;
+
+      // 1. Check and request via Android native PermissionsAndroid
+      if (Platform.OS === 'android') {
+        try {
+          const alreadyGranted = await PermissionsAndroid.check(
+            PermissionsAndroid.PERMISSIONS.READ_CONTACTS
+          );
+          if (alreadyGranted) {
+            hasPermission = true;
+          } else {
+            const status = await PermissionsAndroid.request(
+              PermissionsAndroid.PERMISSIONS.READ_CONTACTS,
+              {
+                title: 'Contacts Permission',
+                message: 'Rupeo needs access to your contacts to quickly pick friends and auto-fill details.',
+                buttonPositive: 'Allow',
+                buttonNegative: 'Deny',
+              }
+            );
+            if (status === PermissionsAndroid.RESULTS.GRANTED) {
+              hasPermission = true;
+            }
+          }
+        } catch (androidErr) {
+          console.warn('Android permissions check error:', androidErr);
+        }
+      }
+
+      // 2. Fallback to LegacyContacts permission check
+      if (!hasPermission) {
+        try {
+          if (typeof LegacyContacts?.requestPermissionsAsync === 'function') {
+            const perm = await LegacyContacts.requestPermissionsAsync();
+            if (perm?.status === 'granted' || perm?.granted) {
+              hasPermission = true;
+            }
+          }
+        } catch (permErr) {
+          console.warn('LegacyContacts permission error:', permErr);
+        }
+      }
+
+      if (!hasPermission) {
+        Alert.alert(
+          'Contacts Permission Required',
+          'Rupeo needs access to your contacts to quickly pick friends and auto-fill their name & phone number.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Open Settings',
+              onPress: () => {
+                if (Platform.OS === 'ios') {
+                  Linking.openURL('app-settings:');
+                } else {
+                  Linking.openSettings();
+                }
+              },
+            },
+          ]
+        );
+        return;
+      }
+
+      // 3. Try native contact picker intent first
+      try {
+        if (typeof LegacyContacts?.presentContactPickerAsync === 'function') {
+          const picked = await LegacyContacts.presentContactPickerAsync();
+          if (picked) {
+            applyContactToFriend(picked);
+            return;
+          }
+          // User closed/cancelled native picker
+          return;
+        }
+      } catch (pickerErr) {
+        console.warn('Native contact picker unavailable, opening contact list browser:', pickerErr);
+      }
+
+      // 4. Fallback: open in-app contact list browser
+      await openContactListPicker();
+    } catch (err: any) {
+      console.error('Contact pick error:', err);
+      Alert.alert('Contacts Error', err?.message || 'Could not access contacts.');
+    } finally {
+      setIsImportingContact(false);
+    }
+  };
+
+  // Open in-app contacts browser
+  const openContactListPicker = async () => {
+    try {
+      setIsLoadingContacts(true);
+      setContactSearchQuery('');
+      setIsContactListModalOpen(true);
+
+      const { data } = await LegacyContacts.getContactsAsync({
+        fields: [LegacyContacts.Fields.PhoneNumbers, LegacyContacts.Fields.Image],
+        pageSize: 600,
+      });
+
+      const list: Array<{ id: string; name: string; phone: string; photoUri?: string }> = [];
+      if (Array.isArray(data)) {
+        for (const c of data) {
+          const n = (c.name || [c.firstName, c.lastName].filter(Boolean).join(' ')).trim();
+          const p = c.phoneNumbers?.[0]?.number || '';
+          if (n || p) {
+            list.push({
+              id: c.id || Math.random().toString(),
+              name: n || 'Unnamed Contact',
+              phone: p,
+              photoUri: c.image?.uri || c.rawImage?.uri,
+            });
+          }
+        }
+      }
+      setDeviceContacts(list);
+    } catch (err: any) {
+      console.error('Failed to load contacts list:', err);
+      Toast.show({
+        type: 'error',
+        text1: 'Failed to Load Contacts',
+        text2: err?.message || 'Could not fetch device contacts.',
+        position: 'top',
+      });
+    } finally {
+      setIsLoadingContacts(false);
+    }
+  };
+
+  // Filtered contacts for in-app contact picker
+  const filteredDeviceContacts = useMemo(() => {
+    if (!contactSearchQuery.trim()) return deviceContacts;
+    const q = contactSearchQuery.toLowerCase().trim();
+    return deviceContacts.filter(
+      (c) => c.name.toLowerCase().includes(q) || c.phone.toLowerCase().includes(q)
+    );
+  }, [deviceContacts, contactSearchQuery]);
 
   // Save new or edited friend handler
   const handleSaveFriend = async () => {
@@ -1907,16 +2102,40 @@ export default function UdharScreen() {
                   : styles.simpleHeroCardNeutral,
             ]}
           >
+            {/* Background Organic Wave Accents */}
+            <View
+              pointerEvents="none"
+              style={[
+                styles.heroOrganicWaveOuter,
+                selectedFriendDetail.balance > 0
+                  ? styles.heroOrganicWaveOuterGreen
+                  : selectedFriendDetail.balance < 0
+                    ? styles.heroOrganicWaveOuterRed
+                    : styles.heroOrganicWaveOuterNeutral,
+              ]}
+            />
+            <View
+              pointerEvents="none"
+              style={[
+                styles.heroOrganicWaveInner,
+                selectedFriendDetail.balance > 0
+                  ? styles.heroOrganicWaveInnerGreen
+                  : selectedFriendDetail.balance < 0
+                    ? styles.heroOrganicWaveInnerRed
+                    : styles.heroOrganicWaveInnerNeutral,
+              ]}
+            />
+
             <View style={styles.simpleHeroTopRow}>
-              <View style={{ flex: 1 }}>
+              <View style={{ flex: 1, paddingRight: 10 }}>
                 <Text
                   style={[
                     styles.simpleHeroLabel,
                     selectedFriendDetail.balance > 0
-                      ? { color: '#15803D' }
+                      ? { color: '#166534' }
                       : selectedFriendDetail.balance < 0
-                        ? { color: '#DC2626' }
-                        : { color: '#64748B' },
+                        ? { color: '#991B1B' }
+                        : { color: '#334155' },
                   ]}
                 >
                   {selectedFriendDetail.balance > 0
@@ -1937,57 +2156,50 @@ export default function UdharScreen() {
                 >
                   {curr}{Math.abs(selectedFriendDetail.balance).toLocaleString('en-IN')}
                 </Text>
+                <Text style={styles.simpleHeroSubText}>
+                  {selectedFriendDetail.balance > 0
+                    ? (lang === 'Hindi'
+                      ? `${selectedFriendDetail.name} से लेना बाकी है`
+                      : lang === 'Hinglish'
+                        ? `${selectedFriendDetail.name} se lena baaki hai`
+                        : `${selectedFriendDetail.name} owes you ${curr}${Math.abs(selectedFriendDetail.balance)}`)
+                    : selectedFriendDetail.balance < 0
+                      ? (lang === 'Hindi'
+                        ? `${selectedFriendDetail.name} को देना बाकी है`
+                        : lang === 'Hinglish'
+                          ? `${selectedFriendDetail.name} ko dena baaki hai`
+                          : `You owe ${selectedFriendDetail.name} ${curr}${Math.abs(selectedFriendDetail.balance)}`)
+                      : (lang === 'Hindi'
+                        ? 'सभी हिसाब बराबर है 👍'
+                        : lang === 'Hinglish'
+                          ? 'Sab hisaab barabar hai 👍'
+                          : 'All accounts are balanced 👍')}
+                </Text>
               </View>
 
               <View
                 style={[
                   styles.simpleHeroIconBadge,
                   selectedFriendDetail.balance > 0
-                    ? { backgroundColor: '#DCFCE7' }
+                    ? styles.simpleHeroIconBadgeGreen
                     : selectedFriendDetail.balance < 0
-                      ? { backgroundColor: '#FEE2E2' }
-                      : { backgroundColor: '#F1F5F9' },
+                      ? styles.simpleHeroIconBadgeRed
+                      : styles.simpleHeroIconBadgeNeutral,
                 ]}
               >
                 <Ionicons
                   name={
                     selectedFriendDetail.balance > 0
-                      ? 'arrow-down-circle'
+                      ? 'arrow-down'
                       : selectedFriendDetail.balance < 0
-                        ? 'arrow-up-circle'
-                        : 'checkmark-circle'
+                        ? 'arrow-up'
+                        : 'checkmark'
                   }
-                  size={20}
-                  color={
-                    selectedFriendDetail.balance > 0
-                      ? '#15803D'
-                      : selectedFriendDetail.balance < 0
-                        ? '#DC2626'
-                        : '#64748B'
-                  }
+                  size={selectedFriendDetail.balance === 0 ? 24 : 22}
+                  color="#FFFFFF"
                 />
               </View>
             </View>
-
-            <Text style={styles.simpleHeroSubText}>
-              {selectedFriendDetail.balance > 0
-                ? (lang === 'Hindi'
-                  ? `${selectedFriendDetail.name} से लेना बाकी है`
-                  : lang === 'Hinglish'
-                    ? `${selectedFriendDetail.name} se lena baaki hai`
-                    : `${selectedFriendDetail.name} owes you ${curr}${Math.abs(selectedFriendDetail.balance)}`)
-                : selectedFriendDetail.balance < 0
-                  ? (lang === 'Hindi'
-                    ? `${selectedFriendDetail.name} को देना बाकी है`
-                    : lang === 'Hinglish'
-                      ? `${selectedFriendDetail.name} ko dena baaki hai`
-                      : `You owe ${selectedFriendDetail.name} ${curr}${Math.abs(selectedFriendDetail.balance)}`)
-                  : (lang === 'Hindi'
-                    ? 'सभी हिसाब बराबर है 👍'
-                    : lang === 'Hinglish'
-                      ? 'Sab hisaab barabar hai 👍'
-                      : 'All accounts are balanced 👍')}
-            </Text>
 
             {/* Quick Action Buttons inside the card */}
             {selectedFriendDetail.balance !== 0 && (
@@ -2445,12 +2657,36 @@ export default function UdharScreen() {
                     ? ['#F0FDF4', '#DCFCE7']
                     : netBalance < 0
                       ? ['#FEF2F2', '#FEE2E2']
-                      : ['#EEF2FF', '#E0E7FF']
+                      : ['#F4FAF6', '#EAF7F0']
                 }
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 style={styles.netKhataGradient}
               >
+                {/* Background Organic Wave Accents */}
+                <View
+                  pointerEvents="none"
+                  style={[
+                    styles.heroOrganicWaveOuter,
+                    netBalance > 0
+                      ? styles.heroOrganicWaveOuterGreen
+                      : netBalance < 0
+                        ? styles.heroOrganicWaveOuterRed
+                        : styles.heroOrganicWaveOuterNeutral,
+                  ]}
+                />
+                <View
+                  pointerEvents="none"
+                  style={[
+                    styles.heroOrganicWaveInner,
+                    netBalance > 0
+                      ? styles.heroOrganicWaveInnerGreen
+                      : netBalance < 0
+                        ? styles.heroOrganicWaveInnerRed
+                        : styles.heroOrganicWaveInnerNeutral,
+                  ]}
+                />
+
                 <View style={styles.netKhataTopRow}>
                   <View style={styles.netKhataLeft}>
                     <View
@@ -2462,7 +2698,7 @@ export default function UdharScreen() {
                               ? '#DCFCE7'
                               : netBalance < 0
                                 ? '#FEE2E2'
-                                : '#E0E7FF',
+                                : '#D1F0E0',
                         },
                       ]}
                     >
@@ -2475,7 +2711,7 @@ export default function UdharScreen() {
                                 ? '#15803D'
                                 : netBalance < 0
                                   ? '#DC2626'
-                                  : '#4338CA',
+                                  : '#059669',
                           },
                         ]}
                       >
@@ -2512,19 +2748,23 @@ export default function UdharScreen() {
                     </Text>
                   </View>
                   <View style={styles.netKhataIconWrap}>
-                    <ExpoImage
-                      source={{
-                        uri:
-                          netBalance > 0
-                            ? UDHAR_ICONS.moneyBag
-                            : netBalance < 0
-                              ? UDHAR_ICONS.moneyWings
-                              : UDHAR_ICONS.ledger,
-                      }}
-                      style={{ width: 44, height: 44 }}
-                      contentFit="contain"
-                      cachePolicy="memory-disk"
-                    />
+                    {netBalance === 0 ? (
+                      <View style={[styles.simpleHeroIconBadge, styles.simpleHeroIconBadgeNeutral]}>
+                        <Ionicons name="checkmark" size={24} color="#FFFFFF" />
+                      </View>
+                    ) : (
+                      <ExpoImage
+                        source={{
+                          uri:
+                            netBalance > 0
+                              ? UDHAR_ICONS.moneyBag
+                              : UDHAR_ICONS.moneyWings,
+                        }}
+                        style={{ width: 44, height: 44 }}
+                        contentFit="contain"
+                        cachePolicy="memory-disk"
+                      />
+                    )}
                   </View>
                 </View>
 
@@ -2541,7 +2781,7 @@ export default function UdharScreen() {
                               ? '#DCFCE7'
                               : netBalance < 0
                                 ? '#FEE2E2'
-                                : '#E0E7FF',
+                                : '#D1F0E0',
                         },
                       ]}
                     >
@@ -2553,7 +2793,7 @@ export default function UdharScreen() {
                             ? '#15803D'
                             : netBalance < 0
                               ? '#DC2626'
-                              : '#4338CA'
+                              : '#059669'
                         }
                       />
                     </View>
@@ -2576,7 +2816,7 @@ export default function UdharScreen() {
                           ? '#16A34A'
                           : netBalance < 0
                             ? '#DC2626'
-                            : '#6366F1',
+                            : '#059669',
                     }}
                     thumbColor="#FFFFFF"
                   />
@@ -2589,8 +2829,8 @@ export default function UdharScreen() {
               {/* 1. To Receive Card (Green Accent) */}
               <View style={[styles.statCard, styles.statCardReceive]}>
                 <View style={styles.statCardTop}>
-                  <View style={[styles.statIconBadge, { backgroundColor: '#DCFCE7' }]}>
-                    <Ionicons name="arrow-down-circle" size={13} color="#15803D" />
+                  <View style={[styles.statIconBadge, { backgroundColor: '#16A34A' }]}>
+                    <Ionicons name="arrow-down" size={12} color="#FFFFFF" />
                   </View>
                   <Text style={styles.statCardLabel} numberOfLines={1}>{t('you_will_get')}</Text>
                 </View>
@@ -2605,8 +2845,8 @@ export default function UdharScreen() {
               {/* 2. To Pay Card (Red Accent) */}
               <View style={[styles.statCard, styles.statCardPay]}>
                 <View style={styles.statCardTop}>
-                  <View style={[styles.statIconBadge, { backgroundColor: '#FEE2E2' }]}>
-                    <Ionicons name="arrow-up-circle" size={13} color="#DC2626" />
+                  <View style={[styles.statIconBadge, { backgroundColor: '#DC2626' }]}>
+                    <Ionicons name="arrow-up" size={12} color="#FFFFFF" />
                   </View>
                   <Text style={styles.statCardLabel} numberOfLines={1}>{t('you_will_pay')}</Text>
                 </View>
@@ -2900,17 +3140,23 @@ export default function UdharScreen() {
         }}
       >
         <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeaderRow}>
-              <View style={[styles.modalIconCircle, { backgroundColor: '#F1F5F9' }]}>
-                <Ionicons name="person-add" size={20} color="#475569" />
-              </View>
+          <View style={styles.modernAddFriendCard}>
+            {/* Header */}
+            <View style={styles.modernAddFriendHeader}>
+              <LinearGradient
+                colors={['#6366F1', '#4F46E5']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.modernHeaderIconBadge}
+              >
+                <Ionicons name={editingFriendId ? 'create' : 'person-add'} size={20} color="#FFFFFF" />
+              </LinearGradient>
               <View style={{ flex: 1, marginLeft: 12 }}>
-                <Text style={styles.modalTitle}>
+                <Text style={styles.modernAddFriendTitle}>
                   {editingFriendId ? t('edit_friend') : t('add_friend')}
                 </Text>
-                <Text style={styles.modalSubtitle}>
-                  {editingFriendId ? 'Edit name, phone & profile photo' : t('udhar_subtitle')}
+                <Text style={styles.modernAddFriendSubtitle}>
+                  {editingFriendId ? 'Edit friend details & profile photo' : 'Track lending, borrowing & reminders'}
                 </Text>
               </View>
               <TouchableOpacity
@@ -2920,69 +3166,81 @@ export default function UdharScreen() {
                     setEditingFriendId(null);
                   }
                 }}
+                style={styles.modernCloseBtn}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
-                <Ionicons name="close" size={22} color="#94A3B8" />
+                <Ionicons name="close" size={20} color="#64748B" />
               </TouchableOpacity>
             </View>
 
-            {/* Profile Photo Uploader Circle */}
-            <View style={styles.photoUploadContainer}>
+            {/* Profile Photo Avatar */}
+            <View style={styles.modernPhotoSection}>
               <TouchableOpacity
-                style={styles.photoAvatarTouch}
+                style={styles.modernPhotoAvatarTouch}
                 onPress={handlePickFriendPhoto}
                 activeOpacity={0.8}
               >
                 {newFriendPhotoUri ? (
-                  <Image source={{ uri: newFriendPhotoUri }} style={styles.photoAvatarImage} />
+                  <Image source={{ uri: newFriendPhotoUri }} style={styles.modernPhotoAvatarImg} />
                 ) : (
-                  <View style={styles.photoAvatarPlaceholder}>
+                  <View style={styles.modernPhotoPlaceholder}>
                     <Ionicons name="person" size={38} color="#94A3B8" />
                   </View>
                 )}
-                <View style={styles.cameraIconBadge}>
-                  <Ionicons name="camera" size={13} color="#FFFFFF" />
+                <View style={styles.modernCameraBadge}>
+                  <Ionicons name="camera" size={12} color="#FFFFFF" />
                 </View>
               </TouchableOpacity>
 
-              <View style={styles.photoActionRow}>
-                <TouchableOpacity onPress={handlePickFriendPhoto} activeOpacity={0.7}>
-                  <Text style={styles.photoPickText}>
-                    {newFriendPhotoUri ? t('upload_photo') : t('upload_photo')}
-                  </Text>
+              {newFriendPhotoUri && (
+                <TouchableOpacity
+                  onPress={() => setNewFriendPhotoUri(null)}
+                  style={{ marginTop: 6 }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.modernPhotoRemoveText}>{t('remove_photo')}</Text>
                 </TouchableOpacity>
-                {newFriendPhotoUri && (
-                  <TouchableOpacity onPress={() => setNewFriendPhotoUri(null)} activeOpacity={0.7}>
-                    <Text style={styles.photoRemoveText}>{t('remove_photo')}</Text>
+              )}
+            </View>
+
+            {/* Input 1: Friend Name */}
+            <View style={styles.modernInputGroup}>
+              <View style={styles.modernInputLabelRow}>
+                <Ionicons name="person" size={13} color="#4F46E5" />
+                <Text style={styles.modernInputLabel}>
+                  {t('friend_name')} <Text style={{ color: '#EF4444' }}>*</Text>
+                </Text>
+              </View>
+              <View style={styles.modernTextInputContainer}>
+                <Ionicons name="person-outline" size={17} color="#94A3B8" style={{ marginRight: 8 }} />
+                <TextInput
+                  style={styles.modernTextInput}
+                  placeholder={t('friend_name_placeholder')}
+                  placeholderTextColor="#94A3B8"
+                  value={newFriendName}
+                  onChangeText={setNewFriendName}
+                  autoCapitalize="words"
+                />
+                {newFriendName.length > 0 && (
+                  <TouchableOpacity onPress={() => setNewFriendName('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <Ionicons name="close-circle" size={16} color="#CBD5E1" />
                   </TouchableOpacity>
                 )}
               </View>
             </View>
 
-            {/* Input 1: Friend Name */}
-            <View style={styles.formGroup}>
-              <Text style={styles.formLabel}>
-                {t('friend_name')} <Text style={{ color: '#DC2626' }}>*</Text>
-              </Text>
-              <TextInput
-                style={styles.formInput}
-                placeholder={t('friend_name_placeholder')}
-                placeholderTextColor="#94A3B8"
-                value={newFriendName}
-                onChangeText={setNewFriendName}
-                autoFocus
-              />
-            </View>
-
-            {/* Input 2: Phone Number (Optional) */}
-            <View style={styles.formGroup}>
-              <Text style={styles.formLabel}>{t('phone_optional')}</Text>
-              <View style={styles.phoneInputRow}>
-                <View style={styles.countryCodeBadge}>
-                  <Text style={styles.countryCodeText}>🇮🇳 +91</Text>
+            {/* Input 2: Phone Number with '+' Icon to select from Contacts */}
+            <View style={styles.modernInputGroup}>
+              <View style={styles.modernInputLabelRow}>
+                <Ionicons name="call" size={13} color="#4F46E5" />
+                <Text style={styles.modernInputLabel}>{t('phone_optional')}</Text>
+              </View>
+              <View style={styles.modernPhoneInputRow}>
+                <View style={styles.modernCountryPill}>
+                  <Text style={styles.modernCountryText}>🇮🇳 +91</Text>
                 </View>
                 <TextInput
-                  style={[styles.formInput, { flex: 1, marginLeft: 8 }]}
+                  style={styles.modernPhoneTextInput}
                   placeholder={t('phone_placeholder')}
                   placeholderTextColor="#94A3B8"
                   keyboardType="phone-pad"
@@ -2990,38 +3248,161 @@ export default function UdharScreen() {
                   value={newFriendPhone}
                   onChangeText={setNewFriendPhone}
                 />
+                <TouchableOpacity
+                  style={styles.addContactPlusBtn}
+                  onPress={handlePickFromContacts}
+                  activeOpacity={0.7}
+                  disabled={isImportingContact}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  {isImportingContact ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Ionicons name="add" size={20} color="#FFFFFF" />
+                  )}
+                </TouchableOpacity>
               </View>
             </View>
 
             {/* Buttons Row */}
-            <View style={styles.modalButtonsRow}>
+            <View style={styles.modernModalButtonsRow}>
               <TouchableOpacity
-                style={styles.modalCancelBtn}
+                style={styles.modernCancelBtn}
                 onPress={() => {
                   setIsAddFriendModalOpen(false);
                   setEditingFriendId(null);
                 }}
                 activeOpacity={0.75}
               >
-                <Text style={styles.modalCancelText}>Cancel</Text>
+                <Text style={styles.modernCancelText}>Cancel</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.modalConfirmBtn, isSavingFriend && { opacity: 0.7 }]}
+                style={[styles.modernSaveBtn, isSavingFriend && { opacity: 0.7 }]}
                 onPress={handleSaveFriend}
                 disabled={isSavingFriend}
-                activeOpacity={0.85}
+                activeOpacity={0.88}
               >
-                {isSavingFriend ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.modalConfirmText}>
-                    {editingFriendId ? t('save_changes') : t('save_friend')}
-                  </Text>
-                )}
+                <LinearGradient
+                  colors={['#4F46E5', '#6366F1']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.modernSaveGradient}
+                >
+                  {isSavingFriend ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <>
+                      <Ionicons name="checkmark-circle" size={17} color="#FFFFFF" style={{ marginRight: 6 }} />
+                      <Text style={styles.modernSaveText}>
+                        {editingFriendId ? t('save_changes') : t('save_friend')}
+                      </Text>
+                    </>
+                  )}
+                </LinearGradient>
               </TouchableOpacity>
             </View>
           </View>
+        </View>
+      </Modal>
+
+      {/* ================= IN-APP DEVICE CONTACTS BROWSER MODAL ================= */}
+      <Modal
+        visible={isContactListModalOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setIsContactListModalOpen(false)}
+      >
+        <View style={styles.contactBrowserBackdrop}>
+          <SafeAreaView style={styles.contactBrowserSheet}>
+            {/* Header */}
+            <View style={styles.contactBrowserHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.contactBrowserTitle}>Choose Contact</Text>
+                <Text style={styles.contactBrowserSubtitle}>Tap any contact to auto-fill into Rupeo</Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setIsContactListModalOpen(false)}
+                style={styles.modernCloseBtn}
+              >
+                <Ionicons name="close" size={20} color="#64748B" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Search Input */}
+            <View style={styles.contactSearchWrap}>
+              <Ionicons name="search" size={18} color="#94A3B8" style={{ marginRight: 8 }} />
+              <TextInput
+                style={styles.contactSearchInput}
+                placeholder={t('search_contacts')}
+                placeholderTextColor="#94A3B8"
+                value={contactSearchQuery}
+                onChangeText={setContactSearchQuery}
+                autoCorrect={false}
+              />
+              {contactSearchQuery.length > 0 && (
+                <TouchableOpacity onPress={() => setContactSearchQuery('')}>
+                  <Ionicons name="close-circle" size={17} color="#94A3B8" />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* List */}
+            {isLoadingContacts ? (
+              <View style={styles.contactLoadingWrap}>
+                <ActivityIndicator size="large" color="#4F46E5" />
+                <Text style={styles.contactLoadingText}>Loading contacts...</Text>
+              </View>
+            ) : filteredDeviceContacts.length === 0 ? (
+              <View style={styles.contactEmptyWrap}>
+                <Ionicons name="people-outline" size={48} color="#CBD5E1" />
+                <Text style={styles.contactEmptyTitle}>No contacts found</Text>
+                <Text style={styles.contactEmptySub}>Try searching with a different name or number</Text>
+              </View>
+            ) : (
+              <ScrollView
+                style={{ flex: 1 }}
+                contentContainerStyle={{ paddingBottom: 24 }}
+                keyboardShouldPersistTaps="handled"
+              >
+                {filteredDeviceContacts.map((c) => (
+                  <TouchableOpacity
+                    key={c.id}
+                    style={styles.contactListItem}
+                    onPress={() => {
+                      applyContactToFriend(c);
+                      setIsContactListModalOpen(false);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    {c.photoUri ? (
+                      <Image source={{ uri: c.photoUri }} style={styles.contactListAvatar} />
+                    ) : (
+                      <View style={styles.contactListInitials}>
+                        <Text style={styles.contactListInitialsText}>
+                          {c.name.slice(0, 2).toUpperCase()}
+                        </Text>
+                      </View>
+                    )}
+                    <View style={{ flex: 1, marginLeft: 12 }}>
+                      <Text style={styles.contactListName} numberOfLines={1}>
+                        {c.name}
+                      </Text>
+                      {c.phone ? (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
+                          <Ionicons name="call-outline" size={12} color="#64748B" style={{ marginRight: 4 }} />
+                          <Text style={styles.contactListPhone}>{c.phone}</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    <View style={styles.contactSelectBadge}>
+                      <Text style={styles.contactSelectText}>Select</Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+          </SafeAreaView>
         </View>
       </Modal>
 
@@ -4914,20 +5295,23 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   netKhataCard: {
-    borderRadius: 0,
+    borderRadius: 18,
     overflow: 'hidden',
     marginBottom: 14,
-    shadowColor: '#000000',
+    shadowColor: '#0F172A',
     shadowOpacity: 0.05,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    shadowRadius: 8,
     elevation: 2,
     backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#D1F0E0',
+    position: 'relative',
   },
   netKhataGradient: {
     paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 10,
+    paddingTop: 16,
+    paddingBottom: 12,
   },
   netKhataTopRow: {
     flexDirection: 'row',
@@ -4953,9 +5337,9 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   netKhataToggleIconWrap: {
-    width: 26,
-    height: 26,
-    borderRadius: 0,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -4975,77 +5359,77 @@ const styles = StyleSheet.create({
   },
   netKhataBadge: {
     alignSelf: 'flex-start',
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 0,
-    marginBottom: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    marginBottom: 6,
   },
   netKhataBadgeText: {
-    fontSize: 9,
+    fontSize: 9.5,
     fontWeight: '900',
     letterSpacing: 0.5,
   },
   netKhataAmount: {
-    fontSize: 24,
+    fontSize: 26,
     fontWeight: '900',
     letterSpacing: -0.5,
     marginBottom: 2,
   },
   netKhataSub: {
-    fontSize: 11,
+    fontSize: 12,
     color: '#64748B',
     fontWeight: '500',
   },
   netKhataIconWrap: {
-    width: 52,
-    height: 52,
-    borderRadius: 0,
-    backgroundColor: 'rgba(255,255,255,0.7)',
+    width: 48,
+    height: 48,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.9)',
   },
   heroStatsContainer: {
     flexDirection: 'row',
-    gap: 8,
-    marginBottom: 10,
+    gap: 10,
+    marginBottom: 12,
   },
   statCard: {
     flex: 1,
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    shadowColor: '#000000',
+    borderRadius: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    shadowColor: '#0F172A',
     shadowOpacity: 0.04,
     shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
+    shadowRadius: 6,
     elevation: 2,
+    borderWidth: 1.5,
+    overflow: 'hidden',
   },
   statCardReceive: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F4FBF7',
+    borderColor: '#C6F0D6',
   },
   statCardPay: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#FEF4F4',
+    borderColor: '#FCD8D8',
   },
   statCardTop: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginBottom: 3,
+    marginBottom: 6,
   },
   statIconBadge: {
-    width: 20,
-    height: 20,
-    borderRadius: 0,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',
   },
   statCardLabel: {
-    fontSize: 11,
+    fontSize: 11.5,
     fontWeight: '700',
-    color: '#64748B',
+    color: '#475569',
   },
   statAmountRow: {
     flexDirection: 'row',
@@ -5053,16 +5437,16 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   statCurrency: {
-    fontSize: 12.5,
+    fontSize: 13,
     fontWeight: '800',
   },
   statAmount: {
-    fontSize: 16.5,
+    fontSize: 18,
     fontWeight: '900',
     letterSpacing: -0.4,
   },
   statSubText: {
-    fontSize: 9,
+    fontSize: 9.5,
     fontWeight: '500',
     color: '#94A3B8',
     marginTop: 1,
@@ -5287,22 +5671,25 @@ const styles = StyleSheet.create({
   },
   friendCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 16,
     padding: 14,
-    shadowColor: '#000000',
-    shadowOpacity: 0.05,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.04,
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 6,
     elevation: 2,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
   },
   friendCardMain: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   friendAvatarCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 0,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1.5,
@@ -5427,6 +5814,360 @@ const styles = StyleSheet.create({
     marginLeft: 'auto',
   },
 
+  // Modern Add Friend Modal Styles
+  modernAddFriendCard: {
+    width: '100%',
+    maxWidth: 390,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 8,
+  },
+  modernAddFriendHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  modernHeaderIconBadge: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#4F46E5',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  modernAddFriendTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#0F172A',
+    letterSpacing: -0.2,
+  },
+  modernAddFriendSubtitle: {
+    fontSize: 11.5,
+    color: '#64748B',
+    fontWeight: '500',
+    marginTop: 1,
+  },
+  modernCloseBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // Photo Uploader Section
+  modernPhotoSection: {
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  modernPhotoAvatarTouch: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    position: 'relative',
+    borderWidth: 2,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#F8FAFC',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  modernPhotoAvatarImg: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+  },
+  modernPhotoPlaceholder: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modernCameraBadge: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#4F46E5',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  modernPhotoRemoveText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#EF4444',
+  },
+  // Inputs
+  modernInputGroup: {
+    marginBottom: 12,
+  },
+  modernInputLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+  },
+  modernInputLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#334155',
+  },
+  modernTextInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    borderWidth: 1.2,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 12,
+    height: 46,
+  },
+  modernTextInput: {
+    flex: 1,
+    fontSize: 13.5,
+    fontWeight: '600',
+    color: '#0F172A',
+    paddingVertical: 0,
+  },
+  modernPhoneInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    borderWidth: 1.2,
+    borderColor: '#E2E8F0',
+    height: 46,
+    paddingRight: 4,
+    overflow: 'hidden',
+  },
+  modernCountryPill: {
+    backgroundColor: '#F1F5F9',
+    height: '100%',
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRightWidth: 1,
+    borderRightColor: '#E2E8F0',
+  },
+  modernCountryText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#334155',
+  },
+  modernPhoneTextInput: {
+    flex: 1,
+    fontSize: 13.5,
+    fontWeight: '600',
+    color: '#0F172A',
+    paddingHorizontal: 10,
+    paddingVertical: 0,
+  },
+  addContactPlusBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#4F46E5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 6,
+    shadowColor: '#4F46E5',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.28,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  // Modal Action Buttons
+  modernModalButtonsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 6,
+  },
+  modernCancelBtn: {
+    flex: 1,
+    height: 46,
+    borderRadius: 14,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  modernCancelText: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  modernSaveBtn: {
+    flex: 1.4,
+    height: 46,
+    borderRadius: 14,
+    overflow: 'hidden',
+    shadowColor: '#4F46E5',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  modernSaveGradient: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modernSaveText: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.2,
+  },
+  // Contact Browser Sheet Styles
+  contactBrowserBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.65)',
+    justifyContent: 'flex-end',
+  },
+  contactBrowserSheet: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '85%',
+    paddingHorizontal: 18,
+    paddingTop: 16,
+  },
+  contactBrowserHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  contactBrowserTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  contactBrowserSubtitle: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  contactSearchWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 12,
+    height: 44,
+    marginBottom: 14,
+  },
+  contactSearchInput: {
+    flex: 1,
+    fontSize: 13.5,
+    color: '#0F172A',
+    fontWeight: '500',
+  },
+  contactLoadingWrap: {
+    paddingVertical: 50,
+    alignItems: 'center',
+  },
+  contactLoadingText: {
+    fontSize: 13,
+    color: '#64748B',
+    marginTop: 10,
+    fontWeight: '600',
+  },
+  contactEmptyWrap: {
+    paddingVertical: 50,
+    alignItems: 'center',
+  },
+  contactEmptyTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#475569',
+    marginTop: 12,
+  },
+  contactEmptySub: {
+    fontSize: 12,
+    color: '#94A3B8',
+    marginTop: 4,
+  },
+  contactListItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  contactListAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+  },
+  contactListInitials: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#EEF2FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+  },
+  contactListInitialsText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#4F46E5',
+  },
+  contactListName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  contactListPhone: {
+    fontSize: 12,
+    color: '#64748B',
+    fontWeight: '500',
+  },
+  contactSelectBadge: {
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+  },
+  contactSelectText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#4F46E5',
+  },
+
   // Modal Styles
   modalBackdrop: {
     flex: 1,
@@ -5522,23 +6263,25 @@ const styles = StyleSheet.create({
   photoAvatarTouch: {
     width: 76,
     height: 76,
-    borderRadius: 0,
+    borderRadius: 38,
+    overflow: 'hidden',
     position: 'relative',
-    borderWidth: 1.5,
+    borderWidth: 2,
     borderColor: '#CBD5E1',
     backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
   },
   photoAvatarImage: {
-    width: 72,
-    height: 72,
-    borderRadius: 0,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    resizeMode: 'cover',
   },
   photoAvatarPlaceholder: {
-    width: 72,
-    height: 72,
-    borderRadius: 0,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
     backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
@@ -5547,9 +6290,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 0,
     right: 0,
-    width: 24,
-    height: 24,
-    borderRadius: 0,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     backgroundColor: '#0F172A',
     borderWidth: 2,
     borderColor: '#FFFFFF',
@@ -5707,9 +6450,9 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   ledgerAvatarBadge: {
-    width: 38,
-    height: 38,
-    borderRadius: 0,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     overflow: 'hidden',
     marginLeft: 10,
     marginRight: 2,
@@ -5717,14 +6460,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   ledgerAvatarImage: {
-    width: 38,
-    height: 38,
-    borderRadius: 0,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    resizeMode: 'cover',
   },
   ledgerAvatarFallback: {
-    width: 38,
-    height: 38,
-    borderRadius: 0,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: '#F1F5F9',
     borderWidth: 1,
     borderColor: '#E2E8F0',
@@ -5732,14 +6476,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   ledgerAvatarInitial: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '800',
     color: '#334155',
   },
   friendCardPhotoImage: {
-    width: 42,
-    height: 42,
-    borderRadius: 0,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    resizeMode: 'cover',
   },
   ledgerTopBarActions: {
     flexDirection: 'row',
@@ -5773,66 +6518,117 @@ const styles = StyleSheet.create({
   simpleHeroCard: {
     marginHorizontal: 16,
     marginTop: 8,
-    marginBottom: 8,
-    borderRadius: 0,
-    padding: 10,
+    marginBottom: 10,
+    borderRadius: 18,
+    padding: 16,
     borderWidth: 1.5,
     backgroundColor: '#FFFFFF',
     shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
-    shadowRadius: 4,
+    shadowRadius: 6,
     elevation: 2,
+    position: 'relative',
+    overflow: 'hidden',
   },
   simpleHeroCardGreen: {
-    backgroundColor: '#F0FDF4',
-    borderColor: '#BBF7D0',
+    backgroundColor: '#F2FBF6',
+    borderColor: '#C6F0D6',
   },
   simpleHeroCardRed: {
-    backgroundColor: '#FEF2F2',
-    borderColor: '#FECACA',
+    backgroundColor: '#FEF4F4',
+    borderColor: '#FCD8D8',
   },
   simpleHeroCardNeutral: {
-    backgroundColor: '#F8FAFC',
-    borderColor: '#E2E8F0',
+    backgroundColor: '#F3FAF5',
+    borderColor: '#D1F0E0',
+  },
+  heroOrganicWaveOuter: {
+    position: 'absolute',
+    right: -30,
+    bottom: -45,
+    width: 170,
+    height: 170,
+    borderRadius: 85,
+  },
+  heroOrganicWaveOuterGreen: {
+    backgroundColor: 'rgba(34, 197, 94, 0.12)',
+  },
+  heroOrganicWaveOuterRed: {
+    backgroundColor: 'rgba(239, 68, 68, 0.10)',
+  },
+  heroOrganicWaveOuterNeutral: {
+    backgroundColor: 'rgba(16, 185, 129, 0.13)',
+  },
+  heroOrganicWaveInner: {
+    position: 'absolute',
+    right: -10,
+    bottom: -25,
+    width: 105,
+    height: 105,
+    borderRadius: 55,
+  },
+  heroOrganicWaveInnerGreen: {
+    backgroundColor: 'rgba(34, 197, 94, 0.14)',
+  },
+  heroOrganicWaveInnerRed: {
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+  },
+  heroOrganicWaveInnerNeutral: {
+    backgroundColor: 'rgba(16, 185, 129, 0.16)',
   },
   simpleHeroTopRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
   },
   simpleHeroLabel: {
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.3,
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 0.1,
   },
   simpleHeroAmount: {
-    fontSize: 22,
+    fontSize: 32,
     fontWeight: '900',
-    letterSpacing: -0.5,
-    marginTop: 1,
+    letterSpacing: -0.6,
+    marginTop: 2,
+    marginBottom: 4,
   },
   simpleHeroIconBadge: {
-    width: 36,
-    height: 36,
-    borderRadius: 0,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  simpleHeroIconBadgeGreen: {
+    backgroundColor: '#16A34A',
+  },
+  simpleHeroIconBadgeRed: {
+    backgroundColor: '#DC2626',
+  },
+  simpleHeroIconBadgeNeutral: {
+    backgroundColor: '#10B981',
   },
   simpleHeroSubText: {
-    fontSize: 11,
+    fontSize: 13,
     color: '#64748B',
     fontWeight: '500',
-    marginTop: 3,
+    lineHeight: 18,
   },
   simpleHeroActionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginTop: 8,
-    paddingTop: 8,
+    gap: 8,
+    marginTop: 12,
+    paddingTop: 10,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(0, 0, 0, 0.06)',
+    borderTopColor: 'rgba(0, 0, 0, 0.05)',
   },
   simpleHeroBtnWa: {
     flex: 1,
@@ -5840,13 +6636,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#FFFFFF',
-    paddingVertical: 7,
-    borderRadius: 0,
+    paddingVertical: 8,
+    borderRadius: 10,
     borderWidth: 1.5,
-    borderColor: '#25D366',
+    borderColor: '#22C55E',
   },
   simpleHeroBtnWaText: {
-    fontSize: 11,
+    fontSize: 11.5,
     fontWeight: '700',
     color: '#15803D',
   },
@@ -5856,11 +6652,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#0F172A',
-    paddingVertical: 7,
-    borderRadius: 0,
+    paddingVertical: 8,
+    borderRadius: 10,
   },
   simpleHeroBtnSettleText: {
-    fontSize: 11,
+    fontSize: 11.5,
     fontWeight: '700',
     color: '#FFFFFF',
   },
@@ -5869,14 +6665,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FFFBEB',
-    paddingVertical: 7,
-    borderRadius: 0,
-    borderWidth: 1.5,
+    backgroundColor: '#FEF3C7',
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
     borderColor: '#FDE68A',
   },
   simpleHeroBtnInterestText: {
-    fontSize: 11,
+    fontSize: 11.5,
     fontWeight: '700',
     color: '#B45309',
   },

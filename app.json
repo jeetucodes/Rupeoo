@@ -11,7 +11,8 @@
       "icon": "./assets/images/icon.png",
       "bundleIdentifier": "com.innovatexlabs.paisewaise",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSContactsUsageDescription": "Rupeo needs access to your contacts to quickly add friends and track loans."
       }
     },
     "android": {
@@ -25,7 +26,8 @@
         "android.permission.VIBRATE",
         "android.permission.RECEIVE_BOOT_COMPLETED",
         "android.permission.RECORD_AUDIO",
-        "com.android.vending.BILLING"
+        "com.android.vending.BILLING",
+        "android.permission.READ_CONTACTS"
       ],
       "predictiveBackGestureEnabled": false,
       "package": "com.innovatexlabs.paisewaise",
@@ -71,6 +73,7 @@
       ],
       "expo-notifications",
       "expo-sharing",
+      "expo-contacts",
       "@react-native-community/datetimepicker",
       "./plugins/withAndroidKotlinFix",
       "expo-font",
