@@ -64,6 +64,7 @@ class RupeoSharePackage : ReactPackage {
       // 1.3 RupeoShareModule.kt
       const shareModuleKt = `package com.innovatexlabs.paisewaise
 
+import android.app.Activity
 import android.content.ClipData
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -80,6 +81,15 @@ class RupeoShareModule(private val reactContext: ReactApplicationContext) :
 
   override fun getName(): String = "RupeoShare"
 
+  private fun isPackageInstalled(packageName: String): Boolean {
+    return try {
+      reactContext.packageManager.getPackageInfo(packageName, PackageManager.GET_ACTIVITIES)
+      true
+    } catch (e: Exception) {
+      false
+    }
+  }
+
   private fun shareInternal(
     filePath: String,
     text: String?,
@@ -89,7 +99,7 @@ class RupeoShareModule(private val reactContext: ReactApplicationContext) :
     promise: Promise
   ) {
     try {
-      val currentAct = currentActivity
+      val currentAct: Activity? = reactContext.currentActivity
       val cleanPath = if (filePath.startsWith("file://")) {
         filePath.substring(7)
       } else {
@@ -132,13 +142,7 @@ class RupeoShareModule(private val reactContext: ReactApplicationContext) :
       if (targetPackage == "whatsapp" || targetPackage == "com.whatsapp") {
         for (waPkg in listOf("com.whatsapp", "com.whatsapp.w4b")) {
           try {
-            val isInstalled = try {
-              reactContext.packageManager.getPackageInfo(waPkg, PackageManager.GET_ACTIVITIES)
-              true
-            } catch (e: Exception) {
-              false
-            }
-            if (isInstalled) {
+            if (isPackageInstalled(waPkg)) {
               val waIntent = Intent(Intent.ACTION_SEND).apply {
                 type = "image/png"
                 setPackage(waPkg)

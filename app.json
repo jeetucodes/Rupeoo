@@ -20,7 +20,7 @@
         "backgroundColor": "#0F0F11",
         "foregroundImage": "./assets/images/icon.png"
       },
-      "versionCode": 28,
+      "versionCode": 30,
       "permissions": [
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.VIBRATE",
