@@ -139,7 +139,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    borderRadius: 0,
+    borderRadius: 16,
     shadowColor: '#000000',
     shadowOpacity: 0.04,
     shadowOffset: { width: 0, height: 2 },
@@ -157,7 +157,7 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     height: 58,
-    borderRadius: 0,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: '#F59E0B',
     backgroundColor: '#FFD740',

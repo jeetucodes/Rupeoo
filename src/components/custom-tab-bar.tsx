@@ -1,8 +1,9 @@
+import React, { useEffect, useRef, memo } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import * as Haptics from 'expo-haptics';
 import {
   Animated,
   Platform,
@@ -68,31 +69,20 @@ interface TabItemProps {
   t?: any;
 }
 
-function FabTabItem({ onPress, isActive }: TabItemProps) {
+const FabTabItem = memo(function FabTabItem({ onPress, isActive }: TabItemProps) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const rotateAnim = useRef(new Animated.Value(0)).current;
-  const glowAnim = useRef(new Animated.Value(1)).current;
-
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(glowAnim, { toValue: 1.18, duration: 1800, useNativeDriver: true }),
-        Animated.timing(glowAnim, { toValue: 1, duration: 1800, useNativeDriver: true }),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, []);
 
   const handlePress = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     Animated.sequence([
       Animated.parallel([
-        Animated.spring(scaleAnim, { toValue: 0.86, useNativeDriver: true, tension: 500, friction: 8 }),
-        Animated.timing(rotateAnim, { toValue: 1, duration: 120, useNativeDriver: true }),
+        Animated.spring(scaleAnim, { toValue: 0.9, useNativeDriver: true, tension: 500, friction: 10 }),
+        Animated.timing(rotateAnim, { toValue: 1, duration: 100, useNativeDriver: true }),
       ]),
       Animated.parallel([
-        Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, tension: 300, friction: 10 }),
-        Animated.timing(rotateAnim, { toValue: 0, duration: 120, useNativeDriver: true }),
+        Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, tension: 350, friction: 12 }),
+        Animated.timing(rotateAnim, { toValue: 0, duration: 100, useNativeDriver: true }),
       ]),
     ]).start();
     onPress();
@@ -102,17 +92,6 @@ function FabTabItem({ onPress, isActive }: TabItemProps) {
 
   return (
     <View style={styles.fabWrapper}>
-      {/* Glow ring behind FAB */}
-      <Animated.View
-        style={[
-          styles.fabGlowRing,
-          {
-            transform: [{ scale: glowAnim }],
-            opacity: glowAnim.interpolate({ inputRange: [1, 1.18], outputRange: [0.4, 0] }),
-          },
-        ]}
-        pointerEvents="none"
-      />
       <TouchableOpacity
         onPress={handlePress}
         activeOpacity={0.9}
@@ -128,9 +107,9 @@ function FabTabItem({ onPress, isActive }: TabItemProps) {
       </TouchableOpacity>
     </View>
   );
-}
+});
 
-function RegularTabItem({ config, isActive, onPress, onLongPress }: TabItemProps) {
+const RegularTabItem = memo(function RegularTabItem({ config, isActive, onPress, onLongPress }: TabItemProps) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const dotScale = useRef(new Animated.Value(isActive ? 1 : 0)).current;
   const bgOpacity = useRef(new Animated.Value(isActive ? 1 : 0)).current;
@@ -160,9 +139,10 @@ function RegularTabItem({ config, isActive, onPress, onLongPress }: TabItemProps
   }, [isActive]);
 
   const handlePress = () => {
+    Haptics.selectionAsync().catch(() => {});
     Animated.sequence([
-      Animated.spring(scaleAnim, { toValue: 0.88, useNativeDriver: true, tension: 500, friction: 8 }),
-      Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, tension: 300, friction: 10 }),
+      Animated.spring(scaleAnim, { toValue: 0.92, useNativeDriver: true, tension: 450, friction: 12 }),
+      Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, tension: 350, friction: 12 }),
     ]).start();
     onPress();
   };
@@ -171,7 +151,7 @@ function RegularTabItem({ config, isActive, onPress, onLongPress }: TabItemProps
     <TouchableOpacity
       onPress={handlePress}
       onLongPress={onLongPress}
-      activeOpacity={1}
+      activeOpacity={0.8}
       style={styles.tabItem}
       accessibilityRole="tab"
       accessibilityLabel={config.label}
@@ -205,7 +185,7 @@ function RegularTabItem({ config, isActive, onPress, onLongPress }: TabItemProps
       </Animated.View>
     </TouchableOpacity>
   );
-}
+});
 
 export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   const router = useRouter();
@@ -213,67 +193,80 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   const { t } = useTranslation();
 
   const bottomOffset = insets.bottom > 0 ? insets.bottom + 8 : 16;
+  const isIOS = Platform.OS === 'ios';
 
-  return (
-    <View style={[styles.tabBarWrapper, { bottom: bottomOffset }]} pointerEvents="box-none">
-      <BlurView
-        intensity={Platform.OS === 'ios' ? 80 : 100}
-        tint="light"
-        style={styles.tabBarInner}
-      >
-        {/* Subtle top border highlight */}
-        <View style={styles.topHighlight} />
+  const tabBarContent = (
+    <>
+      {/* Subtle top border highlight */}
+      <View style={styles.topHighlight} />
 
-        {TAB_CONFIG.map((config) => {
-          const route = state.routes.find((r: any) => r.name === config.name);
-          if (!route) return null;
+      {TAB_CONFIG.map((config) => {
+        const route = state.routes.find((r: any) => r.name === config.name);
+        if (!route) return null;
 
-          const routeIndex = state.routes.indexOf(route);
-          const isActive = state.index === routeIndex;
+        const routeIndex = state.routes.indexOf(route);
+        const isActive = state.index === routeIndex;
 
-          const onPress = () => {
-            if (config.isFab) {
-              router.push('/add');
-              return;
-            }
-            const event = navigation.emit({
-              type: 'tabPress',
-              target: route.key,
-              canPreventDefault: true,
-            });
-            if (!isActive && !event.defaultPrevented) {
-              navigation.navigate(route.name);
-            }
-          };
-
-          const onLongPress = () => {
-            navigation.emit({ type: 'tabLongPress', target: route.key });
-          };
-
+        const onPress = () => {
           if (config.isFab) {
-            return (
-              <FabTabItem
-                key={config.name}
-                config={config}
-                isActive={isActive}
-                onPress={onPress}
-                onLongPress={onLongPress}
-              />
-            );
+            router.push('/add');
+            return;
           }
+          const event = navigation.emit({
+            type: 'tabPress',
+            target: route.key,
+            canPreventDefault: true,
+          });
+          if (!isActive && !event.defaultPrevented) {
+            navigation.navigate(route.name);
+          }
+        };
 
+        const onLongPress = () => {
+          navigation.emit({ type: 'tabLongPress', target: route.key });
+        };
+
+        if (config.isFab) {
           return (
-            <RegularTabItem
+            <FabTabItem
               key={config.name}
               config={config}
               isActive={isActive}
               onPress={onPress}
               onLongPress={onLongPress}
-              t={t}
             />
           );
-        })}
-      </BlurView>
+        }
+
+        return (
+          <RegularTabItem
+            key={config.name}
+            config={config}
+            isActive={isActive}
+            onPress={onPress}
+            onLongPress={onLongPress}
+            t={t}
+          />
+        );
+      })}
+    </>
+  );
+
+  return (
+    <View style={[styles.tabBarWrapper, { bottom: bottomOffset }]} pointerEvents="box-none">
+      {isIOS ? (
+        <BlurView
+          intensity={80}
+          tint="light"
+          style={styles.tabBarInner}
+        >
+          {tabBarContent}
+        </BlurView>
+      ) : (
+        <View style={[styles.tabBarInner, styles.androidTabBarInner]}>
+          {tabBarContent}
+        </View>
+      )}
     </View>
   );
 }
@@ -304,6 +297,9 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: 'rgba(226, 232, 240, 0.9)',
+  },
+  androidTabBarInner: {
+    backgroundColor: '#FFFFFF',
   },
   topHighlight: {
     position: 'absolute',

@@ -10,11 +10,11 @@ export interface QuickAddWidgetProps {
   theme?: 'light' | 'dark';
 }
 
-const RUPEO_LOGO_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"><rect width="24" height="24" rx="6" fill="#4F46E5"/><path d="M7 6h10M7 10h8M7 6v12M12 10a4 4 0 0 1 0 8H7" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const RUPEO_LOGO_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"><rect width="24" height="24" rx="6" fill="#1C1C1E"/><path d="M7 6h10M7 10h8M7 6v12M12 10a4 4 0 0 1 0 8H7" stroke="#FFD740" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
-const MINUS_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#F87171" stroke-width="3" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>`;
+const MINUS_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#DC2626" stroke-width="3" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>`;
 
-const PLUS_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#4ADE80" stroke-width="3" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`;
+const PLUS_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#16A34A" stroke-width="3" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`;
 
 const MIC_SVG = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>`;
 
@@ -35,20 +35,20 @@ export function QuickAddWidget({
         height: 'match_parent',
         width: 'match_parent',
         backgroundGradient: {
-          from: '#0B0F19',
-          to: '#111827',
+          from: '#FFFFFF',
+          to: '#F8FAFC',
           orientation: 'TOP_BOTTOM',
         },
         borderRadius: 22,
-        borderWidth: 1,
-        borderColor: '#1F293D',
+        borderWidth: 1.2,
+        borderColor: '#E2E8F0',
         paddingHorizontal: 14,
         paddingVertical: 12,
         flexDirection: 'column',
         justifyContent: 'space-between',
       }}
     >
-      {/* 1. Top Header Row: Rupeo Branding & Daily Limit Pill */}
+      {/* 1. Header: Rupeo Branding & Daily Budget Status */}
       <FlexWidget
         style={{
           flexDirection: 'row',
@@ -64,12 +64,12 @@ export function QuickAddWidget({
           style={{
             flexDirection: 'row',
             alignItems: 'center',
-            backgroundColor: '#1E1B4B80',
-            borderRadius: 8,
+            backgroundColor: '#F1F5F9',
+            borderRadius: 10,
             borderWidth: 1,
-            borderColor: '#3730A3',
-            paddingHorizontal: 7,
-            paddingVertical: 3,
+            borderColor: '#E2E8F0',
+            paddingHorizontal: 8,
+            paddingVertical: 3.5,
           }}
         >
           <SvgWidget svg={RUPEO_LOGO_SVG} style={{ width: 14, height: 14, marginRight: 5 }} />
@@ -78,7 +78,7 @@ export function QuickAddWidget({
             style={{
               fontSize: 10,
               fontWeight: 'bold',
-              color: '#A5B4FC',
+              color: '#0F172A',
               letterSpacing: 1,
             }}
           />
@@ -92,12 +92,12 @@ export function QuickAddWidget({
             style={{
               flexDirection: 'row',
               alignItems: 'center',
-              backgroundColor: remainingLimit > 0 ? '#064E3B60' : '#450A0A60',
-              borderRadius: 8,
+              backgroundColor: remainingLimit > 0 ? '#DCFCE7' : '#FEE2E2',
+              borderRadius: 10,
               borderWidth: 1,
-              borderColor: remainingLimit > 0 ? '#05966960' : '#DC262660',
+              borderColor: remainingLimit > 0 ? '#86EFAC' : '#FCA5A5',
               paddingHorizontal: 8,
-              paddingVertical: 3,
+              paddingVertical: 3.5,
             }}
           >
             <TextWidget
@@ -105,7 +105,7 @@ export function QuickAddWidget({
               style={{
                 fontSize: 9,
                 fontWeight: 'bold',
-                color: remainingLimit > 0 ? '#6EE7B7' : '#FCA5A5',
+                color: remainingLimit > 0 ? '#15803D' : '#991B1B',
                 letterSpacing: 0.5,
               }}
             />
@@ -114,7 +114,7 @@ export function QuickAddWidget({
               style={{
                 fontSize: 11,
                 fontWeight: 'bold',
-                color: remainingLimit > 0 ? '#34D399' : '#F87171',
+                color: remainingLimit > 0 ? '#166534' : '#DC2626',
               }}
             />
           </FlexWidget>
@@ -123,18 +123,20 @@ export function QuickAddWidget({
             clickAction="OPEN_URI"
             clickActionData={{ uri: 'rupeo://(tabs)/dashboard' }}
             style={{
-              backgroundColor: '#1E293B60',
-              borderRadius: 8,
-              paddingHorizontal: 7,
-              paddingVertical: 3,
+              backgroundColor: '#F1F5F9',
+              borderRadius: 10,
+              borderWidth: 1,
+              borderColor: '#E2E8F0',
+              paddingHorizontal: 8,
+              paddingVertical: 3.5,
             }}
           >
             <TextWidget
-              text="QUICK TRACK"
+              text="DAILY TRACKER"
               style={{
                 fontSize: 9,
                 fontWeight: 'bold',
-                color: '#94A3B8',
+                color: '#64748B',
                 letterSpacing: 0.6,
               }}
             />
@@ -142,7 +144,7 @@ export function QuickAddWidget({
         )}
       </FlexWidget>
 
-      {/* 2. Middle Row: Today's Spend Showcase */}
+      {/* 2. Middle Row: Today's Spend in Crisp Contrast Typography */}
       <FlexWidget
         clickAction="OPEN_URI"
         clickActionData={{ uri: 'rupeo://(tabs)/dashboard' }}
@@ -158,45 +160,58 @@ export function QuickAddWidget({
           <TextWidget
             text="TODAY'S SPENT"
             style={{
-              fontSize: 9,
+              fontSize: 9.5,
               fontWeight: 'bold',
               color: '#64748B',
               letterSpacing: 0.8,
             }}
           />
-          <TextWidget
-            text={`${currency}${formatAmount(todaySpent)}`}
-            style={{
-              fontSize: 22,
-              fontWeight: 'bold',
-              color: '#F8FAFC',
-              marginTop: 1,
-            }}
-          />
+          <FlexWidget style={{ flexDirection: 'row', alignItems: 'center', marginTop: 1 }}>
+            <TextWidget
+              text={`${currency} `}
+              style={{
+                fontSize: 16,
+                fontWeight: 'bold',
+                color: '#F59E0B',
+              }}
+            />
+            <TextWidget
+              text={formatAmount(todaySpent)}
+              style={{
+                fontSize: 24,
+                fontWeight: 'bold',
+                color: '#0F172A',
+              }}
+            />
+          </FlexWidget>
         </FlexWidget>
 
         <FlexWidget
+          clickAction="OPEN_URI"
+          clickActionData={{ uri: 'rupeo://(tabs)/dashboard' }}
           style={{
             flexDirection: 'row',
             alignItems: 'center',
-            backgroundColor: '#1E293B',
+            backgroundColor: '#EEF2FF',
             borderRadius: 12,
-            paddingHorizontal: 8,
-            paddingVertical: 4,
+            borderWidth: 1,
+            borderColor: '#E0E7FF',
+            paddingHorizontal: 9,
+            paddingVertical: 5,
           }}
         >
           <TextWidget
-            text="Insights ›"
+            text="Dashboard ›"
             style={{
-              fontSize: 10,
+              fontSize: 10.5,
               fontWeight: 'bold',
-              color: '#818CF8',
+              color: '#4F46E5',
             }}
           />
         </FlexWidget>
       </FlexWidget>
 
-      {/* 3. Bottom Action Row: Big Comfortable Touch Buttons */}
+      {/* 3. Bottom Action Row: Clean 1-Tap Touch Buttons */}
       <FlexWidget
         style={{
           flexDirection: 'row',
@@ -213,10 +228,10 @@ export function QuickAddWidget({
           style={{
             flex: 1,
             height: 40,
-            backgroundColor: '#3B1219',
+            backgroundColor: '#FEF2F2',
             borderRadius: 12,
-            borderWidth: 1,
-            borderColor: '#7F1D1D',
+            borderWidth: 1.2,
+            borderColor: '#FECACA',
             flexDirection: 'row',
             justifyContent: 'center',
             alignItems: 'center',
@@ -228,7 +243,7 @@ export function QuickAddWidget({
             style={{
               fontSize: 12,
               fontWeight: 'bold',
-              color: '#FCA5A5',
+              color: '#DC2626',
             }}
           />
         </FlexWidget>
@@ -240,10 +255,10 @@ export function QuickAddWidget({
           style={{
             flex: 1,
             height: 40,
-            backgroundColor: '#062B1E',
+            backgroundColor: '#F0FDF4',
             borderRadius: 12,
-            borderWidth: 1,
-            borderColor: '#065F46',
+            borderWidth: 1.2,
+            borderColor: '#BBF7D0',
             flexDirection: 'row',
             justifyContent: 'center',
             alignItems: 'center',
@@ -255,12 +270,12 @@ export function QuickAddWidget({
             style={{
               fontSize: 12,
               fontWeight: 'bold',
-              color: '#86EFAC',
+              color: '#16A34A',
             }}
           />
         </FlexWidget>
 
-        {/* Voice Button (Hero highlighted action) */}
+        {/* Voice Button */}
         <FlexWidget
           clickAction="OPEN_URI"
           clickActionData={{ uri: 'rupeo://quick-add-voice?fromWidget=1' }}
@@ -273,8 +288,8 @@ export function QuickAddWidget({
               orientation: 'TOP_BOTTOM',
             },
             borderRadius: 12,
-            borderWidth: 1,
-            borderColor: '#6366F1',
+            borderWidth: 1.2,
+            borderColor: '#4338CA',
             flexDirection: 'row',
             justifyContent: 'center',
             alignItems: 'center',

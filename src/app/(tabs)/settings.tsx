@@ -1367,7 +1367,7 @@ export default function SettingsScreen() {
               </ScrollView>
             </View>
           ) : (
-            <View style={{ backgroundColor: '#F0FDF4', borderRadius: 0, padding: 8, marginBottom: 14, borderWidth: 1, borderColor: '#BBF7D0' }}>
+            <View style={{ backgroundColor: '#F0FDF4', borderRadius: 12, padding: 8, marginBottom: 14, borderWidth: 1, borderColor: '#BBF7D0' }}>
               <Text style={{ fontSize: 11.5, color: '#15803D', fontWeight: '700' }}>
                 ✓ {totalExportTxsCount > 0 ? `${totalExportTxsCount} total transactions ready to export across all time.` : 'All historical transactions will be exported together.'}
               </Text>
@@ -1996,7 +1996,7 @@ const styles = StyleSheet.create({
 
   profileCardWrapper: {
     marginBottom: 28,
-    borderRadius: 0,
+    borderRadius: 24,
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
@@ -2007,7 +2007,7 @@ const styles = StyleSheet.create({
     padding: 24,
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 24,
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
@@ -2019,11 +2019,11 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 6,
   },
-  avatar: { width: 96, height: 96, borderRadius: 0, borderWidth: 4, borderColor: '#EFF6FF' },
+  avatar: { width: 96, height: 96, borderRadius: 48, borderWidth: 4, borderColor: '#EFF6FF' },
   avatarPlaceholder: {
     width: 96,
     height: 96,
-    borderRadius: 0,
+    borderRadius: 48,
     backgroundColor: '#EFF6FF',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2040,7 +2040,7 @@ const styles = StyleSheet.create({
     bottom: 2,
     right: 2,
     backgroundColor: '#3B82F6',
-    borderRadius: 0,
+    borderRadius: 16,
     width: 32,
     height: 32,
     alignItems: 'center',
@@ -2053,7 +2053,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     right: 0,
     backgroundColor: '#FFD740',
-    borderRadius: 0,
+    borderRadius: 16,
     width: 32,
     height: 32,
     alignItems: 'center',
@@ -2072,7 +2072,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#EFF6FF',
     paddingHorizontal: 12,
     paddingVertical: 5,
-    borderRadius: 0,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: '#DBEAFE',
     marginBottom: 16,
@@ -2088,7 +2088,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     width: '100%',
     backgroundColor: '#F8FAFC',
-    borderRadius: 0,
+    borderRadius: 20,
     padding: 16,
     justifyContent: 'space-around',
     alignItems: 'center',
@@ -2103,7 +2103,7 @@ const styles = StyleSheet.create({
   // RUPEO PRO BANNER STYLES
   proBannerCardWrapper: {
     marginBottom: 24,
-    borderRadius: 0,
+    borderRadius: 22,
     shadowColor: '#000000',
     shadowOpacity: 0.06,
     shadowOffset: { width: 0, height: 2 },
@@ -2115,7 +2115,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: 16,
-    borderRadius: 0,
+    borderRadius: 22,
     borderWidth: 1,
   },
   proBannerCardVip: {
@@ -2133,7 +2133,7 @@ const styles = StyleSheet.create({
   proCrownCircle: {
     width: 44,
     height: 44,
-    borderRadius: 0,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1.5,
@@ -2162,7 +2162,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(16, 185, 129, 0.18)',
     paddingHorizontal: 7,
     paddingVertical: 2,
-    borderRadius: 0,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: 'rgba(16, 185, 129, 0.35)',
   },
@@ -2176,7 +2176,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F59E0B',
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 0,
+    borderRadius: 7,
   },
   proAdFreeBadgeText: {
     fontSize: 9,
@@ -2196,7 +2196,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 12,
     paddingVertical: 7,
-    borderRadius: 0,
+    borderRadius: 12,
     gap: 3,
   },
   proActionPillVip: {
@@ -2240,7 +2240,7 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 92,
     padding: 14,
-    borderRadius: 0,
+    borderRadius: 16,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2253,7 +2253,7 @@ const styles = StyleSheet.create({
   backupActionIcon: {
     width: 42,
     height: 42,
-    borderRadius: 0,
+    borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 8,
@@ -2268,7 +2268,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 13,
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     shadowColor: '#000000',
@@ -2280,7 +2280,7 @@ const styles = StyleSheet.create({
   infoIconBg: {
     width: 40,
     height: 40,
-    borderRadius: 0,
+    borderRadius: 12,
     backgroundColor: '#F8FAFC',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2300,7 +2300,7 @@ const styles = StyleSheet.create({
   rowBadge: {
     paddingHorizontal: 6,
     paddingVertical: 1.5,
-    borderRadius: 0,
+    borderRadius: 6,
   },
   rowBadgeText: {
     fontSize: 9.5,
@@ -2328,7 +2328,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#ECFDF5',
     paddingHorizontal: 7,
     paddingVertical: 2.5,
-    borderRadius: 0,
+    borderRadius: 6,
     borderWidth: 1,
     borderColor: '#A7F3D0',
   },
@@ -2342,7 +2342,7 @@ const styles = StyleSheet.create({
   // Help & Support Card
   supportCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 20,
     padding: 16,
     borderWidth: 1,
     borderColor: '#E2E8F0',
@@ -2356,7 +2356,7 @@ const styles = StyleSheet.create({
   // Dedicated Rate & Review Card
   reviewCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 20,
     padding: 16,
     borderWidth: 1,
     borderColor: '#FEF08A',
@@ -2377,7 +2377,7 @@ const styles = StyleSheet.create({
   supportIconBg: {
     width: 48,
     height: 48,
-    borderRadius: 0,
+    borderRadius: 16,
     backgroundColor: '#0F172A',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2393,7 +2393,7 @@ const styles = StyleSheet.create({
     right: -2,
     width: 12,
     height: 12,
-    borderRadius: 0,
+    borderRadius: 6,
     backgroundColor: '#10B981',
     borderWidth: 2,
     borderColor: '#FFFFFF',
@@ -2419,14 +2419,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEF3C7',
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 0,
+    borderRadius: 6,
     borderWidth: 1,
     borderColor: '#FDE68A',
   },
   supportLiveDot: {
     width: 5,
     height: 5,
-    borderRadius: 0,
+    borderRadius: 2.5,
     backgroundColor: '#B45309',
     marginRight: 4,
   },
@@ -2445,7 +2445,7 @@ const styles = StyleSheet.create({
   supportActionBtn: {
     width: 32,
     height: 32,
-    borderRadius: 0,
+    borderRadius: 16,
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
@@ -2456,7 +2456,7 @@ const styles = StyleSheet.create({
   prefRow: {
     padding: 12,
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 16,
     shadowColor: '#64748B',
     shadowOpacity: 0.05,
     shadowOffset: { width: 0, height: 3 },
@@ -2468,7 +2468,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     padding: 12,
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 16,
     shadowColor: '#64748B',
     shadowOpacity: 0.05,
     shadowOffset: { width: 0, height: 3 },
@@ -2485,7 +2485,7 @@ const styles = StyleSheet.create({
   pill: {
     paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 0,
+    borderRadius: 14,
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
@@ -2502,7 +2502,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F1F5F9',
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 0,
+    borderRadius: 8,
   },
   currencySymbolText: {
     fontSize: 14,
@@ -2515,7 +2515,7 @@ const styles = StyleSheet.create({
   // Danger Zone Card
   dangerCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 20,
     overflow: 'hidden',
     shadowColor: '#64748B',
     shadowOpacity: 0.06,
@@ -2538,7 +2538,7 @@ const styles = StyleSheet.create({
   dangerIconWrap: {
     width: 40,
     height: 40,
-    borderRadius: 0,
+    borderRadius: 12,
     backgroundColor: '#F8FAFC',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2570,7 +2570,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#E63946',
-    borderRadius: 0,
+    borderRadius: 16,
     paddingVertical: 16,
     marginTop: 20,
     shadowColor: '#E63946',
@@ -2601,15 +2601,14 @@ const styles = StyleSheet.create({
     width: 40,
     height: 4,
     backgroundColor: '#E2E8F0',
-    borderRadius: 0,
+    borderRadius: 2,
     alignSelf: 'center',
     marginBottom: 16,
   },
   modalContent: {
     backgroundColor: '#ffffff',
-    borderTopLeftRadius: 0,
-    borderTopRightRadius: 0,
-    borderRadius: 0,
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
     height: '82%',
     paddingTop: 14,
     paddingHorizontal: 24,
@@ -2621,8 +2620,8 @@ const styles = StyleSheet.create({
   autoHeightModal: {
     height: '100%',
     maxHeight: '100%',
-    borderTopLeftRadius: 0,
-    borderTopRightRadius: 0,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
   },
   modalBodyContent: {
     paddingBottom: 40,
@@ -2633,7 +2632,7 @@ const styles = StyleSheet.create({
   modalCloseBtn: {
     width: 40,
     height: 40,
-    borderRadius: 0,
+    borderRadius: 20,
     backgroundColor: '#F3F4F6',
     justifyContent: 'center',
     alignItems: 'center',
@@ -2646,7 +2645,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1.5,
     borderColor: '#F59E0B',
-    borderRadius: 0,
+    borderRadius: 14,
     backgroundColor: '#FFFFFF',
     paddingHorizontal: 16,
     marginBottom: 16,
@@ -2675,7 +2674,7 @@ const styles = StyleSheet.create({
   fullPageBackBtn: {
     width: 44,
     height: 44,
-    borderRadius: 0,
+    borderRadius: 22,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2693,16 +2692,15 @@ const styles = StyleSheet.create({
   fullPageContent: {
     padding: 24,
     backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 0,
-    borderTopRightRadius: 0,
-    borderRadius: 0,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     marginTop: 8,
   },
 
   fileSelectBtn: {
     flexDirection: 'row',
     backgroundColor: COLORS.brand,
-    borderRadius: 0,
+    borderRadius: 20,
     padding: 16,
     alignItems: 'center',
     justifyContent: 'center',
@@ -2718,7 +2716,7 @@ const styles = StyleSheet.create({
   selectedFileBox: {
     flexDirection: 'row',
     backgroundColor: '#EFF6FF',
-    borderRadius: 0,
+    borderRadius: 16,
     padding: 16,
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -2738,7 +2736,7 @@ const styles = StyleSheet.create({
 
   importInput: {
     backgroundColor: COLORS.cardBg,
-    borderRadius: 0,
+    borderRadius: 16,
     padding: 16,
     fontSize: 13,
     color: COLORS.ink,
@@ -2753,7 +2751,7 @@ const styles = StyleSheet.create({
   primaryBtn: {
     flexDirection: 'row',
     backgroundColor: COLORS.brand,
-    borderRadius: 0,
+    borderRadius: 20,
     padding: 18,
     alignItems: 'center',
     justifyContent: 'center',
@@ -2776,7 +2774,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: '#F8FAFC',
-    borderRadius: 0,
+    borderRadius: 20,
     padding: 14,
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
@@ -2784,7 +2782,7 @@ const styles = StyleSheet.create({
   },
   formatCardActive: { backgroundColor: '#FFFBEB', borderColor: COLORS.brandDark },
   formatCardLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1, paddingRight: 10 },
-  formatIconCircle: { width: 42, height: 42, borderRadius: 0, alignItems: 'center', justifyContent: 'center' },
+  formatIconCircle: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
   formatTextWrap: { flex: 1 },
   formatTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 },
   formatTitle: { fontSize: 14.5, fontWeight: '900', color: COLORS.navy },
@@ -2793,7 +2791,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEF3C7',
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 0,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: '#FDE68A',
   },
@@ -2805,7 +2803,7 @@ const styles = StyleSheet.create({
 
   // Luxury Pro Subscription Card Styles (V2)
   proCardActiveV2: {
-    borderRadius: 0,
+    borderRadius: 24,
     padding: 20,
     borderWidth: 1.5,
     borderColor: 'rgba(52, 211, 153, 0.35)',
@@ -2817,7 +2815,7 @@ const styles = StyleSheet.create({
   },
   // Sleek Compact Pro Subscription Card Styles
   proCardCompact: {
-    borderRadius: 0,
+    borderRadius: 20,
     padding: 16,
     borderWidth: 1.2,
     borderColor: 'rgba(245, 158, 11, 0.25)',
@@ -2839,7 +2837,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(52, 211, 153, 0.12)',
     paddingHorizontal: 8,
     paddingVertical: 3.5,
-    borderRadius: 0,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: 'rgba(52, 211, 153, 0.25)',
     gap: 4,
@@ -2856,7 +2854,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(245, 158, 11, 0.12)',
     paddingHorizontal: 8,
     paddingVertical: 3.5,
-    borderRadius: 0,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: 'rgba(245, 158, 11, 0.25)',
     gap: 4,
@@ -2873,7 +2871,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 0,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
     gap: 5,
@@ -2887,7 +2885,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#10B981',
     paddingHorizontal: 5,
     paddingVertical: 1,
-    borderRadius: 0,
+    borderRadius: 5,
   },
   proSavePillTextCompact: {
     fontSize: 9,
@@ -2933,7 +2931,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.06)',
     paddingHorizontal: 7,
     paddingVertical: 3,
-    borderRadius: 0,
+    borderRadius: 7,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
     gap: 4,
@@ -2949,7 +2947,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(52, 211, 153, 0.1)',
     paddingHorizontal: 7,
     paddingVertical: 3,
-    borderRadius: 0,
+    borderRadius: 7,
     borderWidth: 1,
     borderColor: 'rgba(52, 211, 153, 0.2)',
     gap: 4,
@@ -2966,7 +2964,7 @@ const styles = StyleSheet.create({
   },
   proUpgradeBtnCompact: {
     flex: 1,
-    borderRadius: 0,
+    borderRadius: 12,
     overflow: 'hidden',
     shadowColor: '#F59E0B',
     shadowOffset: { width: 0, height: 3 },
@@ -2995,7 +2993,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#2563EB',
     paddingVertical: 9,
     paddingHorizontal: 12,
-    borderRadius: 0,
+    borderRadius: 12,
     shadowColor: '#2563EB',
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.25,
@@ -3016,7 +3014,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.12)',
     paddingVertical: 9,
     paddingHorizontal: 12,
-    borderRadius: 0,
+    borderRadius: 12,
   },
   proCompactSyncText: {
     fontSize: 12,
@@ -3029,7 +3027,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(6, 78, 59, 0.8)',
     paddingHorizontal: 7,
     paddingVertical: 3,
-    borderRadius: 0,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: 'rgba(52, 211, 153, 0.35)',
     gap: 4,
@@ -3037,7 +3035,7 @@ const styles = StyleSheet.create({
   proActiveDotV2: {
     width: 5,
     height: 5,
-    borderRadius: 0,
+    borderRadius: 2.5,
     backgroundColor: '#34D399',
   },
   proActiveStatusTextV2: {
@@ -3068,7 +3066,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 12,
     paddingHorizontal: 12,
-    borderRadius: 0,
+    borderRadius: 14,
     backgroundColor: '#F8FAFC',
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
@@ -3100,7 +3098,7 @@ const styles = StyleSheet.create({
   monthChip: {
     paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 0,
+    borderRadius: 12,
     backgroundColor: '#F1F5F9',
     borderWidth: 1,
     borderColor: '#E2E8F0',
@@ -3130,7 +3128,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 9,
     paddingHorizontal: 6,
-    borderRadius: 0,
+    borderRadius: 12,
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
@@ -3147,7 +3145,7 @@ const styles = StyleSheet.create({
   typeDot: {
     width: 6,
     height: 6,
-    borderRadius: 0,
+    borderRadius: 3,
     marginRight: 6,
   },
   typeFilterText: {
@@ -3161,7 +3159,7 @@ const styles = StyleSheet.create({
   },
   statementPreviewCard: {
     backgroundColor: '#F8FAFC',
-    borderRadius: 0,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     padding: 14,
@@ -3193,7 +3191,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEF2F2',
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 0,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: '#FEE2E2',
   },
@@ -3224,7 +3222,7 @@ const styles = StyleSheet.create({
   },
   statementPerksCard: {
     backgroundColor: '#F0FDF4',
-    borderRadius: 0,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: '#DCFCE7',
     padding: 12,

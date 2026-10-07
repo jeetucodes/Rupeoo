@@ -5,6 +5,10 @@ export interface WidgetData {
   todaySpent: number;
   dailyLimit: number;
   remainingDailyLimit: number | null;
+  thisMonthSpent: number;
+  monthlyBudget: number;
+  budgetPercentage: number;
+  remainingMonthlyBudget: number | null;
   currency: string;
   theme: 'light' | 'dark';
   lastUpdated: number;
@@ -17,8 +21,12 @@ export const DEFAULT_WIDGET_DATA: WidgetData = {
   todaySpent: 0,
   dailyLimit: 0,
   remainingDailyLimit: null,
+  thisMonthSpent: 0,
+  monthlyBudget: 0,
+  budgetPercentage: 0,
+  remainingMonthlyBudget: null,
   currency: '₹',
-  theme: 'dark',
+  theme: 'light',
   lastUpdated: Date.now(),
 };
 

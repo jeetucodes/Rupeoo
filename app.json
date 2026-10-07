@@ -20,7 +20,7 @@
         "backgroundColor": "#0F0F11",
         "foregroundImage": "./assets/images/icon.png"
       },
-      "versionCode": 25,
+      "versionCode": 28,
       "permissions": [
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.VIBRATE",
@@ -64,7 +64,7 @@
             "enableProguardInReleaseBuilds": true,
             "enableShrinkResourcesInReleaseBuilds": true,
             "enableMinifyInReleaseBuilds": true,
-            "extraProguardRules": "-keep class com.reactnativeandroidwidget.** { *; }\n-keep class * extends com.reactnativeandroidwidget.RNWidgetProvider { *; }\n-keep class expo.modules.speechrecognition.** { *; }\n-keepclassmembers class expo.modules.speechrecognition.** { *; }\n-dontwarn expo.modules.speechrecognition.**\n-keep class android.speech.** { *; }\n-keep interface android.speech.** { *; }"
+            "extraProguardRules": "-keep class com.reactnativeandroidwidget.** { *; }\n-keep class * extends com.reactnativeandroidwidget.RNWidgetProvider { *; }\n-keep class expo.modules.speechrecognition.** { *; }\n-keepclassmembers class expo.modules.speechrecognition.** { *; }\n-dontwarn expo.modules.speechrecognition.**\n-keep class android.speech.** { *; }\n-keep interface android.speech.** { *; }\n-keep class com.innovatexlabs.paisewaise.RupeoShare** { *; }\n-keep class com.innovatexlabs.paisewaise.RupeoFileProvider { *; }\n-dontwarn com.innovatexlabs.paisewaise.**"
           },
           "ios": {
             "useFrameworks": "static"
@@ -76,6 +76,7 @@
       "expo-contacts",
       "@react-native-community/datetimepicker",
       "./plugins/withAndroidKotlinFix",
+      "./plugins/withRupeoShare",
       "expo-font",
       "expo-image",
       "expo-speech-recognition",
@@ -86,13 +87,39 @@
             {
               "name": "QuickAddWidget",
               "label": "Rupeo Quick Add",
-              "description": "Add expense, income, or voice transaction",
+              "description": "Daily tracker & 1-tap quick transaction buttons",
               "minWidth": "200dp",
               "minHeight": "100dp",
               "targetCellWidth": 4,
               "targetCellHeight": 2,
               "maxResizeWidth": "500dp",
               "maxResizeHeight": "320dp",
+              "resizeMode": "horizontal|vertical",
+              "updatePeriodMillis": 1800000
+            },
+            {
+              "name": "InsightWidget",
+              "label": "Rupeo Monthly Insights",
+              "description": "Monthly spend, budget progress & financial overview",
+              "minWidth": "200dp",
+              "minHeight": "110dp",
+              "targetCellWidth": 4,
+              "targetCellHeight": 2,
+              "maxResizeWidth": "500dp",
+              "maxResizeHeight": "360dp",
+              "resizeMode": "horizontal|vertical",
+              "updatePeriodMillis": 1800000
+            },
+            {
+              "name": "QuickActionsWidget",
+              "label": "Rupeo 1-Tap Actions",
+              "description": "Compact launcher for Expense, Income, Voice & History",
+              "minWidth": "180dp",
+              "minHeight": "80dp",
+              "targetCellWidth": 4,
+              "targetCellHeight": 1,
+              "maxResizeWidth": "500dp",
+              "maxResizeHeight": "200dp",
               "resizeMode": "horizontal|vertical",
               "updatePeriodMillis": 1800000
             }

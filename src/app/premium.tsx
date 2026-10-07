@@ -927,7 +927,7 @@ const styles = StyleSheet.create({
   // Benefits Card
   benefitsCard: {
     backgroundColor: '#111827',
-    borderRadius: 0,
+    borderRadius: 20,
     padding: 18,
     borderWidth: 1,
     borderColor: '#1F2937',
@@ -1013,7 +1013,7 @@ const styles = StyleSheet.create({
   // Plan Card
   planCard: {
     backgroundColor: '#111827',
-    borderRadius: 0,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: '#1F2937',
     shadowColor: '#000000',
@@ -1032,7 +1032,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 4,
     alignSelf: 'flex-start',
-    borderRadius: 0,
+    borderRadius: 8,
   },
   planBadgeDefault: {
     backgroundColor: '#1F2937',
@@ -1168,7 +1168,7 @@ const styles = StyleSheet.create({
 
   // CTA Button
   ctaButtonWrapper: {
-    borderRadius: 0,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: '#F59E0B',
     overflow: 'hidden',
@@ -1205,7 +1205,7 @@ const styles = StyleSheet.create({
   // Promo / Coupon Section
   couponSection: {
     backgroundColor: '#111827',
-    borderRadius: 0,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: '#1E293B',
     padding: 14,
@@ -1225,7 +1225,7 @@ const styles = StyleSheet.create({
   couponIconWrap: {
     width: 22,
     height: 22,
-    borderRadius: 0,
+    borderRadius: 6,
     backgroundColor: 'rgba(99, 102, 241, 0.15)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1244,7 +1244,7 @@ const styles = StyleSheet.create({
   couponTextInput: {
     flex: 1,
     backgroundColor: '#0B0F19',
-    borderRadius: 0,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: '#334155',
     paddingHorizontal: 12,
@@ -1258,7 +1258,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#4F46E5',
     paddingHorizontal: 18,
     paddingVertical: 11,
-    borderRadius: 0,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: '#6366F1',
     alignItems: 'center',

@@ -566,7 +566,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     backgroundColor: '#FEF3C7',
-    borderRadius: 0,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#FDE68A',
     shadowColor: '#000000',
@@ -637,7 +637,7 @@ const styles = StyleSheet.create({
   },
   listCard: {
     backgroundColor: '#ffffff',
-    borderRadius: 0,
+    borderRadius: 24,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     shadowColor: '#000000',

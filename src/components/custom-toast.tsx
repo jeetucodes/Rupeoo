@@ -74,7 +74,7 @@ const styles = StyleSheet.create({
     maxWidth: 420,
     minHeight: 60,
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 12,
     flexDirection: 'row',
@@ -102,7 +102,7 @@ const styles = StyleSheet.create({
   iconCircle: {
     width: 38,
     height: 38,
-    borderRadius: 0,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,

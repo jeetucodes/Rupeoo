@@ -343,7 +343,7 @@ const errorStyles = StyleSheet.create({
     width: '100%',
     maxWidth: 400,
     backgroundColor: '#ffffff',
-    borderRadius: 0,
+    borderRadius: 28,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     padding: 32,

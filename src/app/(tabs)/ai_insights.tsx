@@ -4419,9 +4419,8 @@ const styles = StyleSheet.create({
   },
   modalContentLarge: {
     backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 0,
-    borderTopRightRadius: 0,
-    borderRadius: 0,
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
     padding: 20,
     maxHeight: '85%',
   },
@@ -4436,7 +4435,7 @@ const styles = StyleSheet.create({
   modalCloseBtn: {
     width: 36,
     height: 36,
-    borderRadius: 0,
+    borderRadius: 18,
     backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
@@ -4482,7 +4481,7 @@ const styles = StyleSheet.create({
   // EXPORT MODAL CONTENT
   exportModalContent: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 24,
     padding: 22,
     marginHorizontal: 20,
     marginBottom: 40,
@@ -4512,7 +4511,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F8FAFC',
-    borderRadius: 0,
+    borderRadius: 16,
     padding: 14,
     marginBottom: 10,
     borderWidth: 1,
@@ -4521,7 +4520,7 @@ const styles = StyleSheet.create({
   exportOptionIconCircle: {
     width: 40,
     height: 40,
-    borderRadius: 0,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
@@ -4551,7 +4550,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#EFF6FF',
     borderWidth: 1,
     borderColor: '#BFDBFE',
-    borderRadius: 0,
+    borderRadius: 6,
     paddingHorizontal: 6,
     paddingVertical: 2,
   },

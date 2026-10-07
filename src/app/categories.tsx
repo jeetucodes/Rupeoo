@@ -500,7 +500,7 @@ const styles = StyleSheet.create({
   backButton: {
     width: 44,
     height: 44,
-    borderRadius: 0,
+    borderRadius: 22,
     backgroundColor: '#ffffff',
     alignItems: 'center',
     justifyContent: 'center',
@@ -518,7 +518,7 @@ const styles = StyleSheet.create({
   addButton: {
     width: 44,
     height: 44,
-    borderRadius: 0,
+    borderRadius: 22,
     backgroundColor: '#FFD740',
     alignItems: 'center',
     justifyContent: 'center',
@@ -538,7 +538,7 @@ const styles = StyleSheet.create({
   },
   listCard: {
     backgroundColor: '#ffffff',
-    borderRadius: 0,
+    borderRadius: 24,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     shadowColor: '#000000',
@@ -560,7 +560,7 @@ const styles = StyleSheet.create({
   iconCircle: {
     width: 44,
     height: 44,
-    borderRadius: 0,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 14,
@@ -580,7 +580,7 @@ const styles = StyleSheet.create({
   badge: {
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 0,
+    borderRadius: 6,
   },
   badgeDefault: {
     backgroundColor: '#F3F4F6',
@@ -605,7 +605,7 @@ const styles = StyleSheet.create({
   },
   actionIconBtn: {
     padding: 8,
-    borderRadius: 0,
+    borderRadius: 8,
   },
   modalOverlay: {
     flex: 1,
@@ -614,8 +614,8 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     backgroundColor: '#ffffff',
-    borderTopLeftRadius: 0,
-    borderTopRightRadius: 0,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
     borderTopWidth: 2,
     borderTopColor: '#CBD5E1',
     padding: 24,
@@ -648,7 +648,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F7F8FC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    borderRadius: 0,
+    borderRadius: 16,
     height: 50,
     paddingHorizontal: 16,
     fontSize: 15.5,
@@ -663,7 +663,7 @@ const styles = StyleSheet.create({
   iconOption: {
     width: 44,
     height: 44,
-    borderRadius: 0,
+    borderRadius: 12,
     backgroundColor: '#F7F8FC',
     alignItems: 'center',
     justifyContent: 'center',
@@ -684,7 +684,7 @@ const styles = StyleSheet.create({
   colorOption: {
     width: 38,
     height: 38,
-    borderRadius: 0,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
@@ -697,7 +697,7 @@ const styles = StyleSheet.create({
   },
   saveBtn: {
     backgroundColor: '#FFD740',
-    borderRadius: 0,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: '#F59E0B',
     height: 52,

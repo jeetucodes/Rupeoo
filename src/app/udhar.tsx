@@ -30,6 +30,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { captureRef } from 'react-native-view-shot';
 import * as Sharing from 'expo-sharing';
+import { shareImageAndText } from '@/lib/shareHelper';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Contacts from 'expo-contacts';
 import * as LegacyContacts from 'expo-contacts/legacy';
@@ -1334,60 +1335,13 @@ export default function UdharScreen() {
           result: 'tmpfile',
         });
 
-        // 1. Android: Use native RupeoShare to send BOTH QR image and text caption attached directly to WhatsApp
-        if (Platform.OS === 'android') {
-          if (NativeModules.RupeoShare?.shareToWhatsApp) {
-            try {
-              await NativeModules.RupeoShare.shareToWhatsApp(
-                uri,
-                shareText,
-                friendPhone
-              );
-              return;
-            } catch (waErr) {
-              console.warn('Native shareToWhatsApp failed, trying shareImageAndText:', waErr);
-            }
-          }
-
-          if (NativeModules.RupeoShare?.shareImageAndText) {
-            try {
-              await NativeModules.RupeoShare.shareImageAndText(
-                uri,
-                shareText,
-                `Rupeo Payment Request - ${curr}${parsedRequestAmount.toFixed(2)}`
-              );
-              return;
-            } catch (nativeErr) {
-              console.warn('Native RupeoShare failed, falling back:', nativeErr);
-            }
-          }
-        }
-
-        // 2. iOS: Share.share supports message (text caption) + url (image)
-        if (Platform.OS === 'ios') {
-          try {
-            await Share.share({
-              message: shareText,
-              url: uri,
-            });
-            return;
-          } catch (iosErr) {
-            console.warn('iOS share error, falling back to expo-sharing:', iosErr);
-          }
-        }
-
-        // 3. Fallback to standard sharing (copy text to clipboard as safety net only on fallback)
-        if (await Sharing.isAvailableAsync()) {
-          try {
-            Clipboard.setString(shareText);
-          } catch { }
-          await Sharing.shareAsync(uri, {
-            mimeType: 'image/png',
-            dialogTitle: `Rupeo Payment Request - ${curr}${parsedRequestAmount.toFixed(2)}`,
-            UTI: 'public.png',
-          });
-          return;
-        }
+        await shareImageAndText({
+          uri,
+          text: shareText,
+          title: `Rupeo Payment Request - ${curr}${parsedRequestAmount.toFixed(2)}`,
+          dialogTitle: `Rupeo Payment Request - ${curr}${parsedRequestAmount.toFixed(2)}`,
+        });
+        return;
       }
 
       // Fallback if view shot or sharing is unavailable
@@ -1980,6 +1934,18 @@ export default function UdharScreen() {
           window.open(generatedInvoiceUri, '_blank');
           return;
         }
+      }
+
+      if (generatedInvoiceType === 'photo') {
+        const opts = getInvoiceOptions();
+        const invoiceText = opts ? generateUdharInvoiceWhatsAppText(opts) : undefined;
+        await shareImageAndText({
+          uri: generatedInvoiceUri,
+          text: invoiceText,
+          title: `Rupeo Invoice - ${selectedFriendDetail?.name || 'Customer'}`,
+          dialogTitle: `Rupeo Invoice - ${selectedFriendDetail?.name || 'Customer'}`,
+        });
+        return;
       }
 
       if (await Sharing.isAvailableAsync()) {
@@ -4685,7 +4651,7 @@ export default function UdharScreen() {
 
                 {interestPeriod !== 'one_time' && (
                   <View style={{ marginTop: 8, paddingTop: 6, borderTopWidth: 1, borderTopColor: '#FDE68A', flexDirection: 'row', alignItems: 'center' }}>
-                    <View style={{ width: 8, height: 8, borderRadius: 0, backgroundColor: '#16A34A', marginRight: 6 }} />
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#16A34A', marginRight: 6 }} />
                     <Text style={{ fontSize: 10.5, color: '#92400E', fontWeight: '600', flex: 1 }}>
                       {lang === 'Hindi'
                         ? '🟢 यह ब्याज चुनी गई तारीख से अपने-आप हर दिन/महीने राशि में जुड़ता रहेगा।'
@@ -4940,7 +4906,7 @@ export default function UdharScreen() {
                             ? `${ic.interestPercent}%${ic.interestPeriod === 'monthly' ? '/mo' : ic.interestPeriod === 'yearly' ? '/yr' : ''}`
                             : 'Interest';
                           return (
-                            <View key={ic.id} style={[styles.invoiceSlipRow, { backgroundColor: '#FFFBEB', paddingHorizontal: 8, borderRadius: 0, marginVertical: 3 }]}>
+                            <View key={ic.id} style={[styles.invoiceSlipRow, { backgroundColor: '#FFFBEB', paddingHorizontal: 8, borderRadius: 8, marginVertical: 3 }]}>
                               <View style={{ flex: 1, marginRight: 8 }}>
                                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                                   <View style={[styles.invoiceSlipTag, { backgroundColor: '#FEF3C7' }]}>
@@ -4963,7 +4929,7 @@ export default function UdharScreen() {
 
                         {/* Settlements Paid */}
                         {settlementChildren.map((sc) => (
-                          <View key={sc.id} style={[styles.invoiceSlipRow, { backgroundColor: '#F0FDF4', paddingHorizontal: 8, borderRadius: 0, marginVertical: 3 }]}>
+                          <View key={sc.id} style={[styles.invoiceSlipRow, { backgroundColor: '#F0FDF4', paddingHorizontal: 8, borderRadius: 8, marginVertical: 3 }]}>
                             <View style={{ flex: 1, marginRight: 8 }}>
                               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                                 <View style={[styles.invoiceSlipTag, { backgroundColor: '#DCFCE7' }]}>
@@ -5245,7 +5211,7 @@ const styles = StyleSheet.create({
   backButton: {
     width: 38,
     height: 38,
-    borderRadius: 0,
+    borderRadius: 11,
     backgroundColor: '#F8FAFC',
     alignItems: 'center',
     justifyContent: 'center',
@@ -5278,7 +5244,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#0F172A',
     paddingHorizontal: 12,
     paddingVertical: 7,
-    borderRadius: 0,
+    borderRadius: 10,
     shadowColor: '#0F172A',
     shadowOpacity: 0.15,
     shadowOffset: { width: 0, height: 2 },
@@ -5456,7 +5422,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 14,
     paddingVertical: 10,
     paddingHorizontal: 12,
     borderWidth: 1,
@@ -5477,7 +5443,7 @@ const styles = StyleSheet.create({
   dashboardToggleIconWrap: {
     width: 34,
     height: 34,
-    borderRadius: 0,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 10,
@@ -5500,7 +5466,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: '#F8FAFC',
-    borderRadius: 0,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     paddingHorizontal: 12,
@@ -5522,7 +5488,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderWidth: 1,
@@ -5551,7 +5517,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 12,
     paddingVertical: 7,
-    borderRadius: 0,
+    borderRadius: 12,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#E2E8F0',
@@ -5590,7 +5556,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F1F5F9',
     paddingHorizontal: 5,
     paddingVertical: 1,
-    borderRadius: 0,
+    borderRadius: 8,
   },
   filterCountBadgeActive: {
     backgroundColor: '#334155',
@@ -5610,7 +5576,7 @@ const styles = StyleSheet.create({
   },
   emptyContainer: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 18,
     padding: 32,
     alignItems: 'center',
     justifyContent: 'center',
@@ -5626,7 +5592,7 @@ const styles = StyleSheet.create({
   emptyIconCircle: {
     width: 72,
     height: 72,
-    borderRadius: 0,
+    borderRadius: 36,
     backgroundColor: '#EEF2FF',
     borderWidth: 1.5,
     borderColor: '#C7D2FE',
@@ -5654,7 +5620,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#0F172A',
     paddingHorizontal: 16,
     paddingVertical: 10,
-    borderRadius: 0,
+    borderRadius: 10,
     shadowColor: '#0F172A',
     shadowOpacity: 0.15,
     shadowOffset: { width: 0, height: 2 },
@@ -5748,7 +5714,7 @@ const styles = StyleSheet.create({
   friendBalanceBadge: {
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 0,
+    borderRadius: 5,
     borderWidth: 1,
     backgroundColor: '#F8FAFC',
     borderColor: '#E2E8F0',
@@ -5786,7 +5752,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8FAFC',
     paddingHorizontal: 9,
     paddingVertical: 6,
-    borderRadius: 0,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     flexShrink: 1,
@@ -5803,7 +5769,7 @@ const styles = StyleSheet.create({
   cardDeleteBtn: {
     width: 32,
     height: 32,
-    borderRadius: 0,
+    borderRadius: 8,
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
@@ -6180,7 +6146,7 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 380,
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 20,
     padding: 20,
     borderWidth: 1,
     borderColor: '#E2E8F0',
@@ -6194,7 +6160,7 @@ const styles = StyleSheet.create({
   modalIconCircle: {
     width: 40,
     height: 40,
-    borderRadius: 0,
+    borderRadius: 11,
     backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
@@ -6230,7 +6196,7 @@ const styles = StyleSheet.create({
   },
   formInput: {
     backgroundColor: '#F8FAFC',
-    borderRadius: 0,
+    borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderWidth: 1,
@@ -6246,7 +6212,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F1F5F9',
     paddingHorizontal: 10,
     paddingVertical: 11,
-    borderRadius: 0,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
@@ -6324,7 +6290,7 @@ const styles = StyleSheet.create({
   modalCancelBtn: {
     flex: 1,
     paddingVertical: 11,
-    borderRadius: 0,
+    borderRadius: 10,
     backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
@@ -6339,7 +6305,7 @@ const styles = StyleSheet.create({
   modalConfirmBtn: {
     flex: 1,
     paddingVertical: 11,
-    borderRadius: 0,
+    borderRadius: 10,
     backgroundColor: '#0F172A',
     alignItems: 'center',
     justifyContent: 'center',
@@ -6362,7 +6328,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 10,
-    borderRadius: 0,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     backgroundColor: '#F8FAFC',
@@ -6395,7 +6361,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F8FAFC',
-    borderRadius: 0,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: '#CBD5E1',
     paddingHorizontal: 12,
@@ -6494,7 +6460,7 @@ const styles = StyleSheet.create({
   editFriendBtn: {
     width: 36,
     height: 36,
-    borderRadius: 0,
+    borderRadius: 18,
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
@@ -6504,7 +6470,7 @@ const styles = StyleSheet.create({
   deleteFriendBtn: {
     width: 36,
     height: 36,
-    borderRadius: 0,
+    borderRadius: 18,
     backgroundColor: '#FEF2F2',
     borderWidth: 1,
     borderColor: '#FECACA',
@@ -6700,7 +6666,7 @@ const styles = StyleSheet.create({
   // Entry Card
   simpleEntryCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 14,
     padding: 14,
     marginBottom: 10,
     borderWidth: 1,
@@ -6750,7 +6716,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#ECFDF5',
     paddingHorizontal: 7,
     paddingVertical: 2.5,
-    borderRadius: 0,
+    borderRadius: 5,
     borderWidth: 1,
     borderColor: '#86EFAC',
   },
@@ -6763,7 +6729,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#DCFCE7',
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 0,
+    borderRadius: 5,
     marginTop: 3,
     borderWidth: 1,
     borderColor: '#BBF7D0',
@@ -6777,7 +6743,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F1F5F9',
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 0,
+    borderRadius: 4,
     marginTop: 3,
     borderWidth: 1,
     borderColor: '#E2E8F0',
@@ -6792,7 +6758,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 0,
+    borderRadius: 5,
   },
   typePillGave: {
     backgroundColor: '#DCFCE7',
@@ -6826,7 +6792,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: '#F8FAFC',
-    borderRadius: 0,
+    borderRadius: 10,
     paddingHorizontal: 10,
     paddingVertical: 8,
     marginTop: 10,
@@ -6835,8 +6801,8 @@ const styles = StyleSheet.create({
   },
   threadDropdownBtnOpen: {
     backgroundColor: '#F1F5F9',
-    borderBottomLeftRadius: 0,
-    borderBottomRightRadius: 0,
+    borderBottomLeftRadius: 4,
+    borderBottomRightRadius: 4,
     borderBottomColor: '#CBD5E1',
   },
   threadDropdownBtnLeft: {
@@ -6855,7 +6821,7 @@ const styles = StyleSheet.create({
   threadDropdownIconCircle: {
     width: 22,
     height: 22,
-    borderRadius: 0,
+    borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 8,
@@ -6892,8 +6858,8 @@ const styles = StyleSheet.create({
   },
   threadDropdownContent: {
     backgroundColor: '#F8FAFC',
-    borderBottomLeftRadius: 0,
-    borderBottomRightRadius: 0,
+    borderBottomLeftRadius: 10,
+    borderBottomRightRadius: 10,
     paddingHorizontal: 10,
     paddingTop: 10,
     paddingBottom: 6,
@@ -6922,7 +6888,7 @@ const styles = StyleSheet.create({
   threadNodeDot: {
     width: 16,
     height: 16,
-    borderRadius: 0,
+    borderRadius: 8,
     backgroundColor: '#059669',
     alignItems: 'center',
     justifyContent: 'center',
@@ -6949,7 +6915,7 @@ const styles = StyleSheet.create({
   threadItemCard: {
     flex: 1,
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 8,
     padding: 8,
     marginLeft: 8,
     borderWidth: 1,
@@ -6969,7 +6935,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F1F5F9',
     paddingHorizontal: 5,
     paddingVertical: 1,
-    borderRadius: 0,
+    borderRadius: 4,
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
@@ -7013,7 +6979,7 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     paddingVertical: 6,
     paddingHorizontal: 9,
-    borderRadius: 0,
+    borderRadius: 7,
     borderWidth: 1,
   },
   threadSummarySettled: {
@@ -7052,7 +7018,7 @@ const styles = StyleSheet.create({
     borderColor: '#BBF7D0',
     paddingHorizontal: 10,
     paddingVertical: 4.5,
-    borderRadius: 0,
+    borderRadius: 6,
   },
   simpleEntrySettleBtnText: {
     fontSize: 11,
@@ -7067,7 +7033,7 @@ const styles = StyleSheet.create({
     borderColor: '#FDE68A',
     paddingHorizontal: 8,
     paddingVertical: 4.5,
-    borderRadius: 0,
+    borderRadius: 6,
     gap: 3,
   },
   simpleEntryInterestBtnText: {
@@ -7083,7 +7049,7 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0',
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 0,
+    borderRadius: 6,
     gap: 4,
   },
   simpleEntryDeleteBtnText: {
@@ -7117,7 +7083,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 13,
-    borderRadius: 0,
+    borderRadius: 12,
     borderWidth: 1.5,
   },
   simpleBottomBtnGave: {
@@ -7150,7 +7116,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#0F172A',
-    borderRadius: 0,
+    borderRadius: 10,
     paddingVertical: 12,
     marginTop: 10,
   },
@@ -7172,7 +7138,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8FAFC',
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 0,
+    borderRadius: 6,
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
@@ -7186,7 +7152,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 0,
+    borderRadius: 6,
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
@@ -7199,7 +7165,7 @@ const styles = StyleSheet.create({
   qrPassContainer: {
     width: '100%',
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     overflow: 'hidden',
@@ -7228,7 +7194,7 @@ const styles = StyleSheet.create({
   qrLogoSquare: {
     width: 22,
     height: 22,
-    borderRadius: 0,
+    borderRadius: 5,
     backgroundColor: '#0F172A',
     alignItems: 'center',
     justifyContent: 'center',
@@ -7247,7 +7213,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#0F172A',
     paddingHorizontal: 5,
     paddingVertical: 1.5,
-    borderRadius: 0,
+    borderRadius: 4,
   },
   qrPassPillText: {
     fontSize: 8.5,
@@ -7261,7 +7227,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F0FDF4',
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 0,
+    borderRadius: 5,
     borderWidth: 1,
     borderColor: '#BBF7D0',
   },
@@ -7291,7 +7257,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F1F5F9',
     paddingHorizontal: 5,
     paddingVertical: 1.5,
-    borderRadius: 0,
+    borderRadius: 4,
     marginLeft: 6,
   },
   inrBadgeText: {
@@ -7303,7 +7269,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#F8FAFC',
     width: '90%',
-    borderRadius: 0,
+    borderRadius: 10,
     paddingVertical: 8,
     paddingHorizontal: 12,
     marginTop: 4,
@@ -7343,7 +7309,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8FAFC',
     paddingHorizontal: 10,
     paddingVertical: 3,
-    borderRadius: 0,
+    borderRadius: 6,
     marginBottom: 8,
     borderWidth: 1,
     borderColor: '#E2E8F0',
@@ -7393,7 +7359,7 @@ const styles = StyleSheet.create({
   qrInnerCodeWrapper: {
     backgroundColor: '#FFFFFF',
     padding: 4,
-    borderRadius: 0,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -7411,7 +7377,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#25D366',
     width: '100%',
     paddingVertical: 14,
-    borderRadius: 0,
+    borderRadius: 12,
     marginTop: 14,
     shadowColor: '#16A34A',
     shadowOffset: { width: 0, height: 3 },
@@ -7435,7 +7401,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8FAFC',
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 0,
+    borderRadius: 6,
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
@@ -7451,7 +7417,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#25D366',
     width: '100%',
     paddingVertical: 13,
-    borderRadius: 0,
+    borderRadius: 12,
     marginTop: 0,
   },
   whatsappShareBtnText: {
@@ -7470,7 +7436,7 @@ const styles = StyleSheet.create({
   },
   settleInfoCard: {
     padding: 12,
-    borderRadius: 0,
+    borderRadius: 12,
     borderWidth: 1,
     marginTop: 12,
     marginBottom: 4,
@@ -7503,7 +7469,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    borderRadius: 0,
+    borderRadius: 8,
     paddingVertical: 8,
   },
   settleModeChipActive: {
@@ -7526,7 +7492,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    borderRadius: 0,
+    borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 8,
     marginHorizontal: 16,
@@ -7555,7 +7521,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#0F172A',
     paddingHorizontal: 9,
     paddingVertical: 5,
-    borderRadius: 0,
+    borderRadius: 6,
   },
   historySettleBannerBtnText: {
     fontSize: 11,
@@ -7569,7 +7535,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    borderRadius: 0,
+    borderRadius: 8,
     paddingVertical: 7,
     paddingHorizontal: 10,
     marginBottom: 12,
@@ -7589,7 +7555,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    borderRadius: 0,
+    borderRadius: 10,
     paddingVertical: 9,
     paddingHorizontal: 8,
   },
@@ -7609,7 +7575,7 @@ const styles = StyleSheet.create({
   interestModeRow: {
     flexDirection: 'row',
     backgroundColor: '#F1F5F9',
-    borderRadius: 0,
+    borderRadius: 10,
     padding: 3,
     gap: 4,
   },
@@ -7618,7 +7584,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 8,
-    borderRadius: 0,
+    borderRadius: 8,
   },
   interestModeTabActive: {
     backgroundColor: '#FFFFFF',
@@ -7639,7 +7605,7 @@ const styles = StyleSheet.create({
   },
   interestCalcBox: {
     backgroundColor: '#FFFBEB',
-    borderRadius: 0,
+    borderRadius: 12,
     padding: 12,
     borderWidth: 1,
     borderColor: '#FDE68A',
@@ -7663,7 +7629,7 @@ const styles = StyleSheet.create({
   },
   noteInput: {
     backgroundColor: '#F8FAFC',
-    borderRadius: 0,
+    borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderWidth: 1,
@@ -7686,7 +7652,7 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0',
     paddingHorizontal: 9,
     paddingVertical: 5,
-    borderRadius: 0,
+    borderRadius: 8,
   },
   interestDateChipActive: {
     backgroundColor: '#FEF3C7',
@@ -7715,7 +7681,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    borderRadius: 0,
+    borderRadius: 8,
     paddingVertical: 7,
     paddingHorizontal: 6,
   },
@@ -7741,7 +7707,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#EFF6FF',
     borderWidth: 1,
     borderColor: '#BFDBFE',
-    borderRadius: 0,
+    borderRadius: 8,
   },
   invoiceTopBtnText: {
     fontSize: 12,
@@ -7754,7 +7720,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 7,
     paddingHorizontal: 10,
-    borderRadius: 0,
+    borderRadius: 8,
     backgroundColor: '#F1F5F9',
     borderWidth: 1,
     borderColor: '#E2E8F0',
@@ -7770,7 +7736,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4.5,
     backgroundColor: '#EFF6FF',
-    borderRadius: 0,
+    borderRadius: 6,
     borderWidth: 1,
     borderColor: '#BFDBFE',
   },
@@ -7792,7 +7758,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 7,
     backgroundColor: '#F8FAFC',
-    borderRadius: 0,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
@@ -7811,7 +7777,7 @@ const styles = StyleSheet.create({
   },
   invoiceSlipBox: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 14,
     borderWidth: 1.5,
     borderColor: '#CBD5E1',
     padding: 14,
@@ -7833,7 +7799,7 @@ const styles = StyleSheet.create({
   invoiceSlipLogoBadge: {
     width: 30,
     height: 30,
-    borderRadius: 0,
+    borderRadius: 8,
     backgroundColor: '#0F172A',
     alignItems: 'center',
     justifyContent: 'center',
@@ -7862,7 +7828,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#0F172A',
     paddingHorizontal: 6,
     paddingVertical: 2.5,
-    borderRadius: 0,
+    borderRadius: 5,
     marginBottom: 2,
   },
   invoiceSlipRefText: {
@@ -7884,7 +7850,7 @@ const styles = StyleSheet.create({
   invoiceSlipPartyCard: {
     flex: 1,
     backgroundColor: '#F8FAFC',
-    borderRadius: 0,
+    borderRadius: 8,
     padding: 8,
     borderWidth: 1,
     borderColor: '#E2E8F0',
@@ -7904,7 +7870,7 @@ const styles = StyleSheet.create({
   invoiceSlipAvatar: {
     width: 26,
     height: 26,
-    borderRadius: 0,
+    borderRadius: 7,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -7934,7 +7900,7 @@ const styles = StyleSheet.create({
   invoiceSlipTag: {
     paddingHorizontal: 4,
     paddingVertical: 1.5,
-    borderRadius: 0,
+    borderRadius: 3,
     marginRight: 4,
   },
   invoiceSlipTagText: {
@@ -7960,7 +7926,7 @@ const styles = StyleSheet.create({
   },
   invoiceSlipHighlight: {
     backgroundColor: '#0B1120',
-    borderRadius: 0,
+    borderRadius: 10,
     paddingVertical: 9,
     paddingHorizontal: 12,
     flexDirection: 'row',
@@ -7992,7 +7958,7 @@ const styles = StyleSheet.create({
   invoiceSlipGridItem: {
     flex: 1,
     backgroundColor: '#F8FAFC',
-    borderRadius: 0,
+    borderRadius: 7,
     padding: 6,
     borderWidth: 1,
     borderColor: '#E2E8F0',
@@ -8013,7 +7979,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#ECFDF5',
     borderColor: '#A7F3D0',
     borderWidth: 1,
-    borderRadius: 0,
+    borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 6,
     marginTop: 8,
@@ -8057,7 +8023,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#16A34A',
     paddingVertical: 12,
-    borderRadius: 0,
+    borderRadius: 10,
     elevation: 3,
   },
   invoiceActionPrimaryText: {
@@ -8078,7 +8044,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 13,
     paddingHorizontal: 12,
-    borderRadius: 0,
+    borderRadius: 12,
     elevation: 3,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
@@ -8109,7 +8075,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: '#F8FAFC',
-    borderRadius: 0,
+    borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderWidth: 1,
@@ -8118,7 +8084,7 @@ const styles = StyleSheet.create({
   invoiceReadyDot: {
     width: 22,
     height: 22,
-    borderRadius: 0,
+    borderRadius: 11,
     backgroundColor: '#16A34A',
     alignItems: 'center',
     justifyContent: 'center',
@@ -8134,7 +8100,7 @@ const styles = StyleSheet.create({
     gap: 3,
     paddingVertical: 3,
     paddingHorizontal: 8,
-    borderRadius: 0,
+    borderRadius: 6,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#CBD5E1',
@@ -8150,7 +8116,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 14,
-    borderRadius: 0,
+    borderRadius: 12,
     elevation: 3,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
@@ -8176,7 +8142,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#25D366',
     paddingVertical: 12,
-    borderRadius: 0,
+    borderRadius: 12,
     marginTop: 4,
     elevation: 2,
     shadowColor: '#25D366',
@@ -8203,7 +8169,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E2E8F0',
     paddingVertical: 9,
-    borderRadius: 0,
+    borderRadius: 8,
   },
   invoiceSecondaryBtnText: {
     fontSize: 11.5,
@@ -8217,7 +8183,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#ECFDF5',
     borderWidth: 1.5,
     borderColor: '#6EE7B7',
-    borderRadius: 0,
+    borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
@@ -8230,7 +8196,7 @@ const styles = StyleSheet.create({
   invoiceGeneratedIconBadge: {
     width: 32,
     height: 32,
-    borderRadius: 0,
+    borderRadius: 16,
     backgroundColor: '#059669',
     alignItems: 'center',
     justifyContent: 'center',
@@ -8257,7 +8223,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderWidth: 1.5,
     borderColor: '#2563EB',
-    borderRadius: 0,
+    borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 6,
   },

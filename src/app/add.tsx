@@ -998,7 +998,7 @@ export default function AddExpenseScreen() {
                   style={{
                     flex: 1,
                     padding: '6px 10px',
-                    borderRadius: 0,
+                    borderRadius: 12,
                     borderWidth: 1,
                     borderColor: date !== todayStr && date !== yesterdayStr ? '#2563EB' : '#E2E8F0',
                     outline: 'none',
@@ -1358,7 +1358,7 @@ const styles = StyleSheet.create({
   closeBtn: {
     width: 38,
     height: 38,
-    borderRadius: 0,
+    borderRadius: 12,
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
@@ -1384,7 +1384,7 @@ const styles = StyleSheet.create({
   headerCatsBtn: {
     width: 38,
     height: 38,
-    borderRadius: 0,
+    borderRadius: 12,
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
@@ -1404,7 +1404,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#ECFDF5',
     paddingHorizontal: 10,
     paddingVertical: 4.5,
-    borderRadius: 0,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: '#A7F3D0',
     gap: 4,
@@ -1422,7 +1422,7 @@ const styles = StyleSheet.create({
   typeSwitchWrap: {
     flexDirection: 'row',
     backgroundColor: '#F1F5F9',
-    borderRadius: 0,
+    borderRadius: 14,
     padding: 3.5,
     marginBottom: 10,
     borderWidth: 1.5,
@@ -1434,7 +1434,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 9,
-    borderRadius: 0,
+    borderRadius: 11,
   },
   typeBtnExpenseActive: {
     backgroundColor: '#FFFFFF',
@@ -1473,7 +1473,7 @@ const styles = StyleSheet.create({
   // Amount Card
   amountCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 20,
     paddingVertical: 15,
     paddingHorizontal: 16,
     alignItems: 'center',
@@ -1489,7 +1489,7 @@ const styles = StyleSheet.create({
   amountBadge: {
     paddingHorizontal: 11,
     paddingVertical: 3.5,
-    borderRadius: 0,
+    borderRadius: 8,
     borderWidth: 1.2,
     marginBottom: 4,
   },
@@ -1528,7 +1528,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 11,
     paddingVertical: 5.5,
     backgroundColor: '#F8FAFC',
-    borderRadius: 0,
+    borderRadius: 10,
     borderWidth: 1.2,
     borderColor: '#E2E8F0',
   },
@@ -1543,7 +1543,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5.5,
     backgroundColor: '#FEF2F2',
-    borderRadius: 0,
+    borderRadius: 10,
     borderWidth: 1.2,
     borderColor: '#FECACA',
   },
@@ -1556,7 +1556,7 @@ const styles = StyleSheet.create({
   // Section Cards
   sectionCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 16,
     padding: 13,
     marginBottom: 10,
     borderWidth: 1,
@@ -1594,7 +1594,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 9,
     paddingVertical: 3.5,
-    borderRadius: 0,
+    borderRadius: 7,
     borderWidth: 1.2,
   },
   addCategoryHeaderBtnText: {
@@ -1608,7 +1608,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 0,
+    borderRadius: 12,
     backgroundColor: '#FFFFFF',
     borderWidth: 1.5,
     borderStyle: 'dashed',
@@ -1629,7 +1629,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F1F5F9',
     paddingHorizontal: 4,
     paddingVertical: 1,
-    borderRadius: 0,
+    borderRadius: 4,
     marginLeft: 3,
   },
 
@@ -1644,7 +1644,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 11,
     paddingVertical: 6,
-    borderRadius: 0,
+    borderRadius: 12,
     backgroundColor: '#F8FAFC',
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
@@ -1653,7 +1653,7 @@ const styles = StyleSheet.create({
   catIconWrap: {
     width: 24,
     height: 24,
-    borderRadius: 0,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 6,
@@ -1666,7 +1666,7 @@ const styles = StyleSheet.create({
   checkDot: {
     width: 14,
     height: 14,
-    borderRadius: 0,
+    borderRadius: 7,
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 5,
@@ -1677,7 +1677,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F8FAFC',
-    borderRadius: 0,
+    borderRadius: 12,
     borderWidth: 1.2,
     borderColor: '#E2E8F0',
     paddingHorizontal: 12,
@@ -1702,7 +1702,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 9,
-    borderRadius: 0,
+    borderRadius: 12,
     backgroundColor: '#F8FAFC',
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
@@ -1720,7 +1720,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 10,
     paddingHorizontal: 14,
-    borderRadius: 0,
+    borderRadius: 12,
     backgroundColor: '#EEF2FF',
     borderWidth: 1,
     borderColor: '#E0E7FF',
@@ -1738,7 +1738,7 @@ const styles = StyleSheet.create({
   datePill: {
     paddingHorizontal: 12,
     paddingVertical: 6.5,
-    borderRadius: 0,
+    borderRadius: 10,
     backgroundColor: '#F1F5F9',
     borderWidth: 1.2,
     borderColor: '#E2E8F0',
@@ -1759,7 +1759,7 @@ const styles = StyleSheet.create({
   customDateInput: {
     flex: 1,
     backgroundColor: '#F8FAFC',
-    borderRadius: 0,
+    borderRadius: 10,
     borderWidth: 1.2,
     borderColor: '#E2E8F0',
     paddingHorizontal: 10,
@@ -1783,7 +1783,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 9,
     backgroundColor: '#EFF6FF',
-    borderRadius: 0,
+    borderRadius: 12,
     borderWidth: 1.2,
     borderColor: '#DBEAFE',
   },
@@ -1794,7 +1794,7 @@ const styles = StyleSheet.create({
   },
   receiptAttachedBox: {
     backgroundColor: '#F8FAFC',
-    borderRadius: 0,
+    borderRadius: 12,
     padding: 9,
     borderWidth: 1.2,
     borderColor: '#E2E8F0',
@@ -1806,7 +1806,7 @@ const styles = StyleSheet.create({
   receiptThumb: {
     width: 38,
     height: 38,
-    borderRadius: 0,
+    borderRadius: 8,
     backgroundColor: '#E2E8F0',
   },
   receiptAttachedTitle: {
@@ -1839,7 +1839,7 @@ const styles = StyleSheet.create({
   },
   remarksInput: {
     backgroundColor: '#F8FAFC',
-    borderRadius: 0,
+    borderRadius: 12,
     borderWidth: 1.2,
     borderColor: '#E2E8F0',
     padding: 10,
@@ -1858,7 +1858,7 @@ const styles = StyleSheet.create({
     borderTopColor: '#F1F5F9',
   },
   saveBtn: {
-    borderRadius: 0,
+    borderRadius: 16,
     overflow: 'hidden',
     shadowColor: '#0F172A',
     shadowOpacity: 0.18,
@@ -1940,7 +1940,7 @@ const styles = StyleSheet.create({
   fullscreenSuccessBadge: {
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 0,
+    borderRadius: 14,
     backgroundColor: '#F1F5F9',
   },
   fullscreenSuccessBadgeText: {
@@ -1988,8 +1988,8 @@ const styles = StyleSheet.create({
   },
   addCatModalCard: {
     backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 0,
-    borderTopRightRadius: 0,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     paddingHorizontal: 20,
     paddingTop: 18,
     paddingBottom: Platform.OS === 'ios' ? 36 : 24,
@@ -2017,7 +2017,7 @@ const styles = StyleSheet.create({
   modalCloseBtn: {
     width: 32,
     height: 32,
-    borderRadius: 0,
+    borderRadius: 16,
     backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2031,7 +2031,7 @@ const styles = StyleSheet.create({
   },
   modalTextInput: {
     backgroundColor: '#F8FAFC',
-    borderRadius: 0,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     paddingHorizontal: 12,
@@ -2047,7 +2047,7 @@ const styles = StyleSheet.create({
   addCatIconCell: {
     width: 44,
     height: 44,
-    borderRadius: 0,
+    borderRadius: 12,
     backgroundColor: '#F8FAFC',
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
@@ -2067,7 +2067,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   addCatSaveBtn: {
-    borderRadius: 0,
+    borderRadius: 14,
     overflow: 'hidden',
     marginTop: 20,
     marginBottom: 10,

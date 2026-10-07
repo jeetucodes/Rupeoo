@@ -17,6 +17,7 @@ import {
   Easing,
   Dimensions,
   useWindowDimensions,
+  InteractionManager,
 } from 'react-native';
 import Toast from 'react-native-toast-message';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -115,7 +116,7 @@ function BrandLogo({ id, color, size = 32 }: { id: string; color: string; size?:
   // ── JIO — dark blue circle with "Jio" text ──
   if (id === 'jio' || id === 'jiofiber') {
     return (
-      <View style={[brandLogoStyles.base, { backgroundColor: '#1239AC', borderRadius: 0, width: s, height: s }]}>
+      <View style={[brandLogoStyles.base, { backgroundColor: '#1239AC', borderRadius: s * 0.3, width: s, height: s }]}>
         <Text style={[brandLogoStyles.wordmark, { color: '#FFFFFF', fontSize: s * 0.34, fontStyle: 'italic' }]}>Jio</Text>
       </View>
     );
@@ -124,7 +125,7 @@ function BrandLogo({ id, color, size = 32 }: { id: string; color: string; size?:
   // ── AIRTEL — white bg, red italic "a" ──
   if (id === 'airtel' || id === 'airtel_xstream') {
     return (
-      <View style={[brandLogoStyles.base, { backgroundColor: '#FFFFFF', borderRadius: 0, width: s, height: s, borderWidth: 1.5, borderColor: '#ED1C2425' }]}>
+      <View style={[brandLogoStyles.base, { backgroundColor: '#FFFFFF', borderRadius: s * 0.3, width: s, height: s, borderWidth: 1.5, borderColor: '#ED1C2425' }]}>
         <Text style={[brandLogoStyles.wordmark, { color: '#ED1C24', fontSize: s * 0.56, fontWeight: '900', fontStyle: 'italic' }]}>a</Text>
       </View>
     );
@@ -136,7 +137,7 @@ function BrandLogo({ id, color, size = 32 }: { id: string; color: string; size?:
       <View style={[brandLogoStyles.base, { backgroundColor: '#E60000', borderRadius: r, width: s, height: s }]}>
         <View style={{ flexDirection: 'row', alignItems: 'flex-end' }}>
           <Text style={[brandLogoStyles.wordmark, { color: '#FFFFFF', fontSize: s * 0.34, fontWeight: '900' }]}>Vi</Text>
-          <View style={{ width: s * 0.12, height: s * 0.12, borderRadius: 0, backgroundColor: '#FFC107', marginBottom: s * 0.06, marginLeft: s * 0.03 }} />
+          <View style={{ width: s * 0.12, height: s * 0.12, borderRadius: s * 0.06, backgroundColor: '#FFC107', marginBottom: s * 0.06, marginLeft: s * 0.03 }} />
         </View>
       </View>
     );
@@ -145,7 +146,7 @@ function BrandLogo({ id, color, size = 32 }: { id: string; color: string; size?:
   // ── BSNL — grey circle with "BSNL" text ──
   if (id === 'bsnl') {
     return (
-      <View style={[brandLogoStyles.base, { backgroundColor: '#FFFFFF', borderRadius: 0, width: s, height: s, borderWidth: 1.5, borderColor: '#E2E8F0' }]}>
+      <View style={[brandLogoStyles.base, { backgroundColor: '#FFFFFF', borderRadius: s * 0.3, width: s, height: s, borderWidth: 1.5, borderColor: '#E2E8F0' }]}>
         <Text style={[brandLogoStyles.wordmark, { color: '#003580', fontSize: s * 0.26, fontWeight: '900', letterSpacing: -0.5 }]}>BSNL</Text>
       </View>
     );
@@ -181,7 +182,7 @@ function BrandLogo({ id, color, size = 32 }: { id: string; color: string; size?:
   // ── SPOTIFY ──
   if (id === 'spotify') {
     return (
-      <View style={[brandLogoStyles.base, { backgroundColor: '#1DB954', borderRadius: 0, width: s, height: s }]}>
+      <View style={[brandLogoStyles.base, { backgroundColor: '#1DB954', borderRadius: s * 0.3, width: s, height: s }]}>
         <Ionicons name="musical-notes" size={s * 0.44} color="#FFFFFF" />
       </View>
     );
@@ -643,6 +644,12 @@ export default function DashboardScreen() {
       }
     }, [user?.uid])
   );
+
+  useEffect(() => {
+    if (user?.uid) {
+      loadData(false);
+    }
+  }, [user?.uid]);
 
   // Instant real-time & voice transaction listener: immediately updates dashboard transactions list at top
   useEffect(() => {
@@ -2292,7 +2299,7 @@ const styles = StyleSheet.create({
   avatarContainer: {
     width: 44,
     height: 44,
-    borderRadius: 0,
+    borderRadius: 22,
     backgroundColor: '#0F172A',
     justifyContent: 'center',
     alignItems: 'center',
@@ -2302,7 +2309,7 @@ const styles = StyleSheet.create({
   avatarImage: {
     width: 44,
     height: 44,
-    borderRadius: 0,
+    borderRadius: 22,
     borderWidth: 2,
     borderColor: '#FFD740',
   },
@@ -2317,7 +2324,7 @@ const styles = StyleSheet.create({
     right: 0,
     width: 11,
     height: 11,
-    borderRadius: 0,
+    borderRadius: 6,
     backgroundColor: '#10B981',
     borderWidth: 2,
     borderColor: '#F8FAFC',
@@ -2333,7 +2340,7 @@ const styles = StyleSheet.create({
     right: -2,
     width: 17,
     height: 17,
-    borderRadius: 0,
+    borderRadius: 9,
     backgroundColor: '#FFD740',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2351,7 +2358,7 @@ const styles = StyleSheet.create({
     borderColor: '#FCD34D',
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 0,
+    borderRadius: 8,
   },
   vipNameBadgeText: {
     fontSize: 9,
@@ -2430,7 +2437,7 @@ const styles = StyleSheet.create({
   balanceCard: {
     marginHorizontal: 20,
     backgroundColor: '#D5F9E3',
-    borderRadius: 0,
+    borderRadius: 22,
     paddingHorizontal: 16,
     paddingTop: 15,
     paddingBottom: 15,
@@ -2456,7 +2463,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 0,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(15, 23, 42, 0.08)',
     shadowColor: '#000',
@@ -2519,7 +2526,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.88)',
-    borderRadius: 0,
+    borderRadius: 12,
     paddingVertical: 6,
     paddingHorizontal: 9,
     shadowColor: '#000000',
@@ -2532,7 +2539,7 @@ const styles = StyleSheet.create({
   incomeIconCircle: {
     width: 22,
     height: 22,
-    borderRadius: 0,
+    borderRadius: 11,
     backgroundColor: '#DCFCE7',
     justifyContent: 'center',
     alignItems: 'center',
@@ -2555,7 +2562,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.88)',
-    borderRadius: 0,
+    borderRadius: 12,
     paddingVertical: 6,
     paddingHorizontal: 9,
     shadowColor: '#000000',
@@ -2568,7 +2575,7 @@ const styles = StyleSheet.create({
   expenseIconCircle: {
     width: 22,
     height: 22,
-    borderRadius: 0,
+    borderRadius: 11,
     backgroundColor: '#FEE2E2',
     justifyContent: 'center',
     alignItems: 'center',
@@ -2591,7 +2598,7 @@ const styles = StyleSheet.create({
     marginTop: 14,
     marginBottom: 8,
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 18,
     paddingVertical: 13,
     paddingHorizontal: 15,
     flexDirection: 'row',
@@ -2614,7 +2621,7 @@ const styles = StyleSheet.create({
   todaySpendIconWrap: {
     width: 38,
     height: 38,
-    borderRadius: 0,
+    borderRadius: 12,
     backgroundColor: '#F8FAFC',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2636,7 +2643,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F1F5F9',
     paddingHorizontal: 5.5,
     paddingVertical: 1.5,
-    borderRadius: 0,
+    borderRadius: 5,
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
@@ -2705,7 +2712,7 @@ const styles = StyleSheet.create({
   tileCleanIconWrap: {
     width: 38,
     height: 38,
-    borderRadius: 0,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
@@ -2851,7 +2858,7 @@ const styles = StyleSheet.create({
   udharBannerCard: {
     marginHorizontal: 20,
     marginBottom: 16,
-    borderRadius: 0,
+    borderRadius: 22,
     backgroundColor: '#FFFDF0',
     paddingVertical: 14,
     paddingHorizontal: 16,
@@ -2866,7 +2873,7 @@ const styles = StyleSheet.create({
   udharIconYellowBox: {
     width: 48,
     height: 48,
-    borderRadius: 0,
+    borderRadius: 16,
     backgroundColor: '#FDE047',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2888,7 +2895,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#EEF2FF',
     paddingHorizontal: 8,
     paddingVertical: 2.5,
-    borderRadius: 0,
+    borderRadius: 6,
     marginLeft: 8,
   },
   udharBannerBadgeText: {
@@ -2906,7 +2913,7 @@ const styles = StyleSheet.create({
   udharBannerArrowCircle: {
     width: 36,
     height: 36,
-    borderRadius: 0,
+    borderRadius: 18,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2922,7 +2929,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     marginBottom: 16,
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 18,
     paddingVertical: 12,
     paddingHorizontal: 15,
     flexDirection: 'row',
@@ -2942,7 +2949,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     marginBottom: 16,
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 18,
     paddingVertical: 12,
     paddingHorizontal: 15,
     flexDirection: 'row',
@@ -2961,7 +2968,7 @@ const styles = StyleSheet.create({
   splitQrIconWrap: {
     width: 40,
     height: 40,
-    borderRadius: 0,
+    borderRadius: 12,
     backgroundColor: '#F3E8FF',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2975,7 +2982,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F3E8FF',
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 0,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: '#E9D5FF',
   },
@@ -3001,7 +3008,7 @@ const styles = StyleSheet.create({
   billsQuickIconWrap: {
     width: 40,
     height: 40,
-    borderRadius: 0,
+    borderRadius: 12,
     backgroundColor: '#EFF6FF',
     alignItems: 'center',
     justifyContent: 'center',
@@ -3024,7 +3031,7 @@ const styles = StyleSheet.create({
     right: 8,
     width: 7,
     height: 7,
-    borderRadius: 0,
+    borderRadius: 3.5,
     backgroundColor: '#EF4444',
   },
   billsQuickTextWrap: {
@@ -3047,13 +3054,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEE2E2',
     paddingHorizontal: 7,
     paddingVertical: 2,
-    borderRadius: 0,
+    borderRadius: 6,
     gap: 4,
   },
   billsDueDot: {
     width: 5,
     height: 5,
-    borderRadius: 0,
+    borderRadius: 2.5,
     backgroundColor: '#DC2626',
   },
   billsDueBadgeText: {
@@ -3067,7 +3074,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#DCFCE7',
     paddingHorizontal: 7,
     paddingVertical: 2,
-    borderRadius: 0,
+    borderRadius: 6,
   },
   billsAllPaidBadgeText: {
     color: '#15803D',
@@ -3080,7 +3087,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#EEF2FF',
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 0,
+    borderRadius: 6,
   },
   billsTrackBadgeText: {
     color: '#4F46E5',
@@ -3100,7 +3107,7 @@ const styles = StyleSheet.create({
   billsQuickArrowWrap: {
     width: 28,
     height: 28,
-    borderRadius: 0,
+    borderRadius: 14,
     backgroundColor: '#F8FAFC',
     alignItems: 'center',
     justifyContent: 'center',
@@ -3119,7 +3126,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: 100,
     height: 100,
-    borderRadius: 0,
+    borderRadius: 50,
     backgroundColor: '#E9D5FF',
     top: -40,
     right: -20,
@@ -3129,7 +3136,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: 60,
     height: 60,
-    borderRadius: 0,
+    borderRadius: 30,
     backgroundColor: '#DBEAFE',
     bottom: -20,
     left: 20,
@@ -3146,7 +3153,7 @@ const styles = StyleSheet.create({
   aiAdvisorIconBg: {
     width: 38,
     height: 38,
-    borderRadius: 0,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(139, 92, 246, 0.1)',
@@ -3167,7 +3174,7 @@ const styles = StyleSheet.create({
   aiIconOuter: {
     width: 40,
     height: 40,
-    borderRadius: 0,
+    borderRadius: 13,
     backgroundColor: '#C4B5FD',
     alignItems: 'center',
     justifyContent: 'center',
@@ -3180,7 +3187,7 @@ const styles = StyleSheet.create({
   aiIconInner: {
     width: 34,
     height: 34,
-    borderRadius: 0,
+    borderRadius: 10,
     backgroundColor: '#EDE9FE',        // soft lavender — main face
     alignItems: 'center',
     justifyContent: 'center',
@@ -3209,7 +3216,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(16, 185, 129, 0.15)',
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 0,
+    borderRadius: 6,
     gap: 3.5,
     borderWidth: 1,
     borderColor: 'rgba(16, 185, 129, 0.3)',
@@ -3217,7 +3224,7 @@ const styles = StyleSheet.create({
   aiLiveDot: {
     width: 5,
     height: 5,
-    borderRadius: 0,
+    borderRadius: 2.5,
     backgroundColor: '#059669',
   },
   aiLiveText: {
@@ -3234,7 +3241,7 @@ const styles = StyleSheet.create({
   aiAdvisorArrowWrap: {
     width: 28,
     height: 28,
-    borderRadius: 0,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(139, 92, 246, 0.08)',
@@ -3262,7 +3269,7 @@ const styles = StyleSheet.create({
   billsHeaderIcon: {
     width: 34,
     height: 34,
-    borderRadius: 0,
+    borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 10,
@@ -3276,7 +3283,7 @@ const styles = StyleSheet.create({
     position: 'relative',
     borderWidth: 1,
     borderColor: '#64748B',
-    borderRadius: 0,
+    borderRadius: 8,
     backgroundColor: '#F8FAFC',
     overflow: 'visible',
   },
@@ -3286,7 +3293,7 @@ const styles = StyleSheet.create({
     left: 4,
     width: 25,
     height: 25,
-    borderRadius: 0,
+    borderRadius: 6,
     backgroundColor: '#FFFFFF',
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
@@ -3309,7 +3316,7 @@ const styles = StyleSheet.create({
   billsCalRing: {
     width: 4,
     height: 4,
-    borderRadius: 0,
+    borderRadius: 2,
     backgroundColor: '#D1D5DB',
     borderWidth: 1,
     borderColor: '#9CA3AF',
@@ -3324,7 +3331,7 @@ const styles = StyleSheet.create({
   billsCalDot: {
     width: 5,
     height: 5,
-    borderRadius: 0,
+    borderRadius: 1,
     backgroundColor: '#F59E0B',
   },
   billsEnvelope: {
@@ -3333,7 +3340,7 @@ const styles = StyleSheet.create({
     right: 4,
     width: 18,
     height: 14,
-    borderRadius: 0,
+    borderRadius: 4,
     backgroundColor: '#818CF8',
     justifyContent: 'flex-end',
     alignItems: 'center',
@@ -3351,8 +3358,8 @@ const styles = StyleSheet.create({
     right: 0,
     height: 8,
     backgroundColor: '#6366F1',
-    borderTopLeftRadius: 0,
-    borderTopRightRadius: 0,
+    borderTopLeftRadius: 5,
+    borderTopRightRadius: 5,
     borderBottomLeftRadius: 0,
     borderBottomRightRadius: 0,
   },
@@ -3361,7 +3368,7 @@ const styles = StyleSheet.create({
     top: -8,
     width: 14,
     height: 14,
-    borderRadius: 0,
+    borderRadius: 3,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#E0E7FF',
@@ -3376,7 +3383,7 @@ const styles = StyleSheet.create({
   billsPaperBadge: {
     width: 10,
     height: 7,
-    borderRadius: 0,
+    borderRadius: 2,
     backgroundColor: '#818CF8',
     alignItems: 'center',
     justifyContent: 'center',
@@ -3389,7 +3396,7 @@ const styles = StyleSheet.create({
   billsHeaderDot: {
     width: 6,
     height: 6,
-    borderRadius: 0,
+    borderRadius: 3,
     backgroundColor: '#2563EB',
     marginRight: 6,
   },
@@ -3414,7 +3421,7 @@ const styles = StyleSheet.create({
     borderColor: '#BFDBFE',
     paddingHorizontal: 9,
     paddingVertical: 6,
-    borderRadius: 0,
+    borderRadius: 9,
   },
   remindersShortcutText: {
     fontSize: 11,
@@ -3427,7 +3434,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#0F172A',
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 0,
+    borderRadius: 9,
     shadowColor: '#0F172A',
     shadowOpacity: 0.18,
     shadowOffset: { width: 0, height: 2 },
@@ -3447,7 +3454,7 @@ const styles = StyleSheet.create({
   billCard: {
     width: 208,
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 20,
     overflow: 'hidden',
     shadowColor: '#000000',
     shadowOpacity: 0.06,
@@ -3462,7 +3469,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: 118,
     height: 118,
-    borderRadius: 0,
+    borderRadius: 59,
     top: -58,
     right: -42,
     backgroundColor: '#BFDBFE',
@@ -3488,7 +3495,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 8,
     paddingVertical: 5,
-    borderRadius: 0,
+    borderRadius: 8,
   },
   brandLogoText: {
     color: '#FFFFFF',
@@ -3499,11 +3506,11 @@ const styles = StyleSheet.create({
   billStatusPill: {
     paddingHorizontal: 7,
     paddingVertical: 3,
-    borderRadius: 0,
+    borderRadius: 8,
   },
   cardDeleteMiniBtn: {
     padding: 3,
-    borderRadius: 0,
+    borderRadius: 6,
     backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
@@ -3544,7 +3551,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#16A34A',
-    borderRadius: 0,
+    borderRadius: 10,
     paddingVertical: 9,
     shadowColor: '#16A34A',
     shadowOpacity: 0.24,
@@ -3560,7 +3567,7 @@ const styles = StyleSheet.create({
   allPaidBanner: {
     marginHorizontal: 20,
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 18,
     padding: 16,
     borderWidth: 1,
     borderColor: '#D1FAE5',
@@ -3590,7 +3597,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#ECFDF5',
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 0,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: '#A7F3D0',
   },
@@ -3602,7 +3609,7 @@ const styles = StyleSheet.create({
   emptyBillBanner: {
     marginHorizontal: 20,
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 16,
     padding: 14,
     flexDirection: 'row',
     alignItems: 'center',
@@ -3618,7 +3625,7 @@ const styles = StyleSheet.create({
   emptyBillIcon: {
     width: 36,
     height: 36,
-    borderRadius: 0,
+    borderRadius: 18,
     backgroundColor: '#EFF6FF',
     justifyContent: 'center',
     alignItems: 'center',
@@ -3635,7 +3642,7 @@ const styles = StyleSheet.create({
   },
   allPlansCard: {
     backgroundColor: '#F8FAFC',
-    borderRadius: 0,
+    borderRadius: 18,
     padding: 14,
     marginBottom: 12,
     borderWidth: 1,
@@ -3682,7 +3689,7 @@ const styles = StyleSheet.create({
   allPlansDatesBox: {
     flexDirection: 'row',
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 12,
     padding: 10,
     marginBottom: 10,
     borderWidth: 1,
@@ -3720,7 +3727,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#FFD740',
     paddingVertical: 9,
-    borderRadius: 0,
+    borderRadius: 12,
   },
   allPlansPayBtnText: {
     fontSize: 12,
@@ -3730,7 +3737,7 @@ const styles = StyleSheet.create({
   allPlansDeleteBtn: {
     width: 36,
     height: 36,
-    borderRadius: 0,
+    borderRadius: 12,
     backgroundColor: '#FEE2E2',
     justifyContent: 'center',
     alignItems: 'center',
@@ -3738,7 +3745,7 @@ const styles = StyleSheet.create({
   simpleBudgetCard: {
     marginHorizontal: 20,
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 20,
     padding: 16,
     marginBottom: 12,
     shadowColor: '#000000',
@@ -3790,19 +3797,19 @@ const styles = StyleSheet.create({
   simpleBudgetTrack: {
     height: 6,
     backgroundColor: '#F1F5F9',
-    borderRadius: 0,
+    borderRadius: 3,
     marginTop: 12,
     overflow: 'hidden',
   },
   simpleBudgetFill: {
     height: '100%',
-    borderRadius: 0,
+    borderRadius: 3,
   },
   simpleSetBtn: {
     backgroundColor: '#F1F5F9',
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 0,
+    borderRadius: 12,
   },
   simpleSetBtnText: {
     fontSize: 12,
@@ -3831,7 +3838,7 @@ const styles = StyleSheet.create({
   },
   breakdownCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 20,
     padding: 16,
     borderWidth: 1,
     borderColor: '#E2E8F0',
@@ -3844,7 +3851,7 @@ const styles = StyleSheet.create({
   stackedBar: {
     flexDirection: 'row',
     height: 12,
-    borderRadius: 0,
+    borderRadius: 6,
     overflow: 'hidden',
     marginBottom: 16,
     backgroundColor: '#F1F5F9',
@@ -3860,7 +3867,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 8,
-    borderRadius: 0,
+    borderRadius: 12,
   },
   legendItemActive: {
     backgroundColor: '#FFFDF5',
@@ -3871,7 +3878,7 @@ const styles = StyleSheet.create({
   legendDot: {
     width: 10,
     height: 10,
-    borderRadius: 0,
+    borderRadius: 5,
     marginRight: 10,
   },
   legendName: {
@@ -3918,7 +3925,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 0,
+    borderRadius: 16,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#E2E8F0',
@@ -3939,7 +3946,7 @@ const styles = StyleSheet.create({
   transactionsListCard: {
     marginHorizontal: 20,
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 24,
     paddingVertical: 4,
     paddingHorizontal: 14,
     shadowColor: '#000000',
@@ -3962,7 +3969,7 @@ const styles = StyleSheet.create({
   txIconCircle: {
     width: 44,
     height: 44,
-    borderRadius: 0,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 14,
@@ -3982,7 +3989,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#DBEAFE',
     paddingHorizontal: 4,
     paddingVertical: 3,
-    borderRadius: 0,
+    borderRadius: 4,
   },
   txSubRow: {
     flexDirection: 'row',
@@ -4004,7 +4011,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8FAFC',
     paddingHorizontal: 5,
     paddingVertical: 2,
-    borderRadius: 0,
+    borderRadius: 6,
     marginLeft: 6,
   },
   txModeText: {
@@ -4028,7 +4035,7 @@ const styles = StyleSheet.create({
   emptyCard: {
     marginHorizontal: 20,
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 20,
     paddingVertical: 32,
     paddingHorizontal: 20,
     alignItems: 'center',
@@ -4043,7 +4050,7 @@ const styles = StyleSheet.create({
   emptyIconBg: {
     width: 52,
     height: 52,
-    borderRadius: 0,
+    borderRadius: 26,
     backgroundColor: '#F8FAFC',
     justifyContent: 'center',
     alignItems: 'center',
@@ -4069,7 +4076,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFD740',
     paddingHorizontal: 16,
     paddingVertical: 10,
-    borderRadius: 0,
+    borderRadius: 14,
   },
   addFirstBtnText: {
     fontSize: 13,
@@ -4079,7 +4086,7 @@ const styles = StyleSheet.create({
   loadingCard: {
     marginHorizontal: 20,
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 20,
     paddingVertical: 30,
     alignItems: 'center',
     borderWidth: 1,
@@ -4097,9 +4104,8 @@ const styles = StyleSheet.create({
   },
   modalCard: {
     backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 0,
-    borderTopRightRadius: 0,
-    borderRadius: 0,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
     padding: 20,
     paddingBottom: 36,
     maxWidth: 480,
@@ -4125,7 +4131,7 @@ const styles = StyleSheet.create({
   modalCloseIconBtn: {
     width: 32,
     height: 32,
-    borderRadius: 0,
+    borderRadius: 16,
     backgroundColor: '#F1F5F9',
     justifyContent: 'center',
     alignItems: 'center',
@@ -4139,7 +4145,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 7,
     paddingHorizontal: 12,
-    borderRadius: 0,
+    borderRadius: 10,
     backgroundColor: '#F1F5F9',
   },
   brandGroupTabActive: {
@@ -4163,7 +4169,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 12,
     paddingVertical: 7,
-    borderRadius: 0,
+    borderRadius: 14,
     backgroundColor: '#F8FAFC',
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
@@ -4171,7 +4177,7 @@ const styles = StyleSheet.create({
   providerIconCircle: {
     width: 28,
     height: 28,
-    borderRadius: 0,
+    borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 6,
@@ -4185,7 +4191,7 @@ const styles = StyleSheet.create({
   modalTypeSwitch: {
     flexDirection: 'row',
     backgroundColor: '#F1F5F9',
-    borderRadius: 0,
+    borderRadius: 14,
     padding: 4,
     marginBottom: 14,
   },
@@ -4195,7 +4201,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 9,
-    borderRadius: 0,
+    borderRadius: 11,
   },
   modalTypeBtnActive: {
     backgroundColor: '#FFD740',
@@ -4226,7 +4232,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    borderRadius: 0,
+    borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 14,
@@ -4243,7 +4249,7 @@ const styles = StyleSheet.create({
   quickAmountChip: {
     paddingHorizontal: 10,
     paddingVertical: 5,
-    borderRadius: 0,
+    borderRadius: 8,
     backgroundColor: '#F1F5F9',
     borderWidth: 1,
     borderColor: '#E2E8F0',
@@ -4262,7 +4268,7 @@ const styles = StyleSheet.create({
   },
   configBlock: {
     backgroundColor: '#F8FAFC',
-    borderRadius: 0,
+    borderRadius: 16,
     padding: 14,
     marginBottom: 12,
     borderWidth: 1,
@@ -4277,7 +4283,7 @@ const styles = StyleSheet.create({
   daySelectorPill: {
     paddingHorizontal: 11,
     paddingVertical: 6,
-    borderRadius: 0,
+    borderRadius: 10,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#CBD5E1',
@@ -4303,7 +4309,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#CBD5E1',
-    borderRadius: 0,
+    borderRadius: 8,
     paddingHorizontal: 8,
     paddingVertical: 4,
     fontSize: 13,
@@ -4326,7 +4332,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     paddingVertical: 8,
-    borderRadius: 0,
+    borderRadius: 12,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#CBD5E1',
@@ -4363,7 +4369,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 8,
     paddingHorizontal: 8,
-    borderRadius: 0,
+    borderRadius: 10,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#CBD5E1',
@@ -4386,7 +4392,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: '#FFFBEB',
-    borderRadius: 0,
+    borderRadius: 14,
     padding: 12,
     borderWidth: 1,
     borderColor: '#FDE68A',
@@ -4401,7 +4407,7 @@ const styles = StyleSheet.create({
   liveSummaryIconWrap: {
     width: 32,
     height: 32,
-    borderRadius: 0,
+    borderRadius: 10,
     backgroundColor: '#FEF3C7',
     justifyContent: 'center',
     alignItems: 'center',
@@ -4421,7 +4427,7 @@ const styles = StyleSheet.create({
   liveSummaryStatusPill: {
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 0,
+    borderRadius: 8,
   },
   liveSummaryStatusText: {
     fontSize: 11,
@@ -4430,7 +4436,7 @@ const styles = StyleSheet.create({
   modalSaveBtn: {
     backgroundColor: '#0F172A',
     paddingVertical: 14,
-    borderRadius: 0,
+    borderRadius: 16,
     alignItems: 'center',
     marginTop: 6,
     shadowColor: '#000',
@@ -4450,7 +4456,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#15803D',
-    borderRadius: 0,
+    borderRadius: 18,
     paddingVertical: 14,
     paddingHorizontal: 16,
     marginTop: 8,
@@ -4463,7 +4469,7 @@ const styles = StyleSheet.create({
   confirmPaidIconWrap: {
     width: 34,
     height: 34,
-    borderRadius: 0,
+    borderRadius: 12,
     backgroundColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -4493,7 +4499,7 @@ const styles = StyleSheet.create({
   },
   calModalCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 24,
     padding: 20,
     maxWidth: 360,
     width: '100%',
@@ -4512,7 +4518,7 @@ const styles = StyleSheet.create({
   calNavBtn: {
     width: 36,
     height: 36,
-    borderRadius: 0,
+    borderRadius: 18,
     backgroundColor: '#F1F5F9',
     justifyContent: 'center',
     alignItems: 'center',
@@ -4531,7 +4537,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     paddingVertical: 6,
-    borderRadius: 0,
+    borderRadius: 8,
     backgroundColor: '#F1F5F9',
   },
   calQuickPillActive: {
@@ -4571,7 +4577,7 @@ const styles = StyleSheet.create({
   calDayCell: {
     width: 38,
     height: 38,
-    borderRadius: 0,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -4598,7 +4604,7 @@ const styles = StyleSheet.create({
   calCloseBtn: {
     backgroundColor: '#F1F5F9',
     paddingVertical: 10,
-    borderRadius: 0,
+    borderRadius: 12,
     alignItems: 'center',
   },
   calCloseBtnText: {
@@ -4608,7 +4614,7 @@ const styles = StyleSheet.create({
   },
   payBillInfoCard: {
     backgroundColor: '#F8FAFC',
-    borderRadius: 0,
+    borderRadius: 14,
     padding: 14,
     alignItems: 'center',
     marginBottom: 14,
@@ -4633,7 +4639,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     paddingVertical: 8,
-    borderRadius: 0,
+    borderRadius: 10,
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
@@ -4658,7 +4664,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    borderRadius: 0,
+    borderRadius: 14,
     padding: 10,
     marginTop: 4,
   },
@@ -4671,7 +4677,7 @@ const styles = StyleSheet.create({
   proofThumbWrap: {
     width: 44,
     height: 44,
-    borderRadius: 0,
+    borderRadius: 10,
     overflow: 'hidden',
     position: 'relative',
     backgroundColor: '#0F172A',
@@ -4685,7 +4691,7 @@ const styles = StyleSheet.create({
     bottom: 2,
     right: 2,
     backgroundColor: 'rgba(0,0,0,0.6)',
-    borderRadius: 0,
+    borderRadius: 4,
     padding: 2,
   },
   proofPillTitle: {
@@ -4704,7 +4710,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#EFF6FF',
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 0,
+    borderRadius: 10,
   },
   proofViewText: {
     fontSize: 11,
@@ -4745,7 +4751,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#CBD5E1',
     borderStyle: 'dashed',
-    borderRadius: 0,
+    borderRadius: 12,
     paddingVertical: 12,
     marginBottom: 10,
   },
@@ -4775,7 +4781,7 @@ const styles = StyleSheet.create({
     borderColor: '#FDE68A',
     paddingHorizontal: 9,
     paddingVertical: 6,
-    borderRadius: 0,
+    borderRadius: 12,
   },
   proCrownHeaderBtnActive: {
     backgroundColor: '#D1FAE5',

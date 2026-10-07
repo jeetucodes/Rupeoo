@@ -28,6 +28,8 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Sharing from 'expo-sharing';
 import { captureRef } from 'react-native-view-shot';
+import { shareImageAndText } from '@/lib/shareHelper';
+import { shareTransactionReceiptPdf } from '@/lib/transactionPdf';
 import { useAuth } from '@/context/AuthContext';
 import { RupeoAdBanner } from '@/lib/ads';
 import {
@@ -93,6 +95,7 @@ export default function TransactionDetailScreen() {
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
   const [sharingImage, setSharingImage] = useState(false);
+  const [sharingPdf, setSharingPdf] = useState(false);
   const [imageAspectRatio, setImageAspectRatio] = useState<number | null>(null);
   const receiptCardRef = useRef<View>(null);
   const scrollViewRef = useRef<ScrollView>(null);
@@ -346,45 +349,16 @@ export default function TransactionDetailScreen() {
           result: 'tmpfile',
         });
 
-        // 1. Android: Use native RupeoShare to send BOTH receipt image and text together
-        if (Platform.OS === 'android' && NativeModules.RupeoShare?.shareImageAndText) {
-          try {
-            await NativeModules.RupeoShare.shareImageAndText(
-              uri,
-              receiptText,
-              `Rupeo Receipt (${formattedAmt})`
-            );
-            return;
-          } catch (nativeErr) {
-            console.warn('Native RupeoShare receipt error:', nativeErr);
-          }
-        }
-
-        // 2. iOS: Share.share handles message + url (image)
-        if (Platform.OS === 'ios') {
-          try {
-            await Share.share({
-              message: receiptText,
-              url: uri,
-            });
-            return;
-          } catch (iosErr) {
-            console.warn('iOS share error, falling back to expo-sharing:', iosErr);
-          }
-        }
-
-        // 3. Fallback to standard sharing
-        if (await Sharing.isAvailableAsync()) {
-          await Sharing.shareAsync(uri, {
-            mimeType: 'image/png',
-            dialogTitle: `Rupeo Receipt (${formattedAmt})`,
-            UTI: 'public.png',
-          });
-          return;
-        }
+        await shareImageAndText({
+          uri,
+          text: receiptText,
+          title: `Rupeo Receipt (${formattedAmt})`,
+          dialogTitle: `Rupeo Receipt (${formattedAmt})`,
+        });
+        return;
       }
 
-      // Fallback for Web or if native sharing is unavailable
+      // Fallback for Web
       await Share.share({
         title: `Rupeo Transaction Receipt - ${formattedAmt}`,
         message: receiptText,
@@ -394,6 +368,54 @@ export default function TransactionDetailScreen() {
       Toast.show({ type: 'error', text1: 'Share Failed', text2: 'Could not share this receipt photo.' });
     } finally {
       setSharingImage(false);
+    }
+  };
+
+  const handleSharePdf = async () => {
+    if (sharingPdf) return;
+    try {
+      setSharingPdf(true);
+      Toast.show({
+        type: 'info',
+        text1: 'Generating PDF Bill...',
+        text2: 'Preparing high-resolution receipt document.',
+        position: 'top',
+        visibilityTime: 2500,
+      });
+
+      const res = await shareTransactionReceiptPdf({
+        id: id || 'TXN',
+        type,
+        amount,
+        merchant,
+        category,
+        paymentMode,
+        date,
+        time,
+        description,
+        barcodeValue,
+        currency,
+        userName: user?.displayName || 'Rupeo User',
+      });
+
+      if (!res.success) {
+        Toast.show({
+          type: 'error',
+          text1: 'PDF Generation Failed',
+          text2: res.error || 'Could not generate PDF bill.',
+          position: 'top',
+        });
+      }
+    } catch (err: any) {
+      console.error('Error generating PDF bill:', err);
+      Toast.show({
+        type: 'error',
+        text1: 'PDF Error',
+        text2: err?.message || 'Could not export PDF bill.',
+        position: 'top',
+      });
+    } finally {
+      setSharingPdf(false);
     }
   };
 
@@ -851,24 +873,44 @@ export default function TransactionDetailScreen() {
 
           </Animated.View>
 
-          {/* SHIFTED SHARE RECEIPT BUTTON */}
-          <TouchableOpacity
-            style={[styles.bottomShareButton, sharingImage && { opacity: 0.75 }]}
-            onPress={handleShareReceipt}
-            disabled={sharingImage}
-            activeOpacity={0.85}
-          >
-            {sharingImage ? (
-              <ActivityIndicator size="small" color="#0F172A" style={{ marginRight: 8 }} />
-            ) : (
-              <View style={styles.bottomShareIconBg}>
-                <Ionicons name="share-social-outline" size={16} color="#0F172A" />
-              </View>
-            )}
-            <Text style={styles.bottomShareText}>
-              {sharingImage ? 'Generating Receipt ...' : 'Share Receipt'}
-            </Text>
-          </TouchableOpacity>
+          {/* ACTIONS: PDF BILL & SHARE IMAGE */}
+          <View style={styles.bottomActionsContainer}>
+            <TouchableOpacity
+              style={[styles.pdfBillButton, sharingPdf && { opacity: 0.75 }]}
+              onPress={handleSharePdf}
+              disabled={sharingPdf || sharingImage}
+              activeOpacity={0.85}
+            >
+              {sharingPdf ? (
+                <ActivityIndicator size="small" color="#FFFFFF" style={{ marginRight: 8 }} />
+              ) : (
+                <View style={styles.pdfBillIconBg}>
+                  <Ionicons name="document-text" size={16} color="#FFD740" />
+                </View>
+              )}
+              <Text style={styles.pdfBillText}>
+                {sharingPdf ? 'Generating PDF Bill...' : 'Download / Share PDF Bill'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.bottomShareButton, sharingImage && { opacity: 0.75 }]}
+              onPress={handleShareReceipt}
+              disabled={sharingImage || sharingPdf}
+              activeOpacity={0.85}
+            >
+              {sharingImage ? (
+                <ActivityIndicator size="small" color="#0F172A" style={{ marginRight: 8 }} />
+              ) : (
+                <View style={styles.bottomShareIconBg}>
+                  <Ionicons name="share-social-outline" size={16} color="#0F172A" />
+                </View>
+              )}
+              <Text style={styles.bottomShareText}>
+                {sharingImage ? 'Preparing Image...' : 'Share Image Receipt'}
+              </Text>
+            </TouchableOpacity>
+          </View>
 
           {/* TRANSACTION FOOTER PROMOTIONAL BANNER */}
           <RupeoAdBanner placement="transaction_footer" compact />
@@ -1175,7 +1217,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFD740',
     paddingHorizontal: 13,
     paddingVertical: 7,
-    borderRadius: 0,
+    borderRadius: 20,
     shadowColor: '#F59E0B',
     shadowOpacity: 0.25,
     shadowOffset: { width: 0, height: 2 },
@@ -1191,7 +1233,7 @@ const styles = StyleSheet.create({
   headerIconButton: {
     width: 38,
     height: 38,
-    borderRadius: 0,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#F8FAFC',
@@ -1202,6 +1244,44 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEF2F2',
     borderColor: '#FEE2E2',
   },
+  bottomActionsContainer: {
+    width: '100%',
+    marginTop: 16,
+    marginBottom: 10,
+    gap: 10,
+  },
+  pdfBillButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0F172A',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#1E293B',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.18,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 10,
+    elevation: 3,
+    width: '100%',
+  },
+  pdfBillIconBg: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+  },
+  pdfBillText: {
+    fontSize: 14.5,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.2,
+  },
   bottomShareButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1209,15 +1289,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     paddingVertical: 13,
     paddingHorizontal: 20,
-    borderRadius: 0,
-    marginTop: 16,
-    marginBottom: 10,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     shadowColor: '#0F172A',
     shadowOpacity: 0.05,
-    shadowOffset: { width: 0, height: 3 },
-    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
     elevation: 2,
     alignSelf: 'center',
     width: '100%',
@@ -1225,7 +1303,7 @@ const styles = StyleSheet.create({
   bottomShareIconBg: {
     width: 28,
     height: 28,
-    borderRadius: 0,
+    borderRadius: 14,
     backgroundColor: '#F8FAFC',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1242,7 +1320,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#EBF4FF',
-    borderRadius: 0,
+    borderRadius: 20,
     paddingHorizontal: 12,
     paddingVertical: 8,
     gap: 6,
@@ -1252,7 +1330,7 @@ const styles = StyleSheet.create({
   editButtonBg: {
     width: 26,
     height: 26,
-    borderRadius: 0,
+    borderRadius: 13,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1271,7 +1349,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#ECFDF5',
-    borderRadius: 0,
+    borderRadius: 20,
     paddingHorizontal: 10,
     paddingVertical: 8,
     gap: 5,
@@ -1281,7 +1359,7 @@ const styles = StyleSheet.create({
   shareButtonBg: {
     width: 26,
     height: 26,
-    borderRadius: 0,
+    borderRadius: 13,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1300,7 +1378,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#FEF2F2',
-    borderRadius: 0,
+    borderRadius: 20,
     padding: 10,
     borderWidth: 1,
     borderColor: '#FECACA',
@@ -1308,7 +1386,7 @@ const styles = StyleSheet.create({
   deleteButtonBg: {
     width: 26,
     height: 26,
-    borderRadius: 0,
+    borderRadius: 13,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1384,7 +1462,7 @@ const styles = StyleSheet.create({
   },
   receiptCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 24,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     overflow: 'hidden',
@@ -1463,7 +1541,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(16,185,129,0.18)',
-    borderRadius: 0,
+    borderRadius: 20,
     paddingHorizontal: 14,
     paddingVertical: 5,
     borderWidth: 1,
@@ -1472,7 +1550,7 @@ const styles = StyleSheet.create({
   receiptCardStatusDot: {
     width: 6,
     height: 6,
-    borderRadius: 0,
+    borderRadius: 3,
     backgroundColor: '#10B981',
     marginRight: 6,
   },
@@ -1491,7 +1569,7 @@ const styles = StyleSheet.create({
   receiptNotchLeft: {
     width: 20,
     height: 20,
-    borderRadius: 0,
+    borderRadius: 10,
     backgroundColor: '#F1F5F9',
     marginLeft: -10,
   },
@@ -1506,7 +1584,7 @@ const styles = StyleSheet.create({
   receiptNotchRight: {
     width: 20,
     height: 20,
-    borderRadius: 0,
+    borderRadius: 10,
     backgroundColor: '#F1F5F9',
     marginRight: -10,
   },
@@ -1537,7 +1615,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#ECFDF5',
     paddingHorizontal: 7,
     paddingVertical: 3,
-    borderRadius: 0,
+    borderRadius: 6,
     borderWidth: 1,
     borderColor: '#A7F3D0',
   },
@@ -1557,7 +1635,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 10,
-    borderRadius: 0,
+    borderRadius: 12,
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
@@ -1565,7 +1643,7 @@ const styles = StyleSheet.create({
   receiptSummaryIcon: {
     width: 30,
     height: 30,
-    borderRadius: 0,
+    borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 8,
@@ -1620,7 +1698,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 16,
     padding: 12,
-    borderRadius: 0,
+    borderRadius: 14,
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
@@ -1629,7 +1707,7 @@ const styles = StyleSheet.create({
   receiptNoPhotoIcon: {
     width: 38,
     height: 38,
-    borderRadius: 0,
+    borderRadius: 12,
     backgroundColor: '#E2E8F0',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1662,7 +1740,7 @@ const styles = StyleSheet.create({
   },
   receiptPhotoWrap: {
     width: '100%',
-    borderRadius: 0,
+    borderRadius: 14,
     overflow: 'hidden',
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
@@ -1682,7 +1760,7 @@ const styles = StyleSheet.create({
     right: 8,
     width: 28,
     height: 28,
-    borderRadius: 0,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(15,23,42,0.72)',
@@ -1703,7 +1781,7 @@ const styles = StyleSheet.create({
   rupeoLogoIcon: {
     width: 24,
     height: 24,
-    borderRadius: 0,
+    borderRadius: 6,
     backgroundColor: '#FFD740',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1730,7 +1808,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#ECFDF5',
-    borderRadius: 0,
+    borderRadius: 12,
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderWidth: 1,
@@ -1761,7 +1839,7 @@ const styles = StyleSheet.create({
   typeSelector: {
     flexDirection: 'row',
     backgroundColor: '#E2E8F0',
-    borderRadius: 0,
+    borderRadius: 14,
     padding: 4,
     marginBottom: 16,
   },
@@ -1769,7 +1847,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 10,
     alignItems: 'center',
-    borderRadius: 0,
+    borderRadius: 10,
   },
   typeBtnActiveDebit: {
     backgroundColor: '#EF4444',
@@ -1788,7 +1866,7 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     padding: 16,
@@ -1837,7 +1915,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    borderRadius: 0,
+    borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 10,
     fontSize: 14,
@@ -1856,7 +1934,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    borderRadius: 0,
+    borderRadius: 10,
     paddingVertical: 8,
   },
   modeChipActive: {
@@ -1881,7 +1959,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 0,
+    borderRadius: 12,
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
@@ -1898,7 +1976,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    borderRadius: 0,
+    borderRadius: 14,
     padding: 10,
   },
   proofPillLeft: {
@@ -1910,7 +1988,7 @@ const styles = StyleSheet.create({
   proofThumbWrap: {
     width: 44,
     height: 44,
-    borderRadius: 0,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     overflow: 'hidden',
@@ -1926,7 +2004,7 @@ const styles = StyleSheet.create({
     bottom: 2,
     right: 2,
     backgroundColor: 'rgba(0,0,0,0.6)',
-    borderRadius: 0,
+    borderRadius: 4,
     padding: 2,
   },
   proofPillTitle: {
@@ -1945,7 +2023,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#EFF6FF',
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 0,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: '#BFDBFE',
   },
@@ -1988,7 +2066,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#CBD5E1',
     borderStyle: 'dashed',
-    borderRadius: 0,
+    borderRadius: 14,
     paddingVertical: 14,
   },
   uploadProofText: {
@@ -1998,7 +2076,7 @@ const styles = StyleSheet.create({
   },
   saveButton: {
     backgroundColor: '#FFD740',
-    borderRadius: 0,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: '#F59E0B',
     paddingVertical: 14,
@@ -2037,7 +2115,7 @@ const styles = StyleSheet.create({
   modalCloseBtn: {
     width: 36,
     height: 36,
-    borderRadius: 0,
+    borderRadius: 18,
     backgroundColor: 'rgba(255, 255, 255, 0.15)',
     justifyContent: 'center',
     alignItems: 'center',
@@ -2063,7 +2141,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(37, 99, 235, 0.85)',
     paddingHorizontal: 16,
     paddingVertical: 10,
-    borderRadius: 0,
+    borderRadius: 12,
   },
   modalReplaceBtnText: {
     color: '#FFFFFF',
@@ -2076,7 +2154,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(239, 68, 68, 0.85)',
     paddingHorizontal: 16,
     paddingVertical: 10,
-    borderRadius: 0,
+    borderRadius: 12,
   },
   modalDeleteBtnText: {
     color: '#FFFFFF',

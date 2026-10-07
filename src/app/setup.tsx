@@ -155,7 +155,7 @@ const styles = StyleSheet.create({
   optionsRow: { flexDirection: 'row', gap: 12 },
   
   optionCard: {
-    flex: 1, backgroundColor: '#fff', borderRadius: 0, padding: 16,
+    flex: 1, backgroundColor: '#fff', borderRadius: 16, padding: 16,
     alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#E2E8F0',
     shadowColor: '#000000', shadowOpacity: 0.04, shadowOffset: { width: 0, height: 2 }, shadowRadius: 4, elevation: 1,
   },
@@ -180,7 +180,7 @@ const styles = StyleSheet.create({
   },
 
   primaryButton: {
-    backgroundColor: '#FFD740', borderRadius: 0, height: 60,
+    backgroundColor: '#FFD740', borderRadius: 20, height: 60,
     borderWidth: 1, borderColor: '#F59E0B',
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     shadowColor: '#000000', shadowOpacity: 0.1, shadowOffset: { width: 0, height: 2 }, shadowRadius: 6, elevation: 2,
@@ -193,7 +193,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: '#fff',
-    borderRadius: 0,
+    borderRadius: 16,
     padding: 16,
     borderWidth: 1,
     borderColor: '#E2E8F0',

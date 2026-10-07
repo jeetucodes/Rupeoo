@@ -4,12 +4,18 @@ import { Platform } from 'react-native';
 import { getLocalDateString } from '@/lib/dateUtils';
 import type { UserSettings } from '@/lib/database';
 import { QuickAddWidget } from '@/widgets/QuickAddWidget';
+import { InsightWidget } from '@/widgets/InsightWidget';
+import { QuickActionsWidget } from '@/widgets/QuickActionsWidget';
 
 export interface WidgetData {
   enabled?: boolean;
   todaySpent: number;
   dailyLimit: number;
   remainingDailyLimit: number | null;
+  thisMonthSpent: number;
+  monthlyBudget: number;
+  budgetPercentage: number;
+  remainingMonthlyBudget: number | null;
   currency: string;
   theme: 'light' | 'dark';
   lastUpdated: number;
@@ -22,6 +28,10 @@ export const DEFAULT_WIDGET_DATA: WidgetData = {
   todaySpent: 0,
   dailyLimit: 0,
   remainingDailyLimit: null,
+  thisMonthSpent: 0,
+  monthlyBudget: 0,
+  budgetPercentage: 0,
+  remainingMonthlyBudget: null,
   currency: '₹',
   theme: 'light',
   lastUpdated: Date.now(),
@@ -42,13 +52,15 @@ export async function getWidgetData(): Promise<WidgetData> {
 }
 
 /**
- * Triggers native Android widget UI refresh with valid renderWidget callback
+ * Triggers native Android widget UI refresh for all active widgets
  */
 export async function triggerWidgetUpdate(data?: WidgetData): Promise<void> {
   if (Platform.OS !== 'android') return;
   try {
     const widgetData = data || (await getWidgetData());
     const { requestWidgetUpdate } = require('react-native-android-widget');
+
+    // 1. Update QuickAddWidget
     await requestWidgetUpdate({
       widgetName: 'QuickAddWidget',
       renderWidget: () =>
@@ -58,14 +70,37 @@ export async function triggerWidgetUpdate(data?: WidgetData): Promise<void> {
           remainingLimit: widgetData.remainingDailyLimit,
           currency: widgetData.currency,
         }),
-    });
+    }).catch(() => {});
+
+    // 2. Update InsightWidget
+    await requestWidgetUpdate({
+      widgetName: 'InsightWidget',
+      renderWidget: () =>
+        React.createElement(InsightWidget, {
+          thisMonthSpent: widgetData.thisMonthSpent,
+          monthlyBudget: widgetData.monthlyBudget,
+          budgetPercentage: widgetData.budgetPercentage,
+          remainingMonthlyBudget: widgetData.remainingMonthlyBudget,
+          todaySpent: widgetData.todaySpent,
+          currency: widgetData.currency,
+        }),
+    }).catch(() => {});
+
+    // 3. Update QuickActionsWidget
+    await requestWidgetUpdate({
+      widgetName: 'QuickActionsWidget',
+      renderWidget: () =>
+        React.createElement(QuickActionsWidget, {
+          currency: widgetData.currency,
+        }),
+    }).catch(() => {});
   } catch (err) {
     console.log('[WidgetSync] Native widget update skipped or unavailable:', err);
   }
 }
 
 /**
- * Calculates current today's spend & limits and syncs with the Android widget
+ * Calculates current today & month spend, budget status and syncs with Android widgets
  */
 export async function syncWidgetWithTransactions(
   userId?: string,
@@ -77,24 +112,34 @@ export async function syncWidgetWithTransactions(
   }
   try {
     const todayStr = getLocalDateString();
+    const currentMonthPrefix = todayStr.substring(0, 7); // e.g. "2026-10"
     let todaySpent = 0;
+    let thisMonthSpent = 0;
 
     if (transactionsList && transactionsList.length > 0) {
       transactionsList.forEach((tx) => {
         if (tx && tx.type === 'debit') {
           const txDate = tx.date || '';
+          const amt = Number(tx.amount) || 0;
           if (txDate.startsWith(todayStr)) {
-            todaySpent += Number(tx.amount) || 0;
+            todaySpent += amt;
+          }
+          if (txDate.startsWith(currentMonthPrefix)) {
+            thisMonthSpent += amt;
           }
         }
       });
     }
 
+    const monthlyBudget = Number(settings?.monthlyBudget) || 0;
     const dailyLimit =
       Number((settings as any)?.dailyLimit) ||
-      (settings?.monthlyBudget ? Math.round(Number(settings.monthlyBudget) / 30) : 0);
+      (monthlyBudget > 0 ? Math.round(monthlyBudget / 30) : 0);
 
     const remainingDailyLimit = dailyLimit > 0 ? Math.max(0, dailyLimit - todaySpent) : null;
+    const remainingMonthlyBudget = monthlyBudget > 0 ? Math.max(0, monthlyBudget - thisMonthSpent) : null;
+    const budgetPercentage =
+      monthlyBudget > 0 ? Math.min(100, Math.round((thisMonthSpent / monthlyBudget) * 100)) : 0;
     const currency = settings?.currency === 'INR' ? '₹' : settings?.currency || '₹';
 
     const widgetData: WidgetData = {
@@ -102,6 +147,10 @@ export async function syncWidgetWithTransactions(
       todaySpent,
       dailyLimit,
       remainingDailyLimit,
+      thisMonthSpent,
+      monthlyBudget,
+      budgetPercentage,
+      remainingMonthlyBudget,
       currency,
       theme: 'light',
       lastUpdated: Date.now(),

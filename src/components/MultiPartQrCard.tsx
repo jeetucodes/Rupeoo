@@ -13,6 +13,7 @@ import {
 import QRCode from 'react-native-qrcode-svg';
 import ViewShot from 'react-native-view-shot';
 import * as Sharing from 'expo-sharing';
+import { shareImageAndText } from '@/lib/shareHelper';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Toast from 'react-native-toast-message';
@@ -160,16 +161,20 @@ export const MultiPartQrCard: React.FC<MultiPartQrCardProps> = ({
     setIsSharing(true);
 
     try {
-      if (viewShotRef.current && (await Sharing.isAvailableAsync()) && Platform.OS !== 'web') {
+      const shareMessage = `Pay ₹${part.amountFormatted} via UPI to ${payeeName || upiId} (${upiId}).\nLink: ${part.upiUri}\n\nNote: ${part.note}`;
+
+      if (viewShotRef.current && Platform.OS !== 'web') {
         const uri = await viewShotRef.current.capture();
-        await Sharing.shareAsync(uri, {
-          mimeType: 'image/png',
-          dialogTitle: `Rupeo UPI QR - Part ${part.partIndex}/${part.totalParts} (₹${part.amountFormatted})`,
+        await shareImageAndText({
+          uri,
+          text: shareMessage,
+          title: `Rupeo UPI QR - Part ${part.partIndex}/${part.totalParts} (₹${part.amountFormatted})`,
+          dialogTitle: `Rupeo UPI QR - Part ${part.partIndex}/${part.totalParts}`,
         });
       } else {
         await Share.share({
           title: `UPI Payment Part ${part.partIndex}/${part.totalParts}`,
-          message: `Pay ₹${part.amountFormatted} via UPI to ${payeeName || upiId} (${upiId}).\nLink: ${part.upiUri}\n\nNote: ${part.note}`,
+          message: shareMessage,
         });
       }
     } catch (err) {
@@ -379,7 +384,7 @@ const styles = StyleSheet.create({
   viewShotPass: {
     width: '100%',
     backgroundColor: '#FFFFFF',
-    borderRadius: 0,
+    borderRadius: 22,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     overflow: 'hidden',
@@ -501,7 +506,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#FAFAFA',
-    borderRadius: 0,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     paddingHorizontal: 20,
@@ -613,7 +618,7 @@ const styles = StyleSheet.create({
     position: 'relative',
     backgroundColor: '#FFFFFF',
     padding: 6,
-    borderRadius: 0,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -624,7 +629,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     backgroundColor: 'rgba(255, 255, 255, 0.85)',
-    borderRadius: 0,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -632,7 +637,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     paddingHorizontal: 16,
     paddingVertical: 8,
-    borderRadius: 0,
+    borderRadius: 12,
     borderWidth: 2,
     borderColor: '#16A34A',
     alignItems: 'center',
@@ -673,7 +678,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#F1F5F9',
     paddingVertical: 10,
-    borderRadius: 0,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: '#CBD5E1',
     gap: 8,
@@ -701,7 +706,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#FFFFFF',
     paddingVertical: 11,
-    borderRadius: 0,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     shadowColor: '#000000',

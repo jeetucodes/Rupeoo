@@ -1,6 +1,8 @@
 import { Platform } from 'react-native';
 
 export { QuickAddWidget } from './QuickAddWidget';
+export { InsightWidget } from './InsightWidget';
+export { QuickActionsWidget } from './QuickActionsWidget';
 export { widgetTaskHandler } from './widget-task-handler';
 
 // Register the task handler only on Android

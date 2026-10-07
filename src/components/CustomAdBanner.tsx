@@ -406,7 +406,7 @@ const styles = StyleSheet.create({
   cardContainer: {
     width: '100%',
     maxWidth: 480,
-    borderRadius: 0,
+    borderRadius: 18,
     shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.07,
@@ -414,7 +414,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   gradientCard: {
-    borderRadius: 0,
+    borderRadius: 18,
     paddingHorizontal: 15,
     paddingTop: 11,
     paddingBottom: 13,
@@ -428,7 +428,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   compactGradientCard: {
-    borderRadius: 0,
+    borderRadius: 16,
     paddingHorizontal: 14,
     paddingTop: 10,
     paddingBottom: 11,
@@ -624,7 +624,7 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 480,
     height: 140,
-    borderRadius: 0,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: '#334155',
     overflow: 'hidden',
@@ -713,7 +713,7 @@ const styles = StyleSheet.create({
   txCardContainer: {
     width: '100%',
     alignSelf: 'stretch',
-    borderRadius: 0,
+    borderRadius: 16,
     shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.08,
@@ -722,7 +722,7 @@ const styles = StyleSheet.create({
   },
   txCard: {
     width: '100%',
-    borderRadius: 0,
+    borderRadius: 16,
     paddingHorizontal: 14,
     paddingTop: 11,
     paddingBottom: 13,
