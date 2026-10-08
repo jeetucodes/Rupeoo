@@ -15,51 +15,53 @@ import {
   StatusBar,
   Dimensions,
   BackHandler,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image as ExpoImage } from 'expo-image';
-import { insertTransaction, getAllTransactions, getUserCategories, addCustomCategory, CategoryItem, defaultCategories } from '@/lib/database';
+import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import * as Haptics from 'expo-haptics';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import Toast from 'react-native-toast-message';
+
+import {
+  insertTransaction,
+  getAllTransactions,
+  getUserCategories,
+  addCustomCategory,
+  CategoryItem,
+  defaultCategories,
+} from '@/lib/database';
 import { markFirstTransactionReviewPending, hasUserBeenPromptedForReview } from '@/lib/review';
 import { useAuth } from '@/context/AuthContext';
 import { showTransactionSaveAd, preloadTransactionSaveAd, RupeoAdBanner } from '@/lib/ads';
 import { useTranslation } from '@/lib/i18n';
-import { Ionicons } from '@expo/vector-icons';
 import CategoryIcon from '@/components/CategoryIcon';
-import * as ImagePicker from 'expo-image-picker';
-import { safeGoBack } from '@/lib/navigation';
-import { formatTime12Hour, getLocalDateString, getRelativeDateString } from '@/lib/dateUtils';
-import Toast from 'react-native-toast-message';
-import { triggerTransactionVibration } from '@/lib/sound';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import PaymentModeIcon from '@/components/PaymentModeIcon';
+import TransactionCalculatorModal from '@/components/TransactionCalculatorModal';
 import VoiceTransactionModal from '@/components/VoiceTransactionModal';
 import { ParsedVoiceTransaction } from '@/lib/voiceParser';
-
-// High-res 3D Fluent Emojis
-const ICONS_3D = {
-  expense: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Money%20with%20Wings.png',
-  income: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Money%20Bag.png',
-  sparkles: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Activities/Sparkles.png',
-  fire: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Travel%20and%20places/Fire.png',
-  upi: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Travel%20and%20places/High%20Voltage.png',
-  cash: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Dollar%20Banknote.png',
-  card: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Credit%20Card.png',
-  bank: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Travel%20and%20places/Bank.png',
-  receipt: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Receipt.png',
-  calendar: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Calendar.png',
-  camera: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Camera.png',
-  gallery: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Framed%20Picture.png',
-  memo: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Memo.png',
-};
+import { safeGoBack } from '@/lib/navigation';
+import { formatTime12Hour, getLocalDateString, getRelativeDateString, parseLocalDate } from '@/lib/dateUtils';
+import { triggerTransactionVibration } from '@/lib/sound';
 
 const QUICK_AMOUNTS = [50, 100, 200, 500, 1000, 2000];
 
-const PAYMENT_MODES = [
-  { id: 'UPI', label: 'UPI', icon3d: ICONS_3D.upi, color: '#7C3AED' },
-  { id: 'Cash', label: 'Cash', icon3d: ICONS_3D.cash, color: '#16A34A' },
-  { id: 'Card', label: 'Card', icon3d: ICONS_3D.card, color: '#2563EB' },
-  { id: 'Bank', label: 'Bank', icon3d: ICONS_3D.bank, color: '#D97706' },
+const PRIMARY_PAYMENT_MODES = [
+  { id: 'UPI', label: 'UPI' },
+  { id: 'Cash', label: 'Cash' },
+  { id: 'Card', label: 'Card' },
+  { id: 'Bank', label: 'Bank' },
+];
+
+const EXTRA_PAYMENT_MODES = [
+  { id: 'Wallet', label: 'Wallet', icon: 'wallet-outline' },
+  { id: 'Cheque', label: 'Cheque', icon: 'document-text-outline' },
+  { id: 'Net Banking', label: 'Net Banking', icon: 'globe-outline' },
+  { id: 'Other', label: 'Other', icon: 'ellipsis-horizontal-circle-outline' },
 ];
 
 const DEFAULT_INCOME_CATEGORIES: CategoryItem[] = [
@@ -91,7 +93,6 @@ const ADD_CAT_ICONS = [
   'airplane',
   'film',
   'receipt',
-  'beer',
   'heart',
   'flash',
   'shield-checkmark',
@@ -99,19 +100,39 @@ const ADD_CAT_ICONS = [
 ];
 
 const ADD_CAT_COLORS = [
-  '#10B981', // Emerald
-  '#059669', // Deep Green
-  '#0EA5E9', // Sky Blue
-  '#2563EB', // Blue
-  '#6366F1', // Indigo
-  '#8B5CF6', // Purple
-  '#EC4899', // Pink
-  '#EF4444', // Red
-  '#F59E0B', // Amber
-  '#D97706', // Orange
-  '#14B8A6', // Teal
-  '#64748B', // Slate
+  '#EF4444',
+  '#0284C7',
+  '#9D4EDD',
+  '#FF9F1C',
+  '#E11D48',
+  '#6366F1',
+  '#10B981',
+  '#059669',
+  '#0EA5E9',
+  '#2563EB',
+  '#EC4899',
+  '#F59E0B',
+  '#64748B',
 ];
+
+// Pastel background palette for categories matching modern expense UI
+const CATEGORY_STYLES: Record<string, { bg: string; activeBorder: string; activeText: string }> = {
+  food: { bg: '#FFF1F1', activeBorder: '#FECACA', activeText: '#EF4444' },
+  transport: { bg: '#F0F9FF', activeBorder: '#BAE6FD', activeText: '#0284C7' },
+  shopping: { bg: '#FAF5FF', activeBorder: '#E9D5FF', activeText: '#9333EA' },
+  bills: { bg: '#FFFBEB', activeBorder: '#FDE68A', activeText: '#D97706' },
+  health: { bg: '#FFF1F2', activeBorder: '#FECDD3', activeText: '#E11D48' },
+  healthcare: { bg: '#FFF1F2', activeBorder: '#FECDD3', activeText: '#E11D48' },
+  education: { bg: '#EEF2FF', activeBorder: '#C7D2FE', activeText: '#4F46E5' },
+  groceries: { bg: '#ECFDF5', activeBorder: '#A7F3D0', activeText: '#059669' },
+  dining: { bg: '#FFF1F1', activeBorder: '#FECACA', activeText: '#EF4444' },
+  coffee: { bg: '#FDF4FF', activeBorder: '#F5D0FE', activeText: '#A21CAF' },
+  salary: { bg: '#ECFDF5', activeBorder: '#A7F3D0', activeText: '#059669' },
+  business: { bg: '#F0FDF4', activeBorder: '#BBF7D0', activeText: '#16A34A' },
+  freelance: { bg: '#F0F9FF', activeBorder: '#BAE6FD', activeText: '#0284C7' },
+  investments: { bg: '#FAF5FF', activeBorder: '#E9D5FF', activeText: '#7C3AED' },
+  income: { bg: '#ECFDF5', activeBorder: '#A7F3D0', activeText: '#059669' },
+};
 
 export default function AddExpenseScreen() {
   const router = useRouter();
@@ -129,18 +150,24 @@ export default function AddExpenseScreen() {
   const [categories, setCategories] = useState<CategoryItem[]>(defaultCategories);
   const [transactions, setTransactions] = useState<any[]>([]);
 
-  // Add Custom Category Modal (supports both Expense and Income!)
+  // Modals state
+  const [calculatorOpen, setCalculatorOpen] = useState(false);
+  const [voiceModalVisible, setVoiceModalVisible] = useState(false);
+  const [seeAllCategoriesOpen, setSeeAllCategoriesOpen] = useState(false);
+  const [receiptSheetOpen, setReceiptSheetOpen] = useState(false);
+  const [morePaymentsOpen, setMorePaymentsOpen] = useState(false);
+  const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [addCatModalOpen, setAddCatModalOpen] = useState(false);
+  const [searchCategoryText, setSearchCategoryText] = useState('');
+
+  // Add Custom Category State
   const [newCatName, setNewCatName] = useState('');
   const [newCatIcon, setNewCatIcon] = useState('briefcase');
-  const [newCatColor, setNewCatColor] = useState('#10B981');
+  const [newCatColor, setNewCatColor] = useState('#EF4444');
   const [isSavingCategory, setIsSavingCategory] = useState(false);
 
-  // Optional extra details
+  // Photos & Date
   const [receiptImage, setReceiptImage] = useState<string | null>(null);
-  const [previewModalOpen, setPreviewModalOpen] = useState(false);
-
-  // Date management
   const todayStr = getLocalDateString();
   const yesterdayStr = getRelativeDateString(-1);
   const [date, setDate] = useState(todayStr);
@@ -150,31 +177,21 @@ export default function AddExpenseScreen() {
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
   const [savedDetails, setSavedDetails] = useState({ amount: '', merchant: '', category: '', paymentMode: '' });
-  const [voiceModalVisible, setVoiceModalVisible] = useState(false);
 
-  const handleApplyVoiceTransaction = (parsed: ParsedVoiceTransaction) => {
-    if (parsed.amount !== null && parsed.amount > 0) {
-      setAmount(parsed.amount.toString());
-    }
-    setType(parsed.type);
-    if (parsed.category) {
-      setCategory(parsed.category);
-    }
-    if (parsed.note) {
-      setDescription(parsed.note);
-    }
-    if (parsed.friendName) {
-      setMerchant(parsed.friendName);
-    }
-    Toast.show({
-      type: 'success',
-      text1: 'Voice Input Applied! 🎙️',
-      text2: `Amount: ₹${parsed.amount ?? 0}, Category: ${parsed.category}`,
-      position: 'top',
-    });
-  };
+  // Cursor blink animation
+  const cursorOpacity = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    const blink = Animated.loop(
+      Animated.sequence([
+        Animated.timing(cursorOpacity, { toValue: 0, duration: 500, useNativeDriver: true }),
+        Animated.timing(cursorOpacity, { toValue: 1, duration: 500, useNativeDriver: true }),
+      ])
+    );
+    blink.start();
+    return () => blink.stop();
+  }, [cursorOpacity]);
 
-  // Animation refs
+  // Success Animation refs
   const successScale = useRef(new Animated.Value(0.3)).current;
   const successOpacity = useRef(new Animated.Value(0)).current;
   const successRingScale = useRef(new Animated.Value(0.6)).current;
@@ -182,7 +199,7 @@ export default function AddExpenseScreen() {
   const successCheckScale = useRef(new Animated.Value(0.1)).current;
   const successContentY = useRef(new Animated.Value(20)).current;
   const successTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const scrollViewRef = useRef<ScrollView>(null);
+  const amountInputRef = useRef<TextInput>(null);
 
   useEffect(() => {
     return () => {
@@ -213,7 +230,7 @@ export default function AddExpenseScreen() {
     };
   }, []);
 
-  // Handle hardware back press on Android
+  // Hardware back press on Android
   useEffect(() => {
     const onBackPress = () => {
       safeGoBack(router);
@@ -254,7 +271,7 @@ export default function AddExpenseScreen() {
   const isExpense = type === 'debit';
   const themeColor = isExpense ? '#EF4444' : '#10B981';
 
-  // Category usage frequency map calculated from actual transactions
+  // Category usage frequency map
   const { expenseFreq, incomeFreq } = React.useMemo(() => {
     const expCounts: Record<string, number> = {};
     const incCounts: Record<string, number> = {};
@@ -272,7 +289,7 @@ export default function AddExpenseScreen() {
     return { expenseFreq: expCounts, incomeFreq: incCounts };
   }, [transactions]);
 
-  // Income categories: Default income categories + any custom income categories (type === 'credit')
+  // Income categories
   const incomeCategories = React.useMemo(() => {
     const customIncome = categories.filter((c) => c.type === 'credit');
     const existingNames = new Set(DEFAULT_INCOME_CATEGORIES.map((c) => c.name.toLowerCase()));
@@ -280,12 +297,12 @@ export default function AddExpenseScreen() {
     return [...DEFAULT_INCOME_CATEGORIES, ...extra];
   }, [categories]);
 
-  // Expense categories: Default + custom expense categories (type !== 'credit')
+  // Expense categories
   const expenseCategories = React.useMemo(() => {
     return categories.filter((c) => c.type !== 'credit');
   }, [categories]);
 
-  // Most used categories appear in FIRST place / front dynamically!
+  // Sorted display categories
   const sortedDisplayCategories = React.useMemo(() => {
     const list = isExpense ? [...expenseCategories] : [...incomeCategories];
     const freqMap = isExpense ? expenseFreq : incomeFreq;
@@ -294,13 +311,13 @@ export default function AddExpenseScreen() {
       const countA = freqMap[a.name.trim().toLowerCase()] || 0;
       const countB = freqMap[b.name.trim().toLowerCase()] || 0;
       if (countB !== countA) {
-        return countB - countA; // Most used category comes first!
+        return countB - countA;
       }
       return 0;
     });
   }, [isExpense, expenseCategories, incomeCategories, expenseFreq, incomeFreq]);
 
-  // When switching type or when categories load, auto-select top used category if needed
+  // Auto select valid category on type switch
   useEffect(() => {
     if (sortedDisplayCategories.length > 0) {
       const exists = sortedDisplayCategories.some(
@@ -311,6 +328,24 @@ export default function AddExpenseScreen() {
       }
     }
   }, [isExpense, sortedDisplayCategories]);
+
+  const handleAmountChange = (val: string) => {
+    const filtered = val.replace(/[^0-9.]/g, '');
+    const parts = filtered.split('.');
+    if (parts.length > 2) {
+      setAmount(parts[0] + '.' + parts.slice(1).join('').replace(/\./g, ''));
+    } else {
+      setAmount(filtered);
+    }
+  };
+
+  const addQuickAmount = (val: number) => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {}
+    const current = parseFloat(amount) || 0;
+    setAmount((current + val).toString());
+  };
 
   const openAddCategoryModal = () => {
     setNewCatName('');
@@ -350,11 +385,12 @@ export default function AddExpenseScreen() {
       setCategories((prev) => [...prev, newCatItem]);
       setCategory(trimmed);
       setAddCatModalOpen(false);
+      setSeeAllCategoriesOpen(false);
       setNewCatName('');
       Toast.show({
         type: 'success',
         text1: 'Category Added!',
-        text2: `"${trimmed}" is selected for ${isExpense ? 'expense' : 'income'}`,
+        text2: `"${trimmed}" is selected`,
       });
     } catch (err: any) {
       console.error('Error saving custom category:', err);
@@ -364,23 +400,8 @@ export default function AddExpenseScreen() {
     }
   };
 
-  const handleAmountChange = (val: string) => {
-    const filtered = val.replace(/[^0-9.]/g, '');
-    const parts = filtered.split('.');
-    if (parts.length > 2) {
-      setAmount(parts[0] + '.' + parts.slice(1).join('').replace(/\./g, ''));
-    } else {
-      setAmount(filtered);
-    }
-  };
-
-  const addQuickAmount = (val: number) => {
-    const current = parseFloat(amount) || 0;
-    setAmount((current + val).toString());
-  };
-
-
   const pickImage = async () => {
+    setReceiptSheetOpen(false);
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
@@ -394,6 +415,7 @@ export default function AddExpenseScreen() {
           ? `data:image/jpeg;base64,${result.assets[0].base64}`
           : result.assets[0].uri;
         setReceiptImage(base64Uri);
+        Toast.show({ type: 'success', text1: 'Photo Attached! 📸' });
       }
     } catch (err) {
       console.warn('Error picking image:', err);
@@ -402,6 +424,7 @@ export default function AddExpenseScreen() {
   };
 
   const takePhoto = async () => {
+    setReceiptSheetOpen(false);
     try {
       const perm = await ImagePicker.requestCameraPermissionsAsync();
       if (perm.status !== 'granted') {
@@ -419,11 +442,57 @@ export default function AddExpenseScreen() {
           ? `data:image/jpeg;base64,${result.assets[0].base64}`
           : result.assets[0].uri;
         setReceiptImage(base64Uri);
+        Toast.show({ type: 'success', text1: 'Photo Attached! 📸' });
       }
     } catch (err) {
       console.warn('Error taking photo:', err);
       Toast.show({ type: 'error', text1: 'Camera Error', text2: 'Could not open camera' });
     }
+  };
+
+  const handleApplyVoiceTransaction = (parsed: ParsedVoiceTransaction) => {
+    if (parsed.amount !== null && parsed.amount > 0) {
+      setAmount(parsed.amount.toString());
+    }
+    setType(parsed.type);
+    if (parsed.category) {
+      setCategory(parsed.category);
+    }
+    if (parsed.note) {
+      setDescription(parsed.note);
+    }
+    if (parsed.friendName) {
+      setMerchant(parsed.friendName);
+    }
+    Toast.show({
+      type: 'success',
+      text1: 'Voice Input Applied! 🎙️',
+      text2: `Amount: ₹${parsed.amount ?? 0}, Category: ${parsed.category}`,
+      position: 'top',
+    });
+  };
+
+  const formatCardDate = (dateStr: string) => {
+    if (!dateStr) return 'Select Date';
+    try {
+      const parts = dateStr.split('-');
+      if (parts.length === 3) {
+        const year = parseInt(parts[0], 10);
+        const monthIndex = parseInt(parts[1], 10) - 1;
+        const day = parseInt(parts[2], 10);
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const month = monthNames[monthIndex] || '';
+        const dayStr = String(day).padStart(2, '0');
+        if (dateStr === todayStr) {
+          return `Today, ${dayStr} ${month} ${year}`;
+        }
+        if (dateStr === yesterdayStr) {
+          return `Yesterday, ${dayStr} ${month} ${year}`;
+        }
+        return `${dayStr} ${month} ${year}`;
+      }
+    } catch {}
+    return dateStr;
   };
 
   const handleSave = async () => {
@@ -439,7 +508,6 @@ export default function AddExpenseScreen() {
       setIsSaving(true);
       if (!user?.uid) throw new Error('Not logged in');
 
-      // Check if this is the user's first transaction
       let isFirstTransaction = false;
       try {
         const alreadyPrompted = await hasUserBeenPromptedForReview(user.uid);
@@ -447,9 +515,7 @@ export default function AddExpenseScreen() {
           const existingTxs = await getAllTransactions(user.uid);
           isFirstTransaction = !existingTxs || existingTxs.length === 0;
         }
-      } catch {
-        // Safe fallback
-      }
+      } catch {}
 
       const now = new Date();
       const timeStr = formatTime12Hour(now);
@@ -498,8 +564,6 @@ export default function AddExpenseScreen() {
 
       successTimer.current = setTimeout(() => {
         if (isFirstTransaction) {
-          // For the user's very first transaction, skip interstitial ad
-          // and navigate back directly to trigger Google In-App Review
           safeGoBack(router);
         } else {
           showTransactionSaveAd(isPremium, () => {
@@ -516,149 +580,160 @@ export default function AddExpenseScreen() {
     }
   };
 
-  const displayCategories = isExpense
-    ? categories
-    : DEFAULT_INCOME_CATEGORIES;
+  const isExtraPaymentSelected = !PRIMARY_PAYMENT_MODES.some((m) => m.id === paymentMode);
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <StatusBar barStyle="dark-content" backgroundColor="#F8FAFC" />
+
+      {/* Notch handle pill */}
+      <View style={styles.topHandleBar} />
+
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={{ flex: 1 }}
       >
-        {/* CLEAN TOP HEADER */}
+        {/* TOP HEADER */}
         <View style={styles.header}>
           <TouchableOpacity
             onPress={() => safeGoBack(router)}
-            style={styles.closeBtn}
+            style={styles.circleBtn}
             activeOpacity={0.7}
             accessibilityLabel="Close"
           >
-            <Ionicons name="close" size={22} color="#0F172A" />
+            <Ionicons name="close" size={20} color="#0F172A" />
           </TouchableOpacity>
 
-          <Text style={styles.headerTitle}>{t('add_transaction')}</Text>
+          <Text style={styles.headerTitle}>Add Transaction</Text>
 
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <TouchableOpacity
-              onPress={() => setVoiceModalVisible(true)}
-              style={styles.headerVoiceBtn}
-              activeOpacity={0.7}
-              accessibilityLabel="Voice Entry"
-            >
-              <Ionicons name="mic" size={18} color="#10B981" />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={() => router.push('/categories')}
-              style={styles.headerCatsBtn}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="grid-outline" size={18} color="#64748B" />
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity
+            onPress={() => setVoiceModalVisible(true)}
+            style={styles.voiceCircleBtn}
+            activeOpacity={0.7}
+            accessibilityLabel="Voice Entry"
+          >
+            <Ionicons name="mic" size={20} color="#10B981" />
+          </TouchableOpacity>
         </View>
 
         <ScrollView
-          ref={scrollViewRef}
           contentContainerStyle={[
             styles.content,
             { paddingBottom: keyboardHeight > 0 ? keyboardHeight + 110 : 130 + (insets.bottom > 0 ? insets.bottom + 8 : 0) },
           ]}
           showsVerticalScrollIndicator={false}
-          removeClippedSubviews={Platform.OS === 'android'}
           keyboardShouldPersistTaps="handled"
         >
-          {/* 3D EXPENSE / INCOME SWITCH */}
-          <View style={styles.typeSwitchWrap}>
+          {/* SEGMENTED EXPENSE / INCOME SWITCH */}
+          <View style={styles.typeSwitchContainer}>
+            {/* Expense Tab */}
             <TouchableOpacity
-              style={[
-                styles.typeBtn,
-                isExpense && styles.typeBtnExpenseActive,
-              ]}
+              style={[styles.typeTab, isExpense && styles.typeTabActiveExpense]}
               onPress={() => {
+                try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
                 setType('debit');
                 const topExpenseCat = expenseCategories[0]?.name || 'Food';
                 setCategory(topExpenseCat);
               }}
-              activeOpacity={0.85}
+              activeOpacity={0.88}
             >
-              <ExpoImage
-                source={{ uri: ICONS_3D.expense }}
-                style={{ width: 18, height: 18, marginRight: 6 }}
-                contentFit="contain"
-                cachePolicy="memory-disk"
-              />
-              <Text style={[styles.typeBtnText, isExpense && styles.typeBtnExpenseTextActive]}>
-                {t('type_expense')}
-              </Text>
+              {isExpense ? (
+                <LinearGradient
+                  colors={['#FF5252', '#FF3B47']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.activeTabGradient}
+                >
+                  <View style={styles.whiteArrowCircle}>
+                    <Ionicons name="arrow-up" size={13} color="#FF4343" />
+                  </View>
+                  <Text style={styles.activeTabText}>Expense</Text>
+                </LinearGradient>
+              ) : (
+                <View style={styles.inactiveTabRow}>
+                  <View style={styles.grayArrowCircle}>
+                    <Ionicons name="arrow-up" size={13} color="#64748B" />
+                  </View>
+                  <Text style={styles.inactiveTabText}>Expense</Text>
+                </View>
+              )}
             </TouchableOpacity>
 
+            {/* Income Tab */}
             <TouchableOpacity
-              style={[
-                styles.typeBtn,
-                !isExpense && styles.typeBtnIncomeActive,
-              ]}
+              style={[styles.typeTab, !isExpense && styles.typeTabActiveIncome]}
               onPress={() => {
+                try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
                 setType('credit');
                 const topIncomeCat = incomeCategories[0]?.name || 'Salary';
                 setCategory(topIncomeCat);
               }}
-              activeOpacity={0.85}
+              activeOpacity={0.88}
             >
-              <ExpoImage
-                source={{ uri: ICONS_3D.income }}
-                style={{ width: 18, height: 18, marginRight: 6 }}
-                contentFit="contain"
-                cachePolicy="memory-disk"
-              />
-              <Text style={[styles.typeBtnText, !isExpense && styles.typeBtnIncomeTextActive]}>
-                {t('type_income')}
-              </Text>
+              {!isExpense ? (
+                <LinearGradient
+                  colors={['#10B981', '#059669']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.activeTabGradient}
+                >
+                  <View style={styles.whiteArrowCircle}>
+                    <Ionicons name="arrow-down" size={13} color="#059669" />
+                  </View>
+                  <Text style={styles.activeTabText}>Income</Text>
+                </LinearGradient>
+              ) : (
+                <View style={styles.inactiveTabRow}>
+                  <View style={styles.grayArrowCircle}>
+                    <Ionicons name="arrow-down" size={13} color="#64748B" />
+                  </View>
+                  <Text style={styles.inactiveTabText}>Income</Text>
+                </View>
+              )}
             </TouchableOpacity>
           </View>
 
-          {/* AMOUNT INPUT CARD */}
-          <View style={styles.amountCard}>
-            <View style={styles.amountTopHeaderRow}>
-              <View
-                style={[
-                  styles.amountBadge,
-                  { backgroundColor: isExpense ? '#FEF2F2' : '#ECFDF5', borderColor: isExpense ? '#FECACA' : '#A7F3D0' },
-                ]}
-              >
-                <Text style={[styles.amountBadgeText, { color: isExpense ? '#DC2626' : '#059669' }]}>
-                  {isExpense ? t('money_spent_badge') : t('money_received_badge')}
-                </Text>
-              </View>
-
+          {/* AMOUNT CARD */}
+          <View style={[styles.amountCard, { backgroundColor: isExpense ? '#FFF6F6' : '#F0FDF4', borderColor: isExpense ? '#FFE5E5' : '#DCFCE7' }]}>
+            <View style={styles.amountDisplayRow}>
+              {/* Currency & Amount */}
               <TouchableOpacity
-                onPress={() => setVoiceModalVisible(true)}
-                style={styles.amountVoicePill}
-                activeOpacity={0.8}
-                accessibilityLabel="Voice Entry"
+                style={styles.amountInputTouchWrap}
+                onPress={() => amountInputRef.current?.focus()}
+                activeOpacity={1}
               >
-                <Ionicons name="mic" size={13} color="#059669" />
-                <Text style={styles.amountVoicePillText}>{t('voice_entry')}</Text>
+                <Text style={styles.currencySymbol}>{curr}</Text>
+                <TextInput
+                  ref={amountInputRef}
+                  style={[
+                    styles.amountTextInput,
+                    { color: amount ? '#0F172A' : '#64748B' },
+                  ]}
+                  keyboardType="decimal-pad"
+                  placeholder="0"
+                  placeholderTextColor="#64748B"
+                  value={amount}
+                  onChangeText={handleAmountChange}
+                  maxLength={10}
+                />
+                <Animated.View style={[styles.cursorBar, { opacity: cursorOpacity, backgroundColor: themeColor }]} />
+              </TouchableOpacity>
+
+              {/* Calculator Button */}
+              <TouchableOpacity
+                style={[styles.calculatorIconBtn, { backgroundColor: isExpense ? '#FEE2E2' : '#DCFCE7' }]}
+                onPress={() => {
+                  try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+                  setCalculatorOpen(true);
+                }}
+                activeOpacity={0.75}
+                accessibilityLabel="Open Calculator"
+              >
+                <Ionicons name="calculator" size={24} color={themeColor} />
               </TouchableOpacity>
             </View>
 
-            <View style={styles.amountInputRow}>
-              <Text style={[styles.currencyPrefix, { color: themeColor }]}>{curr}</Text>
-              <TextInput
-                style={[styles.hugeAmountInput, { color: themeColor }]}
-                keyboardType="decimal-pad"
-                placeholder="0"
-                placeholderTextColor="#CBD5E1"
-                value={amount}
-                onChangeText={handleAmountChange}
-                maxLength={10}
-                autoFocus
-              />
-            </View>
-
-            {/* QUICK AMOUNT CHIPS */}
+            {/* Quick Amount Pills */}
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -671,417 +746,229 @@ export default function AddExpenseScreen() {
                   onPress={() => addQuickAmount(q)}
                   activeOpacity={0.7}
                 >
-                  <Text style={styles.quickAmountPillText}>+{curr}{q}</Text>
+                  <Text style={styles.quickAmountPillText}>+{q}</Text>
                 </TouchableOpacity>
               ))}
               {amount !== '' && (
                 <TouchableOpacity
                   style={styles.clearPill}
-                  onPress={() => setAmount('')}
+                  onPress={() => {
+                    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+                    setAmount('');
+                  }}
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="backspace-outline" size={14} color="#EF4444" style={{ marginRight: 3 }} />
-                  <Text style={styles.clearPillText}>{t('clear_btn')}</Text>
+                  <Ionicons name="backspace-outline" size={15} color="#EF4444" style={{ marginRight: 3 }} />
+                  <Text style={styles.clearPillText}>Clear</Text>
                 </TouchableOpacity>
               )}
             </ScrollView>
           </View>
 
-          {/* 1. TITLE / PAYEE / SOURCE */}
-          <View style={styles.sectionCard}>
-            <View style={styles.sectionHeaderRow}>
-              <ExpoImage
-                source={{ uri: isExpense ? ICONS_3D.cash : ICONS_3D.income }}
-                style={{ width: 16, height: 16, marginRight: 6 }}
-                contentFit="contain"
-                cachePolicy="memory-disk"
-              />
-              <Text style={styles.sectionTitle}>
-                {isExpense ? 'Paid To / Spent On' : 'Received From / Source'}
-              </Text>
-            </View>
-            <View style={styles.inputWrap}>
-              <TextInput
-                style={styles.textInput}
-                placeholder={
-                  isExpense
-                    ? 'e.g. Starbucks, Amazon, Petrol, Dinner...'
-                    : 'e.g. Salary, Client Payment, Rental, Dividend...'
-                }
-                placeholderTextColor="#94A3B8"
-                value={merchant}
-                onChangeText={setMerchant}
-              />
-              {merchant !== '' && (
-                <TouchableOpacity onPress={() => setMerchant('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                  <Ionicons name="close-circle" size={16} color="#94A3B8" />
-                </TouchableOpacity>
-              )}
-            </View>
+          {/* CATEGORY SECTION */}
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>Category</Text>
+            <TouchableOpacity
+              onPress={() => setSeeAllCategoriesOpen(true)}
+              style={styles.seeAllBtn}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.seeAllText}>See all</Text>
+              <Ionicons name="chevron-forward" size={13} color="#64748B" />
+            </TouchableOpacity>
           </View>
 
-          {/* 2. CATEGORIES SELECTION (Most Used Categories First + Add Category Option for Income & Expense) */}
-          <View style={styles.sectionCard}>
-            <View style={styles.sectionHeaderRowBetween}>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <ExpoImage
-                  source={{ uri: isExpense ? ICONS_3D.fire : ICONS_3D.sparkles }}
-                  style={{ width: 16, height: 16, marginRight: 6 }}
-                  contentFit="contain"
-                  cachePolicy="memory-disk"
-                />
-                <Text style={styles.sectionTitle}>{t('category_title')}</Text>
-              </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.categoriesHorizontalRow}
+          >
+            {sortedDisplayCategories.slice(0, 10).map((cat) => {
+              const isSelected = category.toLowerCase() === cat.name.toLowerCase();
+              const catKey = cat.name.toLowerCase();
+              const styleConfig = CATEGORY_STYLES[catKey] || {
+                bg: cat.color ? cat.color + '15' : '#F1F5F9',
+                activeBorder: cat.color || '#3B82F6',
+                activeText: cat.color || '#3B82F6',
+              };
+
+              return (
                 <TouchableOpacity
-                  style={[
-                    styles.addCategoryHeaderBtn,
-                    {
-                      backgroundColor: isExpense ? '#FEF2F2' : '#ECFDF5',
-                      borderColor: isExpense ? '#FECACA' : '#A7F3D0',
-                    },
-                  ]}
-                  onPress={openAddCategoryModal}
+                  key={cat.id || cat.name}
+                  style={styles.categoryTileItem}
+                  onPress={() => {
+                    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+                    setCategory(cat.name);
+                  }}
                   activeOpacity={0.75}
                 >
-                  <Ionicons name="add" size={13} color={isExpense ? '#DC2626' : '#059669'} />
-                  <Text
+                  <View
                     style={[
-                      styles.addCategoryHeaderBtnText,
-                      { color: isExpense ? '#DC2626' : '#059669' },
-                    ]}
-                  >
-                    {t('add')}
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => router.push('/categories')} activeOpacity={0.7}>
-                  <Text style={styles.manageLinkText}>{t('manage_btn')}</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.categoriesScroll}
-            >
-              {sortedDisplayCategories.map((cat) => {
-                const isSelected = category.toLowerCase() === cat.name.toLowerCase();
-                const catColor = cat.color || '#3B82F6';
-                const usageCount = (isExpense ? expenseFreq : incomeFreq)[cat.name.trim().toLowerCase()] || 0;
-
-                return (
-                  <TouchableOpacity
-                    key={cat.id || cat.name}
-                    style={[
-                      styles.categoryChip,
+                      styles.categoryTileBox,
+                      { backgroundColor: styleConfig.bg },
                       isSelected && {
-                        borderColor: catColor,
-                        backgroundColor: catColor + '15',
+                        borderColor: styleConfig.activeBorder,
+                        borderWidth: 1.8,
+                        transform: [{ scale: 1.02 }],
                       },
                     ]}
-                    onPress={() => setCategory(cat.name)}
-                    activeOpacity={0.7}
                   >
-                    <View style={[styles.catIconWrap, { backgroundColor: catColor + '20' }]}>
-                      <CategoryIcon
-                        categoryName={cat.name}
-                        iconName={cat.icon}
-                        size={15}
-                        color={catColor}
-                      />
-                    </View>
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                      <Text
-                        style={[
-                          styles.categoryChipText,
-                          isSelected && { color: '#0F172A', fontWeight: '800' },
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {cat.name}
-                      </Text>
-                      {usageCount > 0 && (
-                        <Text style={styles.catUsageBadge}>
-                          {usageCount}x
-                        </Text>
-                      )}
-                    </View>
-                    {isSelected && (
-                      <View style={[styles.checkDot, { backgroundColor: catColor }]}>
-                        <Ionicons name="checkmark" size={9} color="#FFFFFF" />
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-
-              {/* QUICK ADD CATEGORY TILE CHIP */}
-              <TouchableOpacity
-                style={[
-                  styles.addCategoryChip,
-                  { borderColor: isExpense ? '#FECACA' : '#A7F3D0' },
-                ]}
-                onPress={openAddCategoryModal}
-                activeOpacity={0.7}
-              >
-                <Ionicons
-                  name="add"
-                  size={15}
-                  color={isExpense ? '#DC2626' : '#059669'}
-                  style={{ marginRight: 3 }}
-                />
-                <Text
-                  style={[
-                    styles.addCategoryChipText,
-                    { color: isExpense ? '#DC2626' : '#059669' },
-                  ]}
-                >
-                  {t('add')}
-                </Text>
-              </TouchableOpacity>
-            </ScrollView>
-          </View>
-
-          {/* 3. PAYMENT MODE */}
-          <View style={styles.sectionCard}>
-            <View style={styles.sectionHeaderRow}>
-              <ExpoImage
-                source={{ uri: ICONS_3D.card }}
-                style={{ width: 16, height: 16, marginRight: 6 }}
-                contentFit="contain"
-                cachePolicy="memory-disk"
-              />
-              <Text style={styles.sectionTitle}>{isExpense ? t('payment_via') : t('received_in')}</Text>
-            </View>
-            <View style={styles.paymentRow}>
-              {PAYMENT_MODES.map((pm) => {
-                const isSelected = paymentMode === pm.id;
-                const modeKey = ('mode_' + pm.id.toLowerCase());
-                const translatedLabel = t(modeKey) !== modeKey ? t(modeKey) : pm.label;
-                return (
-                  <TouchableOpacity
-                    key={pm.id}
-                    style={[
-                      styles.paymentPill,
-                      isSelected && {
-                        borderColor: pm.color,
-                        backgroundColor: pm.color + '15',
-                      },
-                    ]}
-                    onPress={() => setPaymentMode(pm.id)}
-                    activeOpacity={0.75}
-                  >
-                    <ExpoImage
-                      source={{ uri: pm.icon3d }}
-                      style={{ width: 18, height: 18, marginRight: 5 }}
-                      contentFit="contain"
-                      cachePolicy="memory-disk"
+                    <CategoryIcon
+                      categoryName={cat.name}
+                      iconName={cat.icon}
+                      size={24}
+                      color={styleConfig.activeText}
                     />
-                    <Text
-                      style={[
-                        styles.paymentPillText,
-                        isSelected && { color: pm.color, fontWeight: '800' },
-                      ]}
-                    >
-                      {translatedLabel}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          </View>
-
-          {/* 4. PHOTO (RECEIPT / BILL) */}
-          <View style={styles.sectionCard}>
-            <View style={styles.sectionHeaderRow}>
-              <ExpoImage
-                source={{ uri: ICONS_3D.receipt }}
-                style={{ width: 16, height: 16, marginRight: 6 }}
-                contentFit="contain"
-                cachePolicy="memory-disk"
-              />
-              <Text style={styles.sectionTitle}>{t('receipt_photo')}</Text>
-            </View>
-
-            {receiptImage ? (
-              <View style={styles.receiptAttachedBox}>
-                <TouchableOpacity
-                  style={styles.receiptThumbRow}
-                  onPress={() => setPreviewModalOpen(true)}
-                  activeOpacity={0.8}
-                >
-                  <ExpoImage source={{ uri: receiptImage }} style={styles.receiptThumb} contentFit="cover" />
-                  <View style={{ flex: 1, marginLeft: 10 }}>
-                    <Text style={styles.receiptAttachedTitle}>{t('receipt_attached')}</Text>
-                    <Text style={styles.receiptAttachedSub}>{t('tap_to_preview')}</Text>
                   </View>
-                  <Ionicons name="eye-outline" size={18} color="#2563EB" />
-                </TouchableOpacity>
-
-                <View style={styles.receiptActionsRow}>
-                  <TouchableOpacity style={styles.receiptActionBtn} onPress={pickImage}>
-                    <Ionicons name="swap-horizontal" size={13} color="#2563EB" style={{ marginRight: 3 }} />
-                    <Text style={styles.receiptActionText}>{t('replace_btn')}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.receiptActionBtn}
-                    onPress={() => setReceiptImage(null)}
-                  >
-                    <Ionicons name="trash-outline" size={13} color="#EF4444" style={{ marginRight: 3 }} />
-                    <Text style={[styles.receiptActionText, { color: '#EF4444' }]}>{t('remove')}</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            ) : (
-              <View style={styles.photoButtonsRow}>
-                <TouchableOpacity style={styles.photoBtn} onPress={pickImage} activeOpacity={0.7}>
-                  <ExpoImage
-                    source={{ uri: ICONS_3D.gallery }}
-                    style={{ width: 18, height: 18, marginRight: 5 }}
-                    contentFit="contain"
-                    cachePolicy="memory-disk"
-                  />
-                  <Text style={styles.photoBtnText}>{t('gallery_photo')}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.photoBtn} onPress={takePhoto} activeOpacity={0.7}>
-                  <ExpoImage
-                    source={{ uri: ICONS_3D.camera }}
-                    style={{ width: 18, height: 18, marginRight: 5 }}
-                    contentFit="contain"
-                    cachePolicy="memory-disk"
-                  />
-                  <Text style={styles.photoBtnText}>{t('take_camera')}</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </View>
-
-          {/* 5. DATE SELECTION */}
-          <View style={styles.sectionCard}>
-            <View style={styles.sectionHeaderRow}>
-              <ExpoImage
-                source={{ uri: ICONS_3D.calendar }}
-                style={{ width: 16, height: 16, marginRight: 6 }}
-                contentFit="contain"
-                cachePolicy="memory-disk"
-              />
-              <Text style={styles.sectionTitle}>{t('transaction_date')}</Text>
-            </View>
-            <View style={styles.dateRow}>
-              <TouchableOpacity
-                style={[styles.datePill, date === todayStr && styles.datePillActive]}
-                onPress={() => setDate(todayStr)}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.datePillText, date === todayStr && styles.datePillTextActive]}>
-                  {t('today')}
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.datePill, date === yesterdayStr && styles.datePillActive]}
-                onPress={() => setDate(yesterdayStr)}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.datePillText, date === yesterdayStr && styles.datePillTextActive]}>
-                  {t('yesterday')}
-                </Text>
-              </TouchableOpacity>
-
-              {Platform.OS === 'web' ? (
-                /* @ts-ignore */
-                <input
-                  type="date"
-                  value={date}
-                  onChange={(e: any) => setDate(e.target.value)}
-                  style={{
-                    flex: 1,
-                    padding: '6px 10px',
-                    borderRadius: 12,
-                    borderWidth: 1,
-                    borderColor: date !== todayStr && date !== yesterdayStr ? '#2563EB' : '#E2E8F0',
-                    outline: 'none',
-                    fontSize: 12,
-                    fontWeight: '600',
-                    color: '#0F172A',
-                    backgroundColor: date !== todayStr && date !== yesterdayStr ? '#EFF6FF' : '#F8FAFC',
-                    fontFamily: 'inherit',
-                  }}
-                />
-              ) : (
-                <TouchableOpacity
-                  style={[
-                    styles.datePill,
-                    { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
-                    date !== todayStr && date !== yesterdayStr && styles.datePillActive,
-                  ]}
-                  onPress={() => setShowDatePicker(true)}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons
-                    name="calendar-outline"
-                    size={13}
-                    color={date !== todayStr && date !== yesterdayStr ? '#FFFFFF' : '#475569'}
-                    style={{ marginRight: 3 }}
-                  />
                   <Text
                     style={[
-                      styles.datePillText,
-                      date !== todayStr && date !== yesterdayStr && styles.datePillTextActive,
+                      styles.categoryTileLabel,
+                      isSelected && { color: styleConfig.activeText, fontWeight: '800' },
                     ]}
                     numberOfLines={1}
                   >
-                    {date !== todayStr && date !== yesterdayStr ? date : t('custom_date_btn')}
+                    {cat.name}
                   </Text>
                 </TouchableOpacity>
-              )}
-            </View>
+              );
+            })}
+          </ScrollView>
 
-            {showDatePicker && (
-              <DateTimePicker
-                value={date ? new Date(date) : new Date()}
-                mode="date"
-                display="default"
-                maximumDate={new Date(Date.now() + 365 * 86400000)}
-                onChange={(event: any, selectedDate?: Date) => {
-                  if (Platform.OS === 'android') setShowDatePicker(false);
-                  if (event.type === 'set' && selectedDate) {
-                    const year = selectedDate.getFullYear();
-                    const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
-                    const day = String(selectedDate.getDate()).padStart(2, '0');
-                    setDate(`${year}-${month}-${day}`);
-                  }
-                }}
-              />
+          {/* PAID TO / SPENT ON INPUT */}
+          <View style={styles.inputCard}>
+            <View style={styles.inputCardIconBox}>
+              <Ionicons name="storefront" size={20} color="#2563EB" />
+            </View>
+            <TextInput
+              style={styles.inputCardField}
+              placeholder={isExpense ? 'Paid to / Spent on' : 'Received from / Source'}
+              placeholderTextColor="#94A3B8"
+              value={merchant}
+              onChangeText={setMerchant}
+            />
+            {merchant !== '' ? (
+              <TouchableOpacity onPress={() => setMerchant('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Ionicons name="close-circle" size={17} color="#94A3B8" />
+              </TouchableOpacity>
+            ) : (
+              <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
             )}
           </View>
 
-          {/* 6. NOTE (REMARKS) */}
-          <View style={styles.sectionCard}>
-            <View style={styles.sectionHeaderRow}>
-              <ExpoImage
-                source={{ uri: ICONS_3D.memo }}
-                style={{ width: 16, height: 16, marginRight: 6 }}
-                contentFit="contain"
-                cachePolicy="memory-disk"
-              />
-              <Text style={styles.sectionTitle}>Note (Optional)</Text>
-            </View>
-            <View style={styles.inputWrap}>
-              <TextInput
-                style={styles.textInput}
-                placeholder="Add details, bill numbers, remarks..."
-                placeholderTextColor="#94A3B8"
-                value={description}
-                onChangeText={setDescription}
-              />
-              {description !== '' && (
-                <TouchableOpacity onPress={() => setDescription('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                  <Ionicons name="close-circle" size={16} color="#94A3B8" />
+          {/* PAYMENT VIA SECTION */}
+          <View style={styles.paymentSectionHeader}>
+            <Text style={styles.sectionTitle}>{isExpense ? 'Payment via' : 'Received in'}</Text>
+          </View>
+
+          <View style={styles.paymentModeChipsRow}>
+            {PRIMARY_PAYMENT_MODES.map((pm) => {
+              const isSelected = paymentMode === pm.id;
+              return (
+                <TouchableOpacity
+                  key={pm.id}
+                  style={[
+                    styles.paymentChip,
+                    isSelected && styles.paymentChipSelected,
+                  ]}
+                  onPress={() => {
+                    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+                    setPaymentMode(pm.id);
+                  }}
+                  activeOpacity={0.75}
+                >
+                  <PaymentModeIcon mode={pm.id} size={16} />
+                  <Text
+                    style={[
+                      styles.paymentChipText,
+                      isSelected && styles.paymentChipTextSelected,
+                    ]}
+                  >
+                    {pm.label}
+                  </Text>
                 </TouchableOpacity>
-              )}
+              );
+            })}
+
+            {/* Ellipsis / More Payment modes button */}
+            <TouchableOpacity
+              style={[
+                styles.paymentChipMore,
+                isExtraPaymentSelected && styles.paymentChipSelected,
+              ]}
+              onPress={() => setMorePaymentsOpen(true)}
+              activeOpacity={0.75}
+              accessibilityLabel="More payment options"
+            >
+              <Ionicons
+                name="ellipsis-horizontal"
+                size={18}
+                color={isExtraPaymentSelected ? '#7C3AED' : '#64748B'}
+              />
+            </TouchableOpacity>
+          </View>
+
+          {/* TWO COLUMN ROW: DATE & RECEIPT */}
+          <View style={styles.twoColumnRow}>
+            {/* Date Card */}
+            <TouchableOpacity
+              style={styles.twoColumnCard}
+              onPress={() => setShowDatePicker(true)}
+              activeOpacity={0.75}
+            >
+              <View style={styles.twoColumnIconBox}>
+                <Ionicons name="calendar" size={18} color="#2563EB" />
+              </View>
+              <View style={styles.twoColumnTextWrap}>
+                <Text style={styles.twoColumnLabel}>Date</Text>
+                <Text style={styles.twoColumnValue} numberOfLines={1}>
+                  {formatCardDate(date)}
+                </Text>
+              </View>
+              <Ionicons name="chevron-down" size={15} color="#64748B" />
+            </TouchableOpacity>
+
+            {/* Receipt Card */}
+            <TouchableOpacity
+              style={styles.twoColumnCard}
+              onPress={() => {
+                if (receiptImage) {
+                  setReceiptSheetOpen(true);
+                } else {
+                  setReceiptSheetOpen(true);
+                }
+              }}
+              activeOpacity={0.75}
+            >
+              <View style={styles.twoColumnIconBox}>
+                <Ionicons name="receipt" size={18} color="#2563EB" />
+              </View>
+              <View style={styles.twoColumnTextWrap}>
+                <Text style={styles.twoColumnLabel}>Receipt</Text>
+                <Text style={styles.twoColumnValue} numberOfLines={1}>
+                  {receiptImage ? 'Photo Added' : 'Add Photo'}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={15} color="#64748B" />
+            </TouchableOpacity>
+          </View>
+
+          {/* NOTE (OPTIONAL) INPUT */}
+          <View style={styles.inputCard}>
+            <View style={styles.inputCardIconBox}>
+              <Ionicons name="document-text" size={20} color="#2563EB" />
             </View>
+            <TextInput
+              style={styles.inputCardField}
+              placeholder="Note (Optional)"
+              placeholderTextColor="#94A3B8"
+              value={description}
+              onChangeText={setDescription}
+            />
+            {description !== '' && (
+              <TouchableOpacity onPress={() => setDescription('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Ionicons name="close-circle" size={17} color="#94A3B8" />
+              </TouchableOpacity>
+            )}
           </View>
 
           {/* TRANSACTION FOOTER AD */}
@@ -1089,7 +976,7 @@ export default function AddExpenseScreen() {
         </ScrollView>
 
         {/* BOTTOM FIXED SAVE BUTTON */}
-        <View style={[styles.footer, { paddingBottom: keyboardHeight > 0 ? 9 : Math.max(9, insets.bottom + 6) }]}>
+        <View style={[styles.footer, { paddingBottom: keyboardHeight > 0 ? 10 : Math.max(10, insets.bottom + 6) }]}>
           <TouchableOpacity
             style={[styles.saveBtn, (!amount || parseFloat(amount) <= 0) && styles.saveBtnDisabled]}
             onPress={handleSave}
@@ -1099,34 +986,404 @@ export default function AddExpenseScreen() {
             <LinearGradient
               colors={
                 isExpense
-                  ? ['#EF4444', '#DC2626']
+                  ? ['#FF5555', '#EF4444']
                   : ['#10B981', '#059669']
               }
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 0 }}
               style={styles.saveBtnGradient}
             >
-              <ExpoImage
-                source={{ uri: isExpense ? ICONS_3D.expense : ICONS_3D.income }}
-                style={{ width: 18, height: 18, marginRight: 6 }}
-                contentFit="contain"
-                cachePolicy="memory-disk"
-              />
+              <Ionicons name="save" size={20} color="#FFFFFF" style={{ marginRight: 8 }} />
               <Text style={styles.saveBtnText}>
                 {isSaving
-                  ? t('saving_transaction')
-                  : `${isExpense ? t('save_expense') : t('save_income')} ${amount ? `• ${curr}${amount}` : ''}`}
+                  ? 'Saving...'
+                  : isExpense
+                  ? 'Save Expense'
+                  : 'Save Income'}
               </Text>
             </LinearGradient>
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
 
+      {/* CALCULATOR MODAL */}
+      <TransactionCalculatorModal
+        visible={calculatorOpen}
+        onClose={() => setCalculatorOpen(false)}
+        onApply={(calcAmount) => setAmount(calcAmount)}
+        initialAmount={amount}
+        currencySymbol={curr}
+        themeColor={themeColor}
+      />
+
+      {/* VOICE TRANSACTION MODAL */}
+      <VoiceTransactionModal
+        visible={voiceModalVisible}
+        onClose={() => setVoiceModalVisible(false)}
+        onApplyToForm={handleApplyVoiceTransaction}
+        availableCategories={isExpense ? expenseCategories : incomeCategories}
+      />
+
+      {/* DATE PICKER */}
+      {showDatePicker && (
+        <DateTimePicker
+          value={date ? parseLocalDate(date) : new Date()}
+          mode="date"
+          display="default"
+          maximumDate={new Date(Date.now() + 365 * 86400000)}
+          onChange={(event: any, selectedDate?: Date) => {
+            if (Platform.OS === 'android') setShowDatePicker(false);
+            if (event.type === 'set' && selectedDate) {
+              const year = selectedDate.getFullYear();
+              const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
+              const day = String(selectedDate.getDate()).padStart(2, '0');
+              setDate(`${year}-${month}-${day}`);
+            }
+          }}
+        />
+      )}
+
+      {/* SEE ALL CATEGORIES MODAL */}
+      <Modal
+        visible={seeAllCategoriesOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setSeeAllCategoriesOpen(false)}
+      >
+        <TouchableWithoutFeedback onPress={() => setSeeAllCategoriesOpen(false)}>
+          <View style={styles.modalBackdrop}>
+            <TouchableWithoutFeedback onPress={() => {}}>
+              <View style={styles.bottomSheetContainer}>
+                <View style={styles.handleBar} />
+                <View style={styles.modalHeaderRow}>
+                  <Text style={styles.modalSheetTitle}>
+                    {isExpense ? 'Expense Categories' : 'Income Categories'}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => setSeeAllCategoriesOpen(false)}
+                    style={styles.sheetCloseBtn}
+                  >
+                    <Ionicons name="close" size={20} color="#64748B" />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Search / Add Bar */}
+                <View style={styles.catSearchRow}>
+                  <View style={styles.searchBarWrap}>
+                    <Ionicons name="search" size={17} color="#94A3B8" style={{ marginRight: 6 }} />
+                    <TextInput
+                      style={styles.searchBarInput}
+                      placeholder="Search category..."
+                      placeholderTextColor="#94A3B8"
+                      value={searchCategoryText}
+                      onChangeText={setSearchCategoryText}
+                    />
+                  </View>
+                  <TouchableOpacity
+                    style={[styles.addCatMiniBtn, { backgroundColor: themeColor }]}
+                    onPress={openAddCategoryModal}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="add" size={20} color="#FFFFFF" />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Category Grid */}
+                <ScrollView
+                  showsVerticalScrollIndicator={false}
+                  contentContainerStyle={styles.categoryGridContent}
+                >
+                  {sortedDisplayCategories
+                    .filter((c) =>
+                      c.name.toLowerCase().includes(searchCategoryText.trim().toLowerCase())
+                    )
+                    .map((cat) => {
+                      const isSel = category.toLowerCase() === cat.name.toLowerCase();
+                      const catKey = cat.name.toLowerCase();
+                      const styleConfig = CATEGORY_STYLES[catKey] || {
+                        bg: cat.color ? cat.color + '15' : '#F1F5F9',
+                        activeBorder: cat.color || '#3B82F6',
+                        activeText: cat.color || '#3B82F6',
+                      };
+
+                      return (
+                        <TouchableOpacity
+                          key={cat.id || cat.name}
+                          style={[
+                            styles.categoryGridItem,
+                            isSel && { borderColor: styleConfig.activeBorder, borderWidth: 1.8 },
+                          ]}
+                          onPress={() => {
+                            setCategory(cat.name);
+                            setSeeAllCategoriesOpen(false);
+                          }}
+                          activeOpacity={0.75}
+                        >
+                          <View style={[styles.gridIconBox, { backgroundColor: styleConfig.bg }]}>
+                            <CategoryIcon
+                              categoryName={cat.name}
+                              iconName={cat.icon}
+                              size={26}
+                              color={styleConfig.activeText}
+                            />
+                          </View>
+                          <Text
+                            style={[
+                              styles.gridLabel,
+                              isSel && { color: styleConfig.activeText, fontWeight: '800' },
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {cat.name}
+                          </Text>
+                          {isSel && (
+                            <View style={[styles.selectedCheckBadge, { backgroundColor: styleConfig.activeBorder }]}>
+                              <Ionicons name="checkmark" size={10} color="#FFFFFF" />
+                            </View>
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })}
+                </ScrollView>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* RECEIPT ACTION SHEET MODAL */}
+      <Modal
+        visible={receiptSheetOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setReceiptSheetOpen(false)}
+      >
+        <TouchableWithoutFeedback onPress={() => setReceiptSheetOpen(false)}>
+          <View style={styles.modalBackdrop}>
+            <TouchableWithoutFeedback onPress={() => {}}>
+              <View style={styles.actionSheetContainer}>
+                <View style={styles.handleBar} />
+                <Text style={styles.actionSheetTitle}>Receipt / Bill Photo</Text>
+
+                <TouchableOpacity style={styles.actionSheetOption} onPress={takePhoto} activeOpacity={0.7}>
+                  <View style={[styles.actionSheetIcon, { backgroundColor: '#EFF6FF' }]}>
+                    <Ionicons name="camera" size={20} color="#2563EB" />
+                  </View>
+                  <Text style={styles.actionSheetOptionText}>Take Photo</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.actionSheetOption} onPress={pickImage} activeOpacity={0.7}>
+                  <View style={[styles.actionSheetIcon, { backgroundColor: '#F0FDF4' }]}>
+                    <Ionicons name="images" size={20} color="#16A34A" />
+                  </View>
+                  <Text style={styles.actionSheetOptionText}>Choose from Gallery</Text>
+                </TouchableOpacity>
+
+                {receiptImage && (
+                  <>
+                    <TouchableOpacity
+                      style={styles.actionSheetOption}
+                      onPress={() => {
+                        setReceiptSheetOpen(false);
+                        setPreviewModalOpen(true);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <View style={[styles.actionSheetIcon, { backgroundColor: '#FAF5FF' }]}>
+                        <Ionicons name="eye" size={20} color="#9333EA" />
+                      </View>
+                      <Text style={styles.actionSheetOptionText}>View Full Receipt</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.actionSheetOption}
+                      onPress={() => {
+                        setReceiptImage(null);
+                        setReceiptSheetOpen(false);
+                        Toast.show({ type: 'info', text1: 'Receipt Removed' });
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <View style={[styles.actionSheetIcon, { backgroundColor: '#FEF2F2' }]}>
+                        <Ionicons name="trash" size={20} color="#EF4444" />
+                      </View>
+                      <Text style={[styles.actionSheetOptionText, { color: '#EF4444' }]}>Remove Receipt</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
+
+                <TouchableOpacity
+                  style={styles.actionSheetCancelBtn}
+                  onPress={() => setReceiptSheetOpen(false)}
+                >
+                  <Text style={styles.actionSheetCancelText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* MORE PAYMENT MODES MODAL */}
+      <Modal
+        visible={morePaymentsOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMorePaymentsOpen(false)}
+      >
+        <TouchableWithoutFeedback onPress={() => setMorePaymentsOpen(false)}>
+          <View style={styles.modalBackdrop}>
+            <TouchableWithoutFeedback onPress={() => {}}>
+              <View style={styles.actionSheetContainer}>
+                <View style={styles.handleBar} />
+                <Text style={styles.actionSheetTitle}>Select Payment Mode</Text>
+
+                {EXTRA_PAYMENT_MODES.map((epm) => (
+                  <TouchableOpacity
+                    key={epm.id}
+                    style={[
+                      styles.actionSheetOption,
+                      paymentMode === epm.id && { backgroundColor: '#F8FAFC' },
+                    ]}
+                    onPress={() => {
+                      setPaymentMode(epm.id);
+                      setMorePaymentsOpen(false);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.actionSheetIcon, { backgroundColor: '#F1F5F9' }]}>
+                      <Ionicons name={epm.icon as any} size={20} color="#475569" />
+                    </View>
+                    <Text
+                      style={[
+                        styles.actionSheetOptionText,
+                        paymentMode === epm.id && { color: '#7C3AED', fontWeight: '800' },
+                      ]}
+                    >
+                      {epm.label}
+                    </Text>
+                    {paymentMode === epm.id && (
+                      <Ionicons name="checkmark-circle" size={20} color="#7C3AED" style={{ marginLeft: 'auto' }} />
+                    )}
+                  </TouchableOpacity>
+                ))}
+
+                <TouchableOpacity
+                  style={styles.actionSheetCancelBtn}
+                  onPress={() => setMorePaymentsOpen(false)}
+                >
+                  <Text style={styles.actionSheetCancelText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* ADD CUSTOM CATEGORY MODAL */}
+      <Modal
+        visible={addCatModalOpen}
+        transparent
+        animationType="slide"
+        statusBarTranslucent
+        onRequestClose={() => setAddCatModalOpen(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalBackdrop}
+        >
+          <View style={styles.addCatModalCard}>
+            <View style={styles.addCatModalHeader}>
+              <Text style={styles.addCatModalTitle}>
+                {isExpense ? 'New Expense Category' : 'New Income Category'}
+              </Text>
+              <TouchableOpacity
+                style={styles.sheetCloseBtn}
+                onPress={() => setAddCatModalOpen(false)}
+              >
+                <Ionicons name="close" size={20} color="#64748B" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              <Text style={styles.modalInputLabel}>Category Name</Text>
+              <TextInput
+                style={styles.modalTextInput}
+                placeholder={isExpense ? 'e.g. Gaming, Laundry, Pets' : 'e.g. Rental, Dividend, Bonus'}
+                placeholderTextColor="#94A3B8"
+                value={newCatName}
+                onChangeText={setNewCatName}
+                autoFocus
+              />
+
+              <Text style={styles.modalInputLabel}>Choose Icon</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.addCatIconsScroll}>
+                {ADD_CAT_ICONS.map((ico) => {
+                  const isSel = newCatIcon === ico;
+                  return (
+                    <TouchableOpacity
+                      key={ico}
+                      style={[
+                        styles.addCatIconCell,
+                        isSel && { borderColor: newCatColor, backgroundColor: newCatColor + '20' },
+                      ]}
+                      onPress={() => setNewCatIcon(ico)}
+                      activeOpacity={0.75}
+                    >
+                      <CategoryIcon
+                        categoryName={ico}
+                        iconName={ico}
+                        size={22}
+                        color={isSel ? newCatColor : '#64748B'}
+                      />
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+
+              <Text style={styles.modalInputLabel}>Choose Color</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.addCatColorsRow}>
+                {ADD_CAT_COLORS.map((col) => {
+                  const isSel = newCatColor === col;
+                  return (
+                    <TouchableOpacity
+                      key={col}
+                      style={[styles.addCatColorDot, { backgroundColor: col }]}
+                      onPress={() => setNewCatColor(col)}
+                      activeOpacity={0.75}
+                    >
+                      {isSel && <Ionicons name="checkmark" size={14} color="#FFFFFF" />}
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+
+              <TouchableOpacity
+                style={[styles.addCatSaveBtn, isSavingCategory && { opacity: 0.7 }]}
+                onPress={handleSaveCustomCategory}
+                disabled={isSavingCategory}
+                activeOpacity={0.85}
+              >
+                <LinearGradient
+                  colors={isExpense ? ['#FF5555', '#EF4444'] : ['#10B981', '#059669']}
+                  style={styles.addCatSaveGradient}
+                >
+                  <Ionicons name="checkmark-circle" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+                  <Text style={styles.addCatSaveText}>
+                    {isSavingCategory ? 'Saving...' : 'Save Category'}
+                  </Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
       {/* FULLSCREEN SUCCESS TICK ANIMATION */}
       <Modal visible={showSaveSuccess} transparent={false} animationType="fade" statusBarTranslucent onRequestClose={() => {}}>
         <SafeAreaView style={styles.fullscreenSuccessContainer}>
           <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-          
+
           <View style={styles.fullscreenSuccessCenter}>
             <Animated.View
               style={[
@@ -1162,7 +1419,7 @@ export default function AddExpenseScreen() {
               ]}
             >
               <Text style={styles.fullscreenSuccessTitle}>
-                {isExpense ? t('paid_successfully') : t('received_successfully')}
+                {isExpense ? 'Paid Successfully' : 'Received Successfully'}
               </Text>
 
               <Text style={styles.fullscreenSuccessAmount}>
@@ -1187,8 +1444,8 @@ export default function AddExpenseScreen() {
       <Modal visible={previewModalOpen} transparent animationType="fade" onRequestClose={() => setPreviewModalOpen(false)}>
         <View style={styles.previewModalBg}>
           <View style={styles.previewTopBar}>
-            <Text style={styles.previewTitle}>{t('attached_receipt')}</Text>
-            <TouchableOpacity onPress={() => setPreviewModalOpen(false)} style={styles.previewCloseBtn}>
+            <Text style={styles.previewTitle}>Attached Receipt</Text>
+            <TouchableOpacity onPress={() => setPreviewModalOpen(false)} style={styles.sheetCloseBtn}>
               <Ionicons name="close" size={24} color="#FFFFFF" />
             </TouchableOpacity>
           </View>
@@ -1199,143 +1456,6 @@ export default function AddExpenseScreen() {
           </View>
         </View>
       </Modal>
-
-      {/* ADD CUSTOM CATEGORY MODAL (EXPENSE & INCOME) */}
-      <Modal
-        visible={addCatModalOpen}
-        transparent
-        animationType="slide"
-        statusBarTranslucent
-        onRequestClose={() => setAddCatModalOpen(false)}
-      >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.modalBackdrop}
-        >
-          <TouchableOpacity
-            style={StyleSheet.absoluteFill}
-            activeOpacity={1}
-            onPress={() => Keyboard.dismiss()}
-          />
-          <View
-            style={[
-              styles.addCatModalCard,
-              keyboardHeight > 0 && {
-                marginBottom: Platform.OS === 'android' ? keyboardHeight : 0,
-                maxHeight: Dimensions.get('screen').height - (Platform.OS === 'android' ? keyboardHeight : 0) - (Platform.OS === 'android' ? 65 : 90),
-              },
-            ]}
-          >
-            <View style={styles.addCatModalHeader}>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <ExpoImage
-                  source={{ uri: isExpense ? ICONS_3D.expense : ICONS_3D.income }}
-                  style={{ width: 22, height: 22, marginRight: 8 }}
-                  contentFit="contain"
-                />
-                <Text style={styles.addCatModalTitle}>
-                  {isExpense ? 'New Expense Category' : 'New Income Category'}
-                </Text>
-              </View>
-              <TouchableOpacity
-                style={styles.modalCloseBtn}
-                onPress={() => setAddCatModalOpen(false)}
-              >
-                <Ionicons name="close" size={20} color="#64748B" />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView
-              showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
-              keyboardDismissMode="on-drag"
-              contentContainerStyle={{ paddingBottom: 20 }}
-            >
-              {/* Category Name Input */}
-              <Text style={styles.modalInputLabel}>{t('category')} Name</Text>
-              <TextInput
-                style={styles.modalTextInput}
-                placeholder={isExpense ? 'e.g. Pet, Gaming, Maintenance' : 'e.g. Rental, Dividend, Bonus, Stipend'}
-                placeholderTextColor="#94A3B8"
-                value={newCatName}
-                onChangeText={setNewCatName}
-                returnKeyType="done"
-                onSubmitEditing={Keyboard.dismiss}
-                autoFocus
-              />
-
-              {/* Icon Selector */}
-              <Text style={styles.modalInputLabel}>Choose Icon</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.addCatIconsScroll}>
-                {ADD_CAT_ICONS.map((ico) => {
-                  const isSel = newCatIcon === ico;
-                  return (
-                    <TouchableOpacity
-                      key={ico}
-                      style={[
-                        styles.addCatIconCell,
-                        isSel && { borderColor: newCatColor, backgroundColor: newCatColor + '20' },
-                      ]}
-                      onPress={() => setNewCatIcon(ico)}
-                      activeOpacity={0.75}
-                    >
-                      <CategoryIcon
-                        categoryName={ico}
-                        iconName={ico}
-                        size={22}
-                        color={isSel ? newCatColor : '#64748B'}
-                      />
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-
-              {/* Color Selector */}
-              <Text style={styles.modalInputLabel}>Choose Color</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.addCatColorsRow}>
-                {ADD_CAT_COLORS.map((col) => {
-                  const isSel = newCatColor === col;
-                  return (
-                    <TouchableOpacity
-                      key={col}
-                      style={[styles.addCatColorDot, { backgroundColor: col }]}
-                      onPress={() => setNewCatColor(col)}
-                      activeOpacity={0.75}
-                    >
-                      {isSel && <Ionicons name="checkmark" size={14} color="#FFFFFF" />}
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-
-              {/* Save Category Button */}
-              <TouchableOpacity
-                style={[styles.addCatSaveBtn, isSavingCategory && { opacity: 0.7 }]}
-                onPress={handleSaveCustomCategory}
-                disabled={isSavingCategory}
-                activeOpacity={0.85}
-              >
-                <LinearGradient
-                  colors={isExpense ? ['#EF4444', '#DC2626'] : ['#10B981', '#059669']}
-                  style={styles.addCatSaveGradient}
-                >
-                  <Ionicons name="checkmark-circle" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
-                  <Text style={styles.addCatSaveText}>
-                    {isSavingCategory ? 'Saving...' : 'Save Category'}
-                  </Text>
-                </LinearGradient>
-              </TouchableOpacity>
-            </ScrollView>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-      {/* VOICE TRANSACTION MODAL */}
-      <VoiceTransactionModal
-        visible={voiceModalVisible}
-        onClose={() => setVoiceModalVisible(false)}
-        onApplyToForm={handleApplyVoiceTransaction}
-        availableCategories={isExpense ? expenseCategories : incomeCategories}
-      />
     </SafeAreaView>
   );
 }
@@ -1345,526 +1465,397 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F8FAFC',
   },
+  topHandleBar: {
+    width: 44,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#CBD5E1',
+    alignSelf: 'center',
+    marginTop: 6,
+    marginBottom: 4,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
+    paddingVertical: 10,
+    backgroundColor: '#F8FAFC',
   },
-  closeBtn: {
+  circleBtn: {
     width: 38,
     height: 38,
-    borderRadius: 12,
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderRadius: 19,
+    backgroundColor: '#EDF2F7',
     alignItems: 'center',
     justifyContent: 'center',
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: '900',
+    fontWeight: '800',
     color: '#0F172A',
     letterSpacing: -0.3,
   },
-  headerVoiceBtn: {
+  voiceCircleBtn: {
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: '#ECFDF5',
-    borderWidth: 1,
-    borderColor: '#A7F3D0',
+    backgroundColor: '#E6FBF2',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  headerCatsBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  amountTopHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    width: '100%',
-    marginBottom: 6,
-  },
-  amountVoicePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#ECFDF5',
-    paddingHorizontal: 10,
-    paddingVertical: 4.5,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#A7F3D0',
-    gap: 4,
-  },
-  amountVoicePillText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#059669',
   },
   content: {
-    paddingHorizontal: 14,
-    paddingTop: 8,
+    paddingHorizontal: 16,
+    paddingTop: 6,
     paddingBottom: 24,
   },
-  typeSwitchWrap: {
+
+  // Type Switch
+  typeSwitchContainer: {
     flexDirection: 'row',
-    backgroundColor: '#F1F5F9',
-    borderRadius: 14,
-    padding: 3.5,
-    marginBottom: 10,
-    borderWidth: 1.5,
-    borderColor: '#E2E8F0',
+    backgroundColor: '#EDF2F7',
+    borderRadius: 26,
+    padding: 3,
+    marginBottom: 14,
   },
-  typeBtn: {
+  typeTab: {
+    flex: 1,
+    height: 44,
+    borderRadius: 23,
+    overflow: 'hidden',
+    justifyContent: 'center',
+  },
+  typeTabActiveExpense: {
+    elevation: 2,
+    shadowColor: '#FF5252',
+    shadowOpacity: 0.25,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
+  },
+  typeTabActiveIncome: {
+    elevation: 2,
+    shadowColor: '#10B981',
+    shadowOpacity: 0.25,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
+  },
+  activeTabGradient: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 9,
+  },
+  whiteArrowCircle: {
+    width: 22,
+    height: 22,
     borderRadius: 11,
-  },
-  typeBtnExpenseActive: {
     backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#FECACA',
-    shadowColor: '#DC2626',
-    shadowOpacity: 0.12,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 5,
-    elevation: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 7,
   },
-  typeBtnIncomeActive: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#A7F3D0',
-    shadowColor: '#059669',
-    shadowOpacity: 0.12,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 5,
-    elevation: 2,
+  activeTabText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
-  typeBtnText: {
-    fontSize: 13.5,
-    fontWeight: '800',
+  inactiveTabRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  grayArrowCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 7,
+  },
+  inactiveTabText: {
+    fontSize: 15,
+    fontWeight: '600',
     color: '#64748B',
-  },
-  typeBtnExpenseTextActive: {
-    color: '#DC2626',
-    fontWeight: '900',
-  },
-  typeBtnIncomeTextActive: {
-    color: '#059669',
-    fontWeight: '900',
   },
 
   // Amount Card
   amountCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    paddingVertical: 15,
-    paddingHorizontal: 16,
-    alignItems: 'center',
-    marginBottom: 10,
+    borderRadius: 24,
+    paddingVertical: 18,
+    paddingHorizontal: 18,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#000000',
-    shadowOpacity: 0.06,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
-    elevation: 2,
+    marginBottom: 16,
   },
-  amountBadge: {
-    paddingHorizontal: 11,
-    paddingVertical: 3.5,
-    borderRadius: 8,
-    borderWidth: 1.2,
-    marginBottom: 4,
-  },
-  amountBadgeText: {
-    fontSize: 11,
-    fontWeight: '900',
-    letterSpacing: 0.5,
-  },
-  amountInputRow: {
+  amountDisplayRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginVertical: 4,
+    justifyContent: 'space-between',
+    marginBottom: 14,
   },
-  currencyPrefix: {
-    fontSize: 32,
+  amountInputTouchWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  currencySymbol: {
+    fontSize: 34,
     fontWeight: '900',
-    marginRight: 4,
+    color: '#0F172A',
+    marginRight: 6,
   },
-  hugeAmountInput: {
+  amountTextInput: {
     fontSize: 42,
     fontWeight: '900',
-    minWidth: 100,
-    textAlign: 'center',
+    minWidth: 80,
     paddingVertical: 0,
-    height: 50,
     letterSpacing: -1,
+  },
+  cursorBar: {
+    width: 2.5,
+    height: 38,
+    borderRadius: 1.5,
+    marginLeft: 2,
+  },
+  calculatorIconBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   quickAmountsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: 10,
-    gap: 7,
+    gap: 8,
   },
   quickAmountPill: {
-    paddingHorizontal: 11,
-    paddingVertical: 5.5,
-    backgroundColor: '#F8FAFC',
-    borderRadius: 10,
-    borderWidth: 1.2,
-    borderColor: '#E2E8F0',
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    shadowColor: '#000000',
+    shadowOpacity: 0.04,
+    shadowOffset: { width: 0, height: 1 },
+    shadowRadius: 3,
+    elevation: 1,
   },
   quickAmountPillText: {
-    fontSize: 12,
-    fontWeight: '800',
+    fontSize: 14,
+    fontWeight: '700',
     color: '#0F172A',
   },
   clearPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 5.5,
-    backgroundColor: '#FEF2F2',
-    borderRadius: 10,
-    borderWidth: 1.2,
+    paddingHorizontal: 13,
+    paddingVertical: 8,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    borderWidth: 1,
     borderColor: '#FECACA',
   },
   clearPillText: {
-    fontSize: 12,
-    fontWeight: '800',
+    fontSize: 13,
+    fontWeight: '700',
     color: '#EF4444',
   },
 
-  // Section Cards
-  sectionCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 13,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#000000',
-    shadowOpacity: 0.05,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
-    elevation: 2,
-  },
+  // Category Section
   sectionHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 7,
-  },
-  sectionHeaderRowBetween: {
-    flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 7,
+    marginBottom: 10,
   },
   sectionTitle: {
-    fontSize: 13.5,
-    fontWeight: '900',
+    fontSize: 16,
+    fontWeight: '800',
     color: '#0F172A',
     letterSpacing: -0.2,
   },
-  manageLinkText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#3B82F6',
-  },
-  addCategoryHeaderBtn: {
+  seeAllBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 9,
-    paddingVertical: 3.5,
-    borderRadius: 7,
-    borderWidth: 1.2,
+    gap: 2,
   },
-  addCategoryHeaderBtnText: {
-    fontSize: 11,
-    fontWeight: '900',
-    marginLeft: 3,
+  seeAllText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#64748B',
   },
-  addCategoryChip: {
+  categoriesHorizontalRow: {
     flexDirection: 'row',
+    gap: 12,
+    paddingBottom: 4,
+    marginBottom: 12,
+  },
+  categoryTileItem: {
+    alignItems: 'center',
+    width: 60,
+  },
+  categoryTileBox: {
+    width: 58,
+    height: 58,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1.5,
-    borderStyle: 'dashed',
-    marginRight: 4,
-    height: 38,
+    marginBottom: 6,
   },
-  addCategoryChipIcon: {
-    marginRight: 3,
-  },
-  addCategoryChipText: {
+  categoryTileLabel: {
     fontSize: 12,
-    fontWeight: '900',
-  },
-  catUsageBadge: {
-    fontSize: 8.5,
-    fontWeight: '900',
-    color: '#64748B',
-    backgroundColor: '#F1F5F9',
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    borderRadius: 4,
-    marginLeft: 3,
+    fontWeight: '600',
+    color: '#334155',
+    textAlign: 'center',
   },
 
-  // Categories
-  categoriesScroll: {
+  // Input Cards (Paid to & Note)
+  inputCard: {
     flexDirection: 'row',
-    gap: 7,
     alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    marginBottom: 12,
+    elevation: 1,
+    shadowColor: '#000000',
+    shadowOpacity: 0.03,
+    shadowOffset: { width: 0, height: 1 },
+    shadowRadius: 3,
   },
-  categoryChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 11,
-    paddingVertical: 6,
-    borderRadius: 12,
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1.5,
-    borderColor: '#E2E8F0',
+  inputCardIconBox: {
+    width: 38,
     height: 38,
-  },
-  catIconWrap: {
-    width: 24,
-    height: 24,
     borderRadius: 12,
+    backgroundColor: '#EFF6FF',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 6,
+    marginRight: 10,
   },
-  categoryChipText: {
+  inputCardField: {
+    flex: 1,
+    fontSize: 14.5,
+    fontWeight: '600',
+    color: '#0F172A',
+    paddingVertical: 4,
+  },
+
+  // Payment Section
+  paymentSectionHeader: {
+    marginBottom: 10,
+  },
+  paymentModeChipsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 14,
+  },
+  paymentChip: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    gap: 5,
+  },
+  paymentChipSelected: {
+    borderColor: '#8B5CF6',
+    borderWidth: 1.6,
+    backgroundColor: '#FAF5FF',
+  },
+  paymentChipText: {
     fontSize: 12.5,
     fontWeight: '700',
     color: '#334155',
   },
-  checkDot: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 5,
-  },
-
-  // Note & Title Input
-  inputWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-    borderRadius: 12,
-    borderWidth: 1.2,
-    borderColor: '#E2E8F0',
-    paddingHorizontal: 12,
-    height: 44,
-  },
-  textInput: {
-    flex: 1,
-    fontSize: 13.5,
-    fontWeight: '700',
-    color: '#0F172A',
-    paddingVertical: 0,
-  },
-
-  // Payment Modes
-  paymentRow: {
-    flexDirection: 'row',
-    gap: 6,
-  },
-  paymentPill: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 9,
-    borderRadius: 12,
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1.5,
-    borderColor: '#E2E8F0',
-  },
-  paymentPillText: {
-    fontSize: 12,
+  paymentChipTextSelected: {
+    color: '#7C3AED',
     fontWeight: '800',
-    color: '#64748B',
   },
-
-  // More Options Accordion
-  moreOptionsToggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-    backgroundColor: '#EEF2FF',
+  paymentChipMore: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#E0E7FF',
-    marginBottom: 10,
-  },
-  moreOptionsText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#4F46E5',
-  },
-  dateRow: {
-    flexDirection: 'row',
-    gap: 6,
-  },
-  datePill: {
-    paddingHorizontal: 12,
-    paddingVertical: 6.5,
-    borderRadius: 10,
-    backgroundColor: '#F1F5F9',
-    borderWidth: 1.2,
     borderColor: '#E2E8F0',
-  },
-  datePillActive: {
-    backgroundColor: '#EEF2FF',
-    borderColor: '#6366F1',
-  },
-  datePillText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#64748B',
-  },
-  datePillTextActive: {
-    color: '#4F46E5',
-    fontWeight: '900',
-  },
-  customDateInput: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
-    borderRadius: 10,
-    borderWidth: 1.2,
-    borderColor: '#E2E8F0',
-    paddingHorizontal: 10,
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#0F172A',
-  },
-  divider: {
-    height: 1,
-    backgroundColor: '#F1F5F9',
-    marginVertical: 10,
-  },
-  photoButtonsRow: {
-    flexDirection: 'row',
-    gap: 6,
-  },
-  photoBtn: {
-    flex: 1,
-    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 9,
-    backgroundColor: '#EFF6FF',
-    borderRadius: 12,
-    borderWidth: 1.2,
-    borderColor: '#DBEAFE',
-  },
-  photoBtnText: {
-    fontSize: 12.5,
-    fontWeight: '800',
-    color: '#2563EB',
-  },
-  receiptAttachedBox: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 12,
-    padding: 9,
-    borderWidth: 1.2,
-    borderColor: '#E2E8F0',
-  },
-  receiptThumbRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  receiptThumb: {
-    width: 38,
-    height: 38,
-    borderRadius: 8,
-    backgroundColor: '#E2E8F0',
-  },
-  receiptAttachedTitle: {
-    fontSize: 12.5,
-    fontWeight: '800',
-    color: '#0F172A',
-  },
-  receiptAttachedSub: {
-    fontSize: 10.5,
-    fontWeight: '600',
-    color: '#64748B',
-  },
-  receiptActionsRow: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 12,
-    marginTop: 6,
-    paddingTop: 5,
-    borderTopWidth: 1,
-    borderTopColor: '#F1F5F9',
-  },
-  receiptActionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  receiptActionText: {
-    fontSize: 11.5,
-    fontWeight: '800',
-    color: '#2563EB',
-  },
-  remarksInput: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 12,
-    borderWidth: 1.2,
-    borderColor: '#E2E8F0',
-    padding: 10,
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#0F172A',
-    minHeight: 44,
   },
 
-  // Footer Save
+  // Two Column Row (Date & Receipt)
+  twoColumnRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 12,
+  },
+  twoColumnCard: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    elevation: 1,
+    shadowColor: '#000000',
+    shadowOpacity: 0.03,
+    shadowOffset: { width: 0, height: 1 },
+    shadowRadius: 3,
+  },
+  twoColumnIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    backgroundColor: '#EFF6FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+  },
+  twoColumnTextWrap: {
+    flex: 1,
+  },
+  twoColumnLabel: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#64748B',
+  },
+  twoColumnValue: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#0F172A',
+    marginTop: 1,
+  },
+
+  // Footer Save Button
   footer: {
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingTop: 8,
     backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
     borderTopColor: '#F1F5F9',
   },
   saveBtn: {
-    borderRadius: 16,
+    borderRadius: 27,
     overflow: 'hidden',
-    shadowColor: '#0F172A',
-    shadowOpacity: 0.18,
-    shadowOffset: { width: 0, height: 4 },
+    shadowColor: '#FF5252',
+    shadowOpacity: 0.35,
+    shadowOffset: { width: 0, height: 6 },
     shadowRadius: 10,
-    elevation: 4,
+    elevation: 6,
   },
   saveBtnDisabled: {
     opacity: 0.45,
@@ -1875,13 +1866,266 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 14,
+    height: 54,
   },
   saveBtnText: {
-    fontSize: 16,
-    fontWeight: '900',
+    fontSize: 16.5,
+    fontWeight: '800',
     color: '#FFFFFF',
     letterSpacing: 0.3,
+  },
+
+  // Bottom Sheets & Modals
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.55)',
+    justifyContent: 'flex-end',
+  },
+  bottomSheetContainer: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: Platform.OS === 'ios' ? 36 : 24,
+    maxHeight: '80%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 20,
+  },
+  handleBar: {
+    width: 44,
+    height: 4.5,
+    borderRadius: 3,
+    backgroundColor: '#E2E8F0',
+    alignSelf: 'center',
+    marginBottom: 12,
+  },
+  modalHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  modalSheetTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  sheetCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  catSearchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 14,
+  },
+  searchBarWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    height: 42,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  searchBarInput: {
+    flex: 1,
+    fontSize: 13.5,
+    fontWeight: '600',
+    color: '#0F172A',
+  },
+  addCatMiniBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  categoryGridContent: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    paddingBottom: 20,
+  },
+  categoryGridItem: {
+    width: (Dimensions.get('window').width - 40 - 24) / 3,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  gridIconBox: {
+    width: 48,
+    height: 48,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+  },
+  gridLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#334155',
+    textAlign: 'center',
+  },
+  selectedCheckBadge: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // Action Sheet (Receipt & Payment)
+  actionSheetContainer: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: Platform.OS === 'ios' ? 36 : 24,
+  },
+  actionSheetTitle: {
+    fontSize: 16.5,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  actionSheetOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    borderRadius: 14,
+    marginBottom: 6,
+  },
+  actionSheetIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  actionSheetOptionText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  actionSheetCancelBtn: {
+    marginTop: 10,
+    paddingVertical: 13,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 14,
+    alignItems: 'center',
+  },
+  actionSheetCancelText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+
+  // Add Custom Category Modal
+  addCatModalCard: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: Platform.OS === 'ios' ? 36 : 24,
+    maxHeight: '82%',
+  },
+  addCatModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+    marginBottom: 10,
+  },
+  addCatModalTitle: {
+    fontSize: 16.5,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  modalInputLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#475569',
+    marginTop: 12,
+    marginBottom: 6,
+  },
+  modalTextInput: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: '#0F172A',
+  },
+  addCatIconsScroll: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingVertical: 4,
+  },
+  addCatIconCell: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addCatColorsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingVertical: 6,
+  },
+  addCatColorDot: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addCatSaveBtn: {
+    borderRadius: 14,
+    overflow: 'hidden',
+    marginTop: 20,
+    marginBottom: 10,
+  },
+  addCatSaveGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 13,
+  },
+  addCatSaveText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
 
   // Fullscreen Success Modal
@@ -1967,9 +2211,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
-  previewCloseBtn: {
-    padding: 6,
-  },
   previewImgContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -1978,109 +2219,5 @@ const styles = StyleSheet.create({
   previewFullImg: {
     width: '100%',
     height: '80%',
-  },
-
-  // Add Category Modal
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.6)',
-    justifyContent: 'flex-end',
-  },
-  addCatModalCard: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 20,
-    paddingTop: 18,
-    paddingBottom: Platform.OS === 'ios' ? 36 : 24,
-    maxHeight: '82%',
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
-    shadowOffset: { width: 0, height: -4 },
-    shadowRadius: 16,
-    elevation: 10,
-  },
-  addCatModalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingBottom: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
-    marginBottom: 10,
-  },
-  addCatModalTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#0F172A',
-  },
-  modalCloseBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#F1F5F9',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalInputLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#475569',
-    marginTop: 12,
-    marginBottom: 6,
-  },
-  modalTextInput: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    color: '#0F172A',
-  },
-  addCatIconsScroll: {
-    flexDirection: 'row',
-    gap: 8,
-    paddingVertical: 4,
-  },
-  addCatIconCell: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1.5,
-    borderColor: '#E2E8F0',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  addCatColorsRow: {
-    flexDirection: 'row',
-    gap: 10,
-    paddingVertical: 6,
-  },
-  addCatColorDot: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  addCatSaveBtn: {
-    borderRadius: 14,
-    overflow: 'hidden',
-    marginTop: 20,
-    marginBottom: 10,
-  },
-  addCatSaveGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 13,
-  },
-  addCatSaveText: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#FFFFFF',
   },
 });

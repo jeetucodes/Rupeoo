@@ -29,7 +29,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Sharing from 'expo-sharing';
 import { captureRef } from 'react-native-view-shot';
 import { shareImageAndText } from '@/lib/shareHelper';
-import { shareTransactionReceiptPdf } from '@/lib/transactionPdf';
+import { shareTransactionReceiptPdf, downloadTransactionReceiptPdf } from '@/lib/transactionPdf';
 import { useAuth } from '@/context/AuthContext';
 import { RupeoAdBanner } from '@/lib/ads';
 import {
@@ -152,6 +152,37 @@ export default function TransactionDetailScreen() {
     loop.start();
     return () => loop.stop();
   }, [bgAnim]);
+
+  useEffect(() => {
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const styleId = 'rupeo-receipt-print-rules';
+      if (!document.getElementById(styleId)) {
+        const styleEl = document.createElement('style');
+        styleEl.id = styleId;
+        styleEl.innerHTML = `
+          @media print {
+            @page {
+              size: auto;
+              margin: 0mm;
+            }
+            body {
+              background: #FFFFFF !important;
+              padding: 0 !important;
+              margin: 0 !important;
+            }
+            /* Hide top bar, buttons, action bar, edit icons, delete dialogs */
+            header, nav, button, [role="button"],
+            [data-testid="bottom-actions"],
+            div[style*="position: absolute; top: 0; left: 0; right: 0"],
+            .no-print {
+              display: none !important;
+            }
+          }
+        `;
+        document.head.appendChild(styleEl);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -371,19 +402,19 @@ export default function TransactionDetailScreen() {
     }
   };
 
-  const handleSharePdf = async () => {
+  const handleSharePdf = async (downloadOnly = false) => {
     if (sharingPdf) return;
     try {
       setSharingPdf(true);
       Toast.show({
         type: 'info',
-        text1: 'Generating PDF Bill...',
-        text2: 'Preparing high-resolution receipt document.',
+        text1: downloadOnly ? 'Downloading PDF Bill...' : 'Preparing PDF Bill...',
+        text2: 'Generating authentic scannable barcode receipt.',
         position: 'top',
         visibilityTime: 2500,
       });
 
-      const res = await shareTransactionReceiptPdf({
+      const pdfOptions = {
         id: id || 'TXN',
         type,
         amount,
@@ -396,13 +427,25 @@ export default function TransactionDetailScreen() {
         barcodeValue,
         currency,
         userName: user?.displayName || 'Rupeo User',
-      });
+        receiptImage: receiptImage || null,
+      };
+
+      const res = downloadOnly
+        ? await downloadTransactionReceiptPdf(pdfOptions)
+        : await shareTransactionReceiptPdf(pdfOptions);
 
       if (!res.success) {
         Toast.show({
           type: 'error',
-          text1: 'PDF Generation Failed',
-          text2: res.error || 'Could not generate PDF bill.',
+          text1: downloadOnly ? 'Download Failed' : 'PDF Generation Failed',
+          text2: res.error || 'Could not process PDF bill.',
+          position: 'top',
+        });
+      } else {
+        Toast.show({
+          type: 'success',
+          text1: downloadOnly ? 'PDF Bill Saved! 💾' : 'PDF Bill Ready! 📄',
+          text2: 'Scannable barcode document prepared.',
           position: 'top',
         });
       }
@@ -417,6 +460,31 @@ export default function TransactionDetailScreen() {
     } finally {
       setSharingPdf(false);
     }
+  };
+
+  const handlePdfActionChoice = () => {
+    if (Platform.OS === 'web') {
+      handleSharePdf(false);
+      return;
+    }
+    Alert.alert(
+      'Transaction PDF Bill',
+      'Choose an action for this verified receipt:',
+      [
+        {
+          text: '📤 Share PDF Bill',
+          onPress: () => handleSharePdf(false),
+        },
+        {
+          text: '💾 Download / Save to Files',
+          onPress: () => handleSharePdf(true),
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+      ]
+    );
   };
 
   if (loading) {
@@ -785,18 +853,6 @@ export default function TransactionDetailScreen() {
                 </>
               )}
 
-              {!receiptImage && (
-                <View style={styles.receiptNoPhoto}>
-                  <View style={styles.receiptNoPhotoIcon}>
-                    <Ionicons name="image-outline" size={20} color="#64748B" />
-                  </View>
-                  <View style={styles.receiptNoPhotoTextWrap}>
-                    <Text style={styles.receiptNoPhotoTitle}>No receipt photo attached</Text>
-                    <Text style={styles.receiptNoPhotoSub}>You can attach bills or screenshots anytime via Edit.</Text>
-                  </View>
-                </View>
-              )}
-
               {/* AUTHENTIC FINTECH SCANNABLE CODE 39 BARCODE */}
               <ScannableBarcode value={barcodeValue} width={280} height={50} />
             </View>
@@ -877,7 +933,7 @@ export default function TransactionDetailScreen() {
           <View style={styles.bottomActionsContainer}>
             <TouchableOpacity
               style={[styles.pdfBillButton, sharingPdf && { opacity: 0.75 }]}
-              onPress={handleSharePdf}
+              onPress={handlePdfActionChoice}
               disabled={sharingPdf || sharingImage}
               activeOpacity={0.85}
             >

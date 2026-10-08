@@ -22,7 +22,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import QRCode from 'react-native-qrcode-svg';
 import Toast from 'react-native-toast-message';
@@ -88,6 +88,7 @@ import { getLocalDateString, formatTime12Hour } from '@/lib/dateUtils';
 import { triggerTransactionVibration } from '@/lib/sound';
 
 import { Image as ExpoImage } from 'expo-image';
+import { ShareStatementModal } from '@/components/ShareStatementModal';
 
 const UDHAR_ICONS = {
   ledger: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Ledger.png',
@@ -224,6 +225,31 @@ export default function UdharScreen() {
   const [generatedInvoiceUri, setGeneratedInvoiceUri] = useState<string | null>(null);
   const [generatedInvoiceType, setGeneratedInvoiceType] = useState<'pdf' | 'photo' | null>(null);
   const invoicePreviewRef = useRef<View>(null);
+
+  // Share Statement Card Modal State
+  const [isShareStatementModalOpen, setIsShareStatementModalOpen] = useState<boolean>(false);
+  const [statementEntryTarget, setStatementEntryTarget] = useState<UdharEntry | null>(null);
+  const [statementChildrenTarget, setStatementChildrenTarget] = useState<UdharEntry[]>([]);
+
+  const openShareStatement = (entry: UdharEntry, children: UdharEntry[] = []) => {
+    setStatementEntryTarget(entry);
+    setStatementChildrenTarget(children);
+    setIsShareStatementModalOpen(true);
+  };
+
+  const handleOpenLedgerStatement = () => {
+    if (!selectedFriendDetail) return;
+    if (groupedLedgerEntries.length === 0) {
+      Toast.show({
+        type: 'info',
+        text1: 'No Transactions',
+        text2: 'Add a transaction first to generate a statement.',
+      });
+      return;
+    }
+    const targetGroup = groupedLedgerEntries.find(g => !g.isFullySettled) || groupedLedgerEntries[0];
+    openShareStatement(targetGroup.parent, targetGroup.children);
+  };
 
   // Load friends summary data (offline-first & instant)
   const loadData = useCallback(async (silent = false) => {
@@ -2199,8 +2225,17 @@ export default function UdharScreen() {
                   onPress={() => promptSettleUp(selectedFriendDetail)}
                   activeOpacity={0.8}
                 >
-                  <ThreeDDoubleTickIcon size={16} boxStyle={true} />
-                  <Text style={[styles.simpleHeroBtnSettleText, { marginLeft: 4 }]}>{t('settle_up')}</Text>
+                  <Ionicons name="checkmark-done" size={16} color="#34D399" style={{ marginRight: 4 }} />
+                  <Text style={styles.simpleHeroBtnSettleText}>{t('settle_up')}</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.simpleHeroBtnStatement}
+                  onPress={handleOpenLedgerStatement}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="document-text-outline" size={13} color="#0F172A" style={{ marginRight: 3 }} />
+                  <Text style={styles.simpleHeroBtnStatementText}>Statement</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -2501,10 +2536,12 @@ export default function UdharScreen() {
                           <TouchableOpacity
                             style={styles.simpleEntrySettleBtn}
                             onPress={() => promptSettleEntry(selectedFriendDetail, parent, remaining)}
-                            activeOpacity={0.8}
+                            activeOpacity={0.75}
                           >
-                            <ThreeDDoubleTickIcon size={14} boxStyle={true} />
-                            <Text style={[styles.simpleEntrySettleBtnText, { marginLeft: 3 }]}>
+                            <View style={styles.simpleEntrySettleIconWrap}>
+                              <Ionicons name="checkmark-done" size={12} color="#FFFFFF" />
+                            </View>
+                            <Text style={styles.simpleEntrySettleBtnText}>
                               {isPartiallySettled
                                 ? `Pay Rem (${curr}${remaining.toLocaleString('en-IN')})`
                                 : `Settle (${curr}${parent.amount.toLocaleString('en-IN')})`}
@@ -2512,29 +2549,27 @@ export default function UdharScreen() {
                           </TouchableOpacity>
                         )}
 
-                        {/* Add Interest to this single payment */}
+                        {/* Add Interest to this single payment (Icon Only) */}
                         {!isFullySettled && (
                           <TouchableOpacity
                             style={styles.simpleEntryInterestBtn}
                             onPress={() => promptAddInterest('entry', parent)}
-                            activeOpacity={0.8}
+                            activeOpacity={0.75}
+                            accessibilityLabel="Add Interest"
                           >
-                            <Ionicons name="trending-up" size={13} color="#B45309" style={{ marginRight: 3 }} />
-                            <Text style={styles.simpleEntryInterestBtnText}>+ Interest</Text>
+                            <MaterialCommunityIcons name="percent-circle" size={20} color="#EA580C" />
                           </TouchableOpacity>
                         )}
 
-                        {/* Bill / Invoice — only for 'gave' (give) entries */}
-                        {parent.type === 'gave' && (
-                          <TouchableOpacity
-                            style={styles.simpleEntryInvoiceBtn}
-                            onPress={() => openInvoiceModal('single', group)}
-                            activeOpacity={0.8}
-                          >
-                            <Ionicons name="receipt-outline" size={13} color="#2563EB" style={{ marginRight: 3 }} />
-                            <Text style={styles.simpleEntryInvoiceBtnText}>Bill</Text>
-                          </TouchableOpacity>
-                        )}
+                        {/* Statement Card (Icon Only) */}
+                        <TouchableOpacity
+                          style={styles.simpleEntryStatementBtn}
+                          onPress={() => openShareStatement(parent, children)}
+                          activeOpacity={0.75}
+                          accessibilityLabel="Statement"
+                        >
+                          <Ionicons name="receipt" size={17} color="#2563EB" />
+                        </TouchableOpacity>
                       </View>
 
                       <TouchableOpacity
@@ -5189,6 +5224,28 @@ export default function UdharScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* ================= MODAL 11: POLISHED STATEMENT CARD MODAL ================= */}
+      {statementEntryTarget && selectedFriendDetail && (
+        <ShareStatementModal
+          visible={isShareStatementModalOpen}
+          onClose={() => setIsShareStatementModalOpen(false)}
+          entry={statementEntryTarget}
+          friend={selectedFriendDetail}
+          currentUserName={user?.displayName || 'Rupeo User'}
+          currentUserPhone={
+            user?.phoneNumber ||
+            (myUpiId ? myUpiId.match(/^(\d{10})@/)?.[1] : undefined) ||
+            undefined
+          }
+          currentUserUpiId={myUpiId || settings?.upiId || undefined}
+          childSettlements={statementChildrenTarget}
+          onOpenSettingsForUpi={() => {
+            setIsShareStatementModalOpen(false);
+            router.push('/(tabs)/settings');
+          }}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -6642,6 +6699,22 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#B45309',
   },
+  simpleHeroBtnStatement: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  simpleHeroBtnStatementText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
 
   // Section Header
   simpleSectionHeader: {
@@ -7011,45 +7084,68 @@ const styles = StyleSheet.create({
     borderTopColor: '#F1F5F9',
   },
   simpleEntrySettleBtn: {
+    height: 32,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F0FDF4',
+    backgroundColor: '#ECFDF5',
     borderWidth: 1,
-    borderColor: '#BBF7D0',
-    paddingHorizontal: 10,
-    paddingVertical: 4.5,
-    borderRadius: 6,
+    borderColor: '#A7F3D0',
+    paddingHorizontal: 9,
+    borderRadius: 8,
+    gap: 6,
+  },
+  simpleEntrySettleIconWrap: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#059669',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   simpleEntrySettleBtnText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#15803D',
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: '#047857',
   },
   simpleEntryInterestBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFBEB',
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: '#FFF7ED',
     borderWidth: 1,
-    borderColor: '#FDE68A',
-    paddingHorizontal: 8,
-    paddingVertical: 4.5,
-    borderRadius: 6,
-    gap: 3,
+    borderColor: '#FED7AA',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   simpleEntryInterestBtnText: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#B45309',
+    color: '#EA580C',
+  },
+  simpleEntryStatementBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  simpleEntryStatementBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#2563EB',
   },
   simpleEntryDeleteBtn: {
+    height: 32,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
     paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
+    borderRadius: 8,
     gap: 4,
   },
   simpleEntryDeleteBtnText: {

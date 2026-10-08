@@ -20,7 +20,7 @@
         "backgroundColor": "#0F0F11",
         "foregroundImage": "./assets/images/icon.png"
       },
-      "versionCode": 31,
+      "versionCode": 32,
       "permissions": [
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.VIBRATE",
@@ -85,17 +85,130 @@
         {
           "widgets": [
             {
+              "name": "TodaySummaryWidget",
+              "label": "Rupeo Today Summary",
+              "description": "Today's spend & remaining daily limit",
+              "minWidth": "120dp",
+              "minHeight": "60dp",
+              "targetCellWidth": 2,
+              "targetCellHeight": 1,
+              "maxResizeWidth": "320dp",
+              "maxResizeHeight": "180dp",
+              "resizeMode": "horizontal|vertical",
+              "updatePeriodMillis": 1800000,
+              "previewImage": "./assets/widget-preview/todaysummarywidget_preview.png"
+            },
+            {
               "name": "QuickAddWidget",
               "label": "Rupeo Quick Add",
-              "description": "Daily tracker & 1-tap quick transaction buttons",
-              "minWidth": "200dp",
-              "minHeight": "100dp",
+              "description": "Instant 1-tap Expense, Income, Voice & Udhar",
+              "minWidth": "220dp",
+              "minHeight": "65dp",
+              "targetCellWidth": 4,
+              "targetCellHeight": 1,
+              "maxResizeWidth": "500dp",
+              "maxResizeHeight": "220dp",
+              "resizeMode": "horizontal|vertical",
+              "updatePeriodMillis": 1800000,
+              "previewImage": "./assets/widget-preview/quickaddwidget_preview.png"
+            },
+            {
+              "name": "MonthOverviewWidget",
+              "label": "Rupeo Month Overview",
+              "description": "Monthly income, expense, balance & flow bar",
+              "minWidth": "130dp",
+              "minHeight": "130dp",
+              "targetCellWidth": 2,
+              "targetCellHeight": 2,
+              "maxResizeWidth": "340dp",
+              "maxResizeHeight": "340dp",
+              "resizeMode": "horizontal|vertical",
+              "updatePeriodMillis": 1800000,
+              "previewImage": "./assets/widget-preview/monthoverviewwidget_preview.png"
+            },
+            {
+              "name": "BudgetProgressWidget",
+              "label": "Rupeo Budget Progress",
+              "description": "Monthly budget tracker with dynamic alerts",
+              "minWidth": "130dp",
+              "minHeight": "130dp",
+              "targetCellWidth": 2,
+              "targetCellHeight": 2,
+              "maxResizeWidth": "340dp",
+              "maxResizeHeight": "340dp",
+              "resizeMode": "horizontal|vertical",
+              "updatePeriodMillis": 1800000,
+              "previewImage": "./assets/widget-preview/budgetprogresswidget_preview.png"
+            },
+            {
+              "name": "RecentTransactionsWidget",
+              "label": "Rupeo Recent Transactions",
+              "description": "Last 5 transactions with amounts and categories",
+              "minWidth": "220dp",
+              "minHeight": "130dp",
               "targetCellWidth": 4,
               "targetCellHeight": 2,
               "maxResizeWidth": "500dp",
-              "maxResizeHeight": "320dp",
+              "maxResizeHeight": "360dp",
               "resizeMode": "horizontal|vertical",
-              "updatePeriodMillis": 1800000
+              "updatePeriodMillis": 1800000,
+              "previewImage": "./assets/widget-preview/recenttransactionswidget_preview.png"
+            },
+            {
+              "name": "UdharSummaryWidget",
+              "label": "Rupeo Friends & Udhar",
+              "description": "To receive & To pay balance tracker",
+              "minWidth": "130dp",
+              "minHeight": "130dp",
+              "targetCellWidth": 2,
+              "targetCellHeight": 2,
+              "maxResizeWidth": "340dp",
+              "maxResizeHeight": "340dp",
+              "resizeMode": "horizontal|vertical",
+              "updatePeriodMillis": 1800000,
+              "previewImage": "./assets/widget-preview/udharsummarywidget_preview.png"
+            },
+            {
+              "name": "GoalsProgressWidget",
+              "label": "Rupeo Budget Goals",
+              "description": "Up to 3 budget & category goals progress bars",
+              "minWidth": "220dp",
+              "minHeight": "130dp",
+              "targetCellWidth": 4,
+              "targetCellHeight": 2,
+              "maxResizeWidth": "500dp",
+              "maxResizeHeight": "360dp",
+              "resizeMode": "horizontal|vertical",
+              "updatePeriodMillis": 1800000,
+              "previewImage": "./assets/widget-preview/goalsprogresswidget_preview.png"
+            },
+            {
+              "name": "UpcomingBillsWidget",
+              "label": "Rupeo Upcoming Bills",
+              "description": "Upcoming recurring bills & due date reminders",
+              "minWidth": "220dp",
+              "minHeight": "130dp",
+              "targetCellWidth": 4,
+              "targetCellHeight": 2,
+              "maxResizeWidth": "500dp",
+              "maxResizeHeight": "360dp",
+              "resizeMode": "horizontal|vertical",
+              "updatePeriodMillis": 1800000,
+              "previewImage": "./assets/widget-preview/upcomingbillswidget_preview.png"
+            },
+            {
+              "name": "WeeklySpendingWidget",
+              "label": "Rupeo Weekly Spend Chart",
+              "description": "7-day daily spending bar chart with today highlight",
+              "minWidth": "220dp",
+              "minHeight": "130dp",
+              "targetCellWidth": 4,
+              "targetCellHeight": 2,
+              "maxResizeWidth": "500dp",
+              "maxResizeHeight": "360dp",
+              "resizeMode": "horizontal|vertical",
+              "updatePeriodMillis": 1800000,
+              "previewImage": "./assets/widget-preview/weeklyspendingwidget_preview.png"
             },
             {
               "name": "InsightWidget",
@@ -108,12 +221,13 @@
               "maxResizeWidth": "500dp",
               "maxResizeHeight": "360dp",
               "resizeMode": "horizontal|vertical",
-              "updatePeriodMillis": 1800000
+              "updatePeriodMillis": 1800000,
+              "previewImage": "./assets/widget-preview/insightwidget_preview.png"
             },
             {
               "name": "QuickActionsWidget",
               "label": "Rupeo 1-Tap Actions",
-              "description": "Compact launcher for Expense, Income, Voice & History",
+              "description": "Compact launcher for Expense, Income, Voice & Udhar",
               "minWidth": "180dp",
               "minHeight": "80dp",
               "targetCellWidth": 4,
@@ -121,7 +235,8 @@
               "maxResizeWidth": "500dp",
               "maxResizeHeight": "200dp",
               "resizeMode": "horizontal|vertical",
-              "updatePeriodMillis": 1800000
+              "updatePeriodMillis": 1800000,
+              "previewImage": "./assets/widget-preview/quickactionswidget_preview.png"
             }
           ]
         }

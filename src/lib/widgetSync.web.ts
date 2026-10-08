@@ -37,12 +37,16 @@ export async function getWidgetData(): Promise<WidgetData> {
   return DEFAULT_WIDGET_DATA;
 }
 
+export const REGISTERED_WIDGET_NAMES = [] as const;
+
 /**
  * Web stub: No native Android widget on web
  */
 export async function triggerWidgetUpdate(): Promise<void> {
   // No-op on Web
 }
+
+export const triggerAllWidgetsUpdate = triggerWidgetUpdate;
 
 /**
  * Web stub: Calculates spend & returns default widget data without native modules

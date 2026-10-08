@@ -52,20 +52,22 @@ export interface CategoryItem {
 
 export const defaultCategories: CategoryItem[] = [
   { name: 'Food', icon: 'fast-food', color: '#FF6B6B' },
+  { name: 'Transport', icon: 'car', color: '#0284C7' },
+  { name: 'Shopping', icon: 'bag', color: '#9D4EDD' },
+  { name: 'Bills', icon: 'receipt', color: '#FF9F1C' },
+  { name: 'Health', icon: 'heart', color: '#E11D48' },
+  { name: 'Education', icon: 'school', color: '#6366F1' },
   { name: 'Groceries', icon: 'cart', color: '#10B981' },
   { name: 'Dining', icon: 'restaurant', color: '#EF4444' },
   { name: 'Coffee', icon: 'cafe', color: '#7C3AED' },
   { name: 'Travel', icon: 'airplane', color: '#4D96FF' },
   { name: 'Fuel', icon: 'water', color: '#F59E0B' },
-  { name: 'Shopping', icon: 'bag', color: '#9D4EDD' },
   { name: 'Rent', icon: 'home', color: '#6BCB77' },
-  { name: 'Bills', icon: 'receipt', color: '#FF9F1C' },
   { name: 'Utilities', icon: 'bulb', color: '#3B82F6' },
   { name: 'EMI', icon: 'card', color: '#E63946' },
   { name: 'Entertainment', icon: 'film', color: '#FFD166' },
   { name: 'Subscriptions', icon: 'play-circle', color: '#118AB2' },
   { name: 'Healthcare', icon: 'medkit', color: '#06D6A0' },
-  { name: 'Education', icon: 'school', color: '#073B4C' },
   { name: 'Fitness', icon: 'barbell', color: '#F97316' },
   { name: 'Savings', icon: 'cash', color: '#10B981' },
   { name: 'Pocket Money', icon: 'wallet', color: '#EC4899' },
@@ -318,6 +320,9 @@ export async function updateTransaction(userId: string, txId: string, txData: an
   await saveOfflineTransactions(userId, updatedLocal);
   memoryCache.transactions.set(userId, { data: updatedLocal, timestamp: Date.now() });
   notifyTransactionsListeners(updatedLocal);
+
+  // Sync with Android widgets
+  syncWidgetWithTransactions(userId).catch(() => {});
 
   // 2. Queue offline sync action
   await enqueueSyncAction(userId, {
@@ -952,6 +957,7 @@ export async function saveRecurringBill(userId: string, bill: RecurringBill): Pr
   }
 
   invalidateBillsCache(userId);
+  syncWidgetWithTransactions(userId).catch(() => {});
   return resId;
 }
 
@@ -959,6 +965,7 @@ export async function deleteRecurringBill(userId: string, billId: string) {
   if (!userId || !billId) return;
   await deleteDoc(doc(db, `users/${userId}/recurring_bills`, billId));
   invalidateBillsCache(userId);
+  syncWidgetWithTransactions(userId).catch(() => {});
 }
 
 export async function payRecurringBill(
@@ -1125,12 +1132,14 @@ export async function saveCategoryBudget(userId: string, category: string, amoun
     amount: Number(amount) || 0,
     updated_at: serverTimestamp(),
   }, { merge: true });
+  syncWidgetWithTransactions(userId).catch(() => {});
 }
 
 export async function deleteCategoryBudget(userId: string, category: string) {
   if (!userId || !category) return;
   const docRef = doc(db, `users/${userId}/category_budgets`, category);
   await deleteDoc(docRef);
+  syncWidgetWithTransactions(userId).catch(() => {});
 }
 
 // ==================== NOTIFICATIONS ====================
@@ -1425,6 +1434,7 @@ export interface UserSettings {
   isPremium?: boolean;
   premiumPlan?: 'monthly' | '3_months' | '6_months' | 'yearly' | 'lifetime' | string;
   premiumActivatedAt?: string;
+  upiId?: string;
 }
 
 export interface StartingBalanceProfile {
@@ -1504,9 +1514,11 @@ export async function saveUserSettings(userId: string, settings: UserSettings) {
     ...(settings.isPremium !== undefined ? { isPremium: settings.isPremium } : {}),
     ...(settings.premiumPlan ? { premiumPlan: settings.premiumPlan } : {}),
     ...(settings.premiumActivatedAt ? { premiumActivatedAt: settings.premiumActivatedAt } : {}),
+    ...(settings.upiId !== undefined ? { upiId: settings.upiId } : {}),
   };
   const docRef = doc(db, `users/${userId}/settings/preferences`);
   await setDoc(docRef, normalized, { merge: true });
+  syncWidgetWithTransactions(userId).catch(() => {});
 }
 
 export async function setPremiumStatus(

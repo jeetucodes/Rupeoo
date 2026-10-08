@@ -4,6 +4,8 @@ import { User, onAuthStateChanged, signOut } from 'firebase/auth';
 import { auth, db } from '@/lib/firebase';
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { getStartingBalanceProfile, getUserSettings, saveUserSettings, setPremiumStatus, UserSettings } from '@/lib/database';
+import { clearWidgetSnapshot } from '@/lib/widgetSnapshot';
+import { triggerWidgetUpdate } from '@/lib/widgetSync';
 
 export type AdsStrategy = 'custom_only' | 'custom_first' | 'network_only' | 'both';
 
@@ -372,6 +374,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     try {
+      await clearWidgetSnapshot().catch(() => {});
+      await triggerWidgetUpdate().catch(() => {});
       await signOut(auth);
     } catch (error) {
       console.error('Logout error:', error);

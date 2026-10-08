@@ -64,9 +64,18 @@ export async function shareImageAndText({
 
   // 4. Fallback: text only if file sharing is completely unavailable
   if (text) {
-    await Share.share({
-      title: dTitle,
-      message: text,
-    });
+    try {
+      await Share.share({
+        title: dTitle,
+        message: text,
+      });
+    } catch (shareErr) {
+      console.warn('Share.share failed (browser gesture or unsupported):', shareErr);
+      if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        try {
+          await navigator.clipboard.writeText(text);
+        } catch {}
+      }
+    }
   }
 }

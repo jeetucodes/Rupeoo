@@ -11,6 +11,7 @@ import {
   where,
 } from 'firebase/firestore';
 import { checkIsOnline } from './offlineSync';
+import { syncWidgetWithTransactions } from './widgetSync';
 
 export interface FriendContact {
   id: string;
@@ -874,6 +875,8 @@ export async function addUdharEntry(
     flushUdharSyncQueue(uid).catch(() => {});
   }
 
+  syncWidgetWithTransactions(uid).catch(() => {});
+
   return newEntry;
 }
 
@@ -898,6 +901,8 @@ export async function deleteUdharEntry(userId: string | undefined, entryId: stri
     });
     flushUdharSyncQueue(uid).catch(() => {});
   }
+
+  syncWidgetWithTransactions(uid).catch(() => {});
 
   return target;
 }

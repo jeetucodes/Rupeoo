@@ -188,7 +188,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       router.replace('/login');
     } else if (user) {
       // Sync widget with user's latest transaction summary
-      syncWidgetWithTransactions(user.uid, undefined, settings).catch(() => {});
+      syncWidgetWithTransactions(user.uid).catch(() => {});
 
       if (currentSegment === 'login') {
         AsyncStorage.getItem('@rupeo_pending_redirect').then((pending) => {
@@ -204,6 +204,17 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       }
     }
   }, [user, loading, settings, segments]);
+
+  // Sync widgets on App foreground
+  useEffect(() => {
+    const handleAppStateChange = (nextAppState: string) => {
+      if (nextAppState === 'active' && user?.uid) {
+        syncWidgetWithTransactions(user.uid).catch(() => {});
+      }
+    };
+    const sub = AppState.addEventListener('change', handleAppStateChange);
+    return () => sub.remove();
+  }, [user?.uid]);
 
   useEffect(() => {
     const handleUrl = (event: { url: string }) => {
@@ -252,7 +263,7 @@ export default function RootLayout() {
   const colorScheme = useColorScheme();
   const segments = useSegments();
   const currentSegment = segments[0] as string | undefined;
-  const isTransparentOverlay = currentSegment === 'quick-add' || currentSegment === 'quick-add-voice';
+  const isTransparentOverlay = currentSegment === 'quick-add-voice';
 
   useEffect(() => {
     initDatabase().catch((e) => console.error('Database init error:', e));
@@ -306,9 +317,9 @@ export default function RootLayout() {
                   <Stack.Screen
                     name="quick-add"
                     options={{
-                      presentation: 'transparentModal',
-                      animation: 'fade',
-                      contentStyle: { backgroundColor: 'transparent' }
+                      presentation: 'card',
+                      animation: 'slide_from_bottom',
+                      contentStyle: { backgroundColor: '#FFFFFF' },
                     }}
                   />
                   <Stack.Screen

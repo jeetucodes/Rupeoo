@@ -1,6 +1,6 @@
 {
   "name": "rupeo",
-  "main": "expo-router/entry",
+  "main": "index.js",
   "version": "2.1.4",
   "dependencies": {
     "@expo/vector-icons": "^15.1.1",
@@ -70,6 +70,7 @@
     "export": "expo export",
     "test": "node --test src/lib/__tests__/voiceParser.test.ts",
     "check:images": "python scripts/check-images.py",
+    "generate:widgets": "node scripts/generate-widget-previews.js",
     "postinstall": "node scripts/fix-expo-go-modules.js"
   },
   "private": true

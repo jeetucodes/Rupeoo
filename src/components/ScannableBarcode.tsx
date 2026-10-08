@@ -67,7 +67,7 @@ export const ScannableBarcode: React.FC<ScannableBarcodeProps> = ({
   const sanitized = (value || 'TXN000')
     .toUpperCase()
     .replace(/[^0-9A-Z\-]/g, '')
-    .slice(0, 10);
+    .slice(0, 16);
 
   const payload = sanitized.length > 0 ? sanitized : 'TXN000';
   const fullText = `*${payload}*`;

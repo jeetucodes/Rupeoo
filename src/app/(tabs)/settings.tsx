@@ -12,14 +12,17 @@ import {
   KeyboardAvoidingView,
   Modal,
   Switch,
+  Share,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { getCategoryTotals, deleteAllTransactions, saveStartingBalance, saveUserSettings, UserSettings, getAllTransactions } from '@/lib/database';
-import { syncWidgetWithTransactions } from '@/lib/widgetSync';
-import { getSyncUdharToDashboardTx, setSyncUdharToDashboardTx } from '@/lib/udharStorage';
+import { syncWidgetWithTransactions, triggerWidgetUpdate } from '@/lib/widgetSync';
+import { getWidgetSnapshot } from '@/lib/widgetSnapshot';
+import { getSyncUdharToDashboardTx, setSyncUdharToDashboardTx, saveLastUsedUpiId } from '@/lib/udharStorage';
+import { validateUpiId } from '@/lib/splitPayment';
 import { getLocalMonthString } from '@/lib/dateUtils';
 import { generateAndShareTransactionStatementPDF, formatMonthDisplay } from '@/lib/statementPdf';
 import { useTranslation } from '@/lib/i18n';
@@ -284,6 +287,35 @@ export default function SettingsScreen() {
   const [isRestoring, setIsRestoring] = useState(false);
   const [showSupportModal, setShowSupportModal] = useState(false);
   const [showReviewModal, setShowReviewModal] = useState(false);
+  const [showWidgetDebugModal, setShowWidgetDebugModal] = useState(false);
+  const [widgetSnapshotData, setWidgetSnapshotData] = useState<any>(null);
+  const [isRefreshingWidgets, setIsRefreshingWidgets] = useState(false);
+
+  const handleForceRefreshWidgets = async () => {
+    try {
+      setIsRefreshingWidgets(true);
+      if (user?.uid) {
+        await syncWidgetWithTransactions(user.uid);
+      } else {
+        await triggerWidgetUpdate();
+      }
+      const snap = await getWidgetSnapshot();
+      setWidgetSnapshotData(snap);
+      Toast.show({
+        type: 'success',
+        text1: 'Widgets Refreshed',
+        text2: 'Snapshot rebuilt and all widgets updated',
+      });
+    } catch (err: any) {
+      Toast.show({
+        type: 'error',
+        text1: 'Refresh Failed',
+        text2: err?.message || 'Error refreshing widgets',
+      });
+    } finally {
+      setIsRefreshingWidgets(false);
+    }
+  };
 
   const handleRestorePurchases = async () => {
     if (!user?.uid) return;
@@ -668,6 +700,45 @@ export default function SettingsScreen() {
     }
   };
 
+  const [showUpiModal, setShowUpiModal] = useState(false);
+  const [upiInput, setUpiInput] = useState('');
+  const [isSavingUpi, setIsSavingUpi] = useState(false);
+
+  const handleSaveUpiId = async () => {
+    if (!user?.uid || isSavingUpi) return;
+    const cleanUpi = upiInput.trim();
+    if (cleanUpi) {
+      const validation = validateUpiId(cleanUpi);
+      if (!validation.isValid) {
+        Toast.show({
+          type: 'error',
+          text1: 'Invalid UPI ID',
+          text2: validation.error || 'Please enter a valid UPI ID (e.g. name@bank)',
+        });
+        return;
+      }
+    }
+    setIsSavingUpi(true);
+    try {
+      await updatePref('upiId', cleanUpi || undefined);
+      await saveLastUsedUpiId(user.uid, cleanUpi);
+      setShowUpiModal(false);
+      Toast.show({
+        type: 'success',
+        text1: cleanUpi ? 'UPI ID Saved ✅' : 'UPI ID Cleared',
+        text2: cleanUpi ? 'Your UPI ID will be used for QR payment on statements.' : undefined,
+      });
+    } catch (err: any) {
+      Toast.show({
+        type: 'error',
+        text1: 'Could not save UPI ID',
+        text2: err?.message || 'Please try again.',
+      });
+    } finally {
+      setIsSavingUpi(false);
+    }
+  };
+
   const openStartingBalanceEditor = () => {
     setStartingBalanceInput(String(Number((user as any)?.startingBalance) || 0));
     setShowStartingBalanceModal(true);
@@ -1028,6 +1099,30 @@ export default function SettingsScreen() {
                   thumbColor="#FFFFFF"
                 />
               </View>
+
+              <View style={styles.infoDivider} />
+
+              <View style={styles.prefRow}>
+                <View style={{ flex: 1, paddingRight: 12 }}>
+                  <Text style={styles.prefLabel}>My UPI ID</Text>
+                  <Text style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>
+                    {settings?.upiId || 'Not set (e.g. name@bank)'}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.currencySelectorBtn}
+                  onPress={() => {
+                    setUpiInput(settings?.upiId || '');
+                    setShowUpiModal(true);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.currencySymbolText, { fontSize: 13, fontWeight: '700', color: '#0F172A' }]}>
+                    {settings?.upiId ? 'Edit' : 'Add'}
+                  </Text>
+                  <Ionicons name="pencil" size={12} color="#64748B" style={{ marginLeft: 4 }} />
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
 
@@ -1229,6 +1324,26 @@ export default function SettingsScreen() {
             </TouchableOpacity>
           </View>
 
+          {__DEV__ && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>WIDGET DIAGNOSTICS (DEV)</Text>
+              <View style={styles.infoCard}>
+                <SettingsRow
+                  icon="phone-portrait-outline"
+                  iconBg="#EEF2FF"
+                  iconColor="#4F46E5"
+                  label="Widget Debug & Snapshot"
+                  value="Inspect snapshot JSON & force refresh"
+                  onPress={async () => {
+                    const snap = await getWidgetSnapshot();
+                    setWidgetSnapshotData(snap);
+                    setShowWidgetDebugModal(true);
+                  }}
+                />
+              </View>
+            </View>
+          )}
+
           <View style={{ alignItems: 'center', marginTop: 8 }}>
             <Text style={styles.versionText}>Rupeo {t('version')} 2.1.3</Text>
           </View>
@@ -1248,7 +1363,43 @@ export default function SettingsScreen() {
         onSelect={(val) => updatePref('currency', val)}
       />
 
-      {/* Export Modal */}
+      {/* My UPI ID Modal */}
+      <BottomSheetModal
+        visible={showUpiModal}
+        onClose={() => setShowUpiModal(false)}
+        title="My UPI ID"
+        icon="card-outline"
+        iconBg="#EFF6FF"
+        iconColor="#2563EB"
+        autoHeight
+      >
+        <Text style={styles.modalIntroText}>
+          Enter your UPI ID (VPA) to generate scannable payment QR codes on Rupeo Khata statements.
+        </Text>
+        <View style={styles.startingBalanceInputRow}>
+          <Ionicons name="at-outline" size={20} color="#64748B" style={{ marginRight: 8 }} />
+          <TextInput
+            style={[styles.startingBalanceInput, { fontSize: 16, textAlign: 'left', flex: 1 }]}
+            value={upiInput}
+            onChangeText={setUpiInput}
+            placeholder="e.g. mobile@upi or name@bank"
+            placeholderTextColor="#94A3B8"
+            autoCapitalize="none"
+            autoCorrect={false}
+            editable={!isSavingUpi}
+          />
+        </View>
+        <TouchableOpacity
+          style={[styles.primaryBtn, isSavingUpi && styles.btnDisabled]}
+          onPress={handleSaveUpiId}
+          disabled={isSavingUpi}
+          activeOpacity={0.8}
+        >
+          {isSavingUpi ? <ActivityIndicator size="small" color="#1C1C1E" /> : <Text style={styles.primaryBtnText}>{t('save')}</Text>}
+        </TouchableOpacity>
+      </BottomSheetModal>
+
+      {/* Starting Balance Modal */}
       <BottomSheetModal
         visible={showStartingBalanceModal}
         onClose={() => setShowStartingBalanceModal(false)}
@@ -1951,6 +2102,59 @@ export default function SettingsScreen() {
         userId={user?.uid || ''}
         onClose={() => setShowReviewModal(false)}
       />
+
+      <BottomSheetModal
+        visible={showWidgetDebugModal}
+        onClose={() => setShowWidgetDebugModal(false)}
+        title="Widget Diagnostics"
+        icon="phone-portrait-outline"
+        iconBg="#EEF2FF"
+        iconColor="#4F46E5"
+        autoHeight={false}
+      >
+        <View style={{ flex: 1, paddingBottom: 24 }}>
+          <TouchableOpacity
+            style={[styles.primaryBtn, isRefreshingWidgets && styles.btnDisabled, { marginBottom: 16 }]}
+            onPress={handleForceRefreshWidgets}
+            disabled={isRefreshingWidgets}
+            activeOpacity={0.8}
+          >
+            {isRefreshingWidgets ? (
+              <ActivityIndicator size="small" color="#1C1C1E" />
+            ) : (
+              <Text style={styles.primaryBtnText}>Force Refresh All Widgets</Text>
+            )}
+          </TouchableOpacity>
+
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <Text style={styles.statementSectionLabel}>SNAPSHOT JSON (V1)</Text>
+            {widgetSnapshotData && (
+              <TouchableOpacity
+                onPress={() => {
+                  Share.share({ message: JSON.stringify(widgetSnapshotData, null, 2) });
+                }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text style={{ fontSize: 12, fontWeight: '700', color: '#4F46E5' }}>Share / Copy</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          <ScrollView
+            style={{
+              backgroundColor: '#0F172A',
+              borderRadius: 12,
+              padding: 12,
+              maxHeight: 350,
+            }}
+            nestedScrollEnabled
+          >
+            <Text style={{ fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 11, color: '#38BDF8' }}>
+              {widgetSnapshotData ? JSON.stringify(widgetSnapshotData, null, 2) : '// No snapshot saved in AsyncStorage yet'}
+            </Text>
+          </ScrollView>
+        </View>
+      </BottomSheetModal>
     </View>
   );
 }
