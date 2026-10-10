@@ -13,7 +13,6 @@ import {
 
 export interface QuickAddWidgetProps {
   snapshot?: WidgetSnapshot | null;
-  // Backward compatibility props:
   todaySpent?: number;
   dailyLimit?: number;
   remainingLimit?: number | null;
@@ -21,9 +20,10 @@ export interface QuickAddWidgetProps {
 }
 
 /**
- * Quick Add Widget (4x1)
- * Clean light launcher with 4 fast actions:
- * + Expense, + Income, Voice (mic), Udhar / Scan.
+ * Quick Add Widget (4x1 / 4x2)
+ * Clean, bold launcher with 4 large, tactile actions:
+ * + Expense, + Income, Voice, and Udhar / Friends.
+ * Directly links to the main Add screen (/add) matching the app's main '+' button.
  */
 export function QuickAddWidget({
   snapshot,
@@ -40,11 +40,11 @@ export function QuickAddWidget({
         height: 'match_parent',
         width: 'match_parent',
         backgroundColor: '#FFFFFF',
-        borderRadius: 16,
-        borderWidth: 1,
+        borderRadius: 18,
+        borderWidth: 1.2,
         borderColor: '#E2E8F0',
-        paddingHorizontal: 12,
-        paddingVertical: 10,
+        paddingHorizontal: 14,
+        paddingVertical: 12,
         flexDirection: 'column',
         justifyContent: 'space-between',
       }}
@@ -63,11 +63,11 @@ export function QuickAddWidget({
           clickActionData={{ uri: 'rupeo://(tabs)/dashboard' }}
           style={{ flexDirection: 'row', alignItems: 'center' }}
         >
-          <SvgWidget svg={RUPEO_BRAND_LOGO_SVG} style={{ width: 13, height: 13, marginRight: 5 }} />
+          <SvgWidget svg={RUPEO_BRAND_LOGO_SVG} style={{ width: 16, height: 16, marginRight: 6 }} />
           <TextWidget
             text="RUPEO"
             style={{
-              fontSize: 10,
+              fontSize: 11,
               fontWeight: 'bold',
               color: '#0F172A',
               letterSpacing: 0.8,
@@ -83,136 +83,137 @@ export function QuickAddWidget({
           <TextWidget
             text={`Today: ${formatWidgetAmount(spent, curr)}`}
             style={{
-              fontSize: 10,
-              fontWeight: '600',
-              color: '#64748B',
+              fontSize: 11,
+              fontWeight: 'bold',
+              color: '#475569',
             }}
           />
           {updatedAt ? (
             <TextWidget
               text={` • ${formatWidgetTime(updatedAt)}`}
               style={{
-                fontSize: 8.5,
+                fontSize: 9,
                 color: '#94A3B8',
-                marginLeft: 3,
+                marginLeft: 4,
               }}
             />
           ) : null}
         </FlexWidget>
       </FlexWidget>
 
-      {/* 2. 4 Fast Action Buttons */}
+      {/* 2. 4 Large, Tactile Action Buttons */}
       <FlexWidget
         style={{
           flexDirection: 'row',
           justifyContent: 'space-between',
           alignItems: 'center',
           width: 'match_parent',
-          flexGap: 6,
+          flexGap: 8,
+          marginTop: 6,
         }}
       >
-        {/* + Expense */}
+        {/* + Expense (opens main Add screen) */}
         <FlexWidget
           clickAction="OPEN_URI"
-          clickActionData={{ uri: 'rupeo://quick-add?type=expense&fromWidget=1' }}
+          clickActionData={{ uri: 'rupeo://add?type=expense&fromWidget=1' }}
           style={{
             flex: 1,
-            height: 40,
+            height: 48,
             backgroundColor: '#FEF2F2',
-            borderRadius: 10,
-            borderWidth: 1,
+            borderRadius: 12,
+            borderWidth: 1.2,
             borderColor: '#FECACA',
             flexDirection: 'row',
             justifyContent: 'center',
             alignItems: 'center',
           }}
         >
-          <SvgWidget svg={ICON_EXPENSE_SVG} style={{ width: 11, height: 11, marginRight: 4 }} />
+          <SvgWidget svg={ICON_EXPENSE_SVG} style={{ width: 13, height: 13, marginRight: 5 }} />
           <TextWidget
             text="Expense"
             style={{
-              fontSize: 11,
+              fontSize: 12,
               fontWeight: 'bold',
               color: '#DC2626',
             }}
           />
         </FlexWidget>
 
-        {/* + Income */}
+        {/* + Income (opens main Add screen) */}
         <FlexWidget
           clickAction="OPEN_URI"
-          clickActionData={{ uri: 'rupeo://quick-add?type=income&fromWidget=1' }}
+          clickActionData={{ uri: 'rupeo://add?type=income&fromWidget=1' }}
           style={{
             flex: 1,
-            height: 40,
+            height: 48,
             backgroundColor: '#F0FDF4',
-            borderRadius: 10,
-            borderWidth: 1,
+            borderRadius: 12,
+            borderWidth: 1.2,
             borderColor: '#BBF7D0',
             flexDirection: 'row',
             justifyContent: 'center',
             alignItems: 'center',
           }}
         >
-          <SvgWidget svg={ICON_INCOME_SVG} style={{ width: 11, height: 11, marginRight: 4 }} />
+          <SvgWidget svg={ICON_INCOME_SVG} style={{ width: 13, height: 13, marginRight: 5 }} />
           <TextWidget
             text="Income"
             style={{
-              fontSize: 11,
+              fontSize: 12,
               fontWeight: 'bold',
               color: '#16A34A',
             }}
           />
         </FlexWidget>
 
-        {/* Voice Entry */}
+        {/* Voice Entry (opens main Add screen with voice activated) */}
         <FlexWidget
           clickAction="OPEN_URI"
-          clickActionData={{ uri: 'rupeo://quick-add-voice?fromWidget=1' }}
+          clickActionData={{ uri: 'rupeo://add?voice=1&fromWidget=1' }}
           style={{
             flex: 1,
-            height: 40,
+            height: 48,
             backgroundColor: '#EEF2FF',
-            borderRadius: 10,
-            borderWidth: 1,
+            borderRadius: 12,
+            borderWidth: 1.2,
             borderColor: '#C7D2FE',
             flexDirection: 'row',
             justifyContent: 'center',
             alignItems: 'center',
           }}
         >
-          <SvgWidget svg={ICON_MIC_SVG} style={{ width: 12, height: 12, marginRight: 4 }} />
+          <SvgWidget svg={ICON_MIC_SVG} style={{ width: 14, height: 14, marginRight: 5 }} />
           <TextWidget
             text="Voice"
             style={{
-              fontSize: 11,
+              fontSize: 12,
               fontWeight: 'bold',
               color: '#4F46E5',
             }}
           />
         </FlexWidget>
 
-        {/* Udhar / Scan */}
+        {/* Udhar / Len-Den */}
         <FlexWidget
           clickAction="OPEN_URI"
           clickActionData={{ uri: 'rupeo://udhar' }}
           style={{
             flex: 1,
-            height: 40,
+            height: 48,
             backgroundColor: '#F8FAFC',
-            borderRadius: 10,
-            borderWidth: 1,
+            borderRadius: 12,
+            borderWidth: 1.2,
             borderColor: '#E2E8F0',
             flexDirection: 'row',
             justifyContent: 'center',
             alignItems: 'center',
           }}
         >
-          <SvgWidget svg={ICON_UDHAR_SVG} style={{ width: 11, height: 11, marginRight: 4 }} />
+          <SvgWidget svg={ICON_UDHAR_SVG} style={{ width: 13, height: 13, marginRight: 5 }} />
           <TextWidget
             text="Udhar"
             style={{
-              fontSize: 11,
+              fontSize: 12,
               fontWeight: 'bold',
               color: '#334155',
             }}

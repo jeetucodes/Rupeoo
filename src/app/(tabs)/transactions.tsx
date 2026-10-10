@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState, useEffect } from 'react';
+import React, { useCallback, useMemo, useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -325,8 +325,15 @@ export default function TransactionsScreen() {
     setDisplayLimit(20);
   }, [period, startDate, endDate, searchQuery, filterType, selectedCategory, minAmount, maxAmount, filterPaymentMode]);
 
+  const lastLoadTimeRef = useRef<number>(0);
+
   const loadData = async (forceRefresh = false) => {
     if (!user?.uid) return;
+    const now = Date.now();
+    if (!forceRefresh && now - lastLoadTimeRef.current < 2500) {
+      return;
+    }
+    lastLoadTimeRef.current = now;
     try {
       const [txs, cats] = await Promise.all([
         getAllTransactions(user.uid, forceRefresh),
@@ -347,12 +354,6 @@ export default function TransactionsScreen() {
       loadData(false);
     }, [user?.uid])
   );
-
-  useEffect(() => {
-    if (user?.uid) {
-      loadData(false);
-    }
-  }, [user?.uid]);
 
   // Subscribe to real-time & background sync updates so allTransactions is always up-to-date
   useEffect(() => {

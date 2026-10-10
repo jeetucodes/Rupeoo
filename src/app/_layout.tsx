@@ -144,14 +144,8 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       }
     });
 
-    // 3. Periodic background sync every 60 seconds while active
-    const timer = setInterval(() => {
-      syncUserOfflineData(user.uid).catch(() => { });
-    }, 60 * 1000);
-
     return () => {
       appStateSub.remove();
-      clearInterval(timer);
     };
   }, [user?.uid]);
 
@@ -182,7 +176,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       currentSegment === 'setup';
 
     if (!user && !isPublicRoute) {
-      if (currentSegment === 'quick-add' || currentSegment === 'quick-add-voice') {
+      if (currentSegment === 'quick-add' || currentSegment === 'quick-add-voice' || currentSegment === 'add') {
         AsyncStorage.setItem('@rupeo_pending_redirect', `/${currentSegment}`).catch(() => {});
       }
       router.replace('/login');
@@ -220,7 +214,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     const handleUrl = (event: { url: string }) => {
       try {
         const parsed = Linking.parse(event.url);
-        if (parsed.path === 'quick-add' || parsed.path === 'quick-add-voice') {
+        if (parsed.path === 'quick-add' || parsed.path === 'quick-add-voice' || parsed.path === 'add') {
           const typeParam = parsed.queryParams?.type ? `?type=${parsed.queryParams.type}` : '';
           const fullPath = `/${parsed.path}${typeParam}`;
           if (!user) {

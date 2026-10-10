@@ -50,31 +50,72 @@ export interface CategoryItem {
   type?: 'debit' | 'credit' | 'all';
 }
 
+export const KNOWN_INCOME_CATEGORY_NAMES = new Set([
+  'salary', 'job', 'business', 'freelance', 'investments', 'investment',
+  'income', 'savings', 'bonus', 'dividend', 'dividends', 'cashback', 'rental', 'stipend'
+]);
+
 export const defaultCategories: CategoryItem[] = [
-  { name: 'Food', icon: 'fast-food', color: '#FF6B6B' },
-  { name: 'Transport', icon: 'car', color: '#0284C7' },
-  { name: 'Shopping', icon: 'bag', color: '#9D4EDD' },
-  { name: 'Bills', icon: 'receipt', color: '#FF9F1C' },
-  { name: 'Health', icon: 'heart', color: '#E11D48' },
-  { name: 'Education', icon: 'school', color: '#6366F1' },
-  { name: 'Groceries', icon: 'cart', color: '#10B981' },
-  { name: 'Dining', icon: 'restaurant', color: '#EF4444' },
-  { name: 'Coffee', icon: 'cafe', color: '#7C3AED' },
-  { name: 'Travel', icon: 'airplane', color: '#4D96FF' },
-  { name: 'Fuel', icon: 'water', color: '#F59E0B' },
-  { name: 'Rent', icon: 'home', color: '#6BCB77' },
-  { name: 'Utilities', icon: 'bulb', color: '#3B82F6' },
-  { name: 'EMI', icon: 'card', color: '#E63946' },
-  { name: 'Entertainment', icon: 'film', color: '#FFD166' },
-  { name: 'Subscriptions', icon: 'play-circle', color: '#118AB2' },
-  { name: 'Healthcare', icon: 'medkit', color: '#06D6A0' },
-  { name: 'Fitness', icon: 'barbell', color: '#F97316' },
-  { name: 'Savings', icon: 'cash', color: '#10B981' },
-  { name: 'Pocket Money', icon: 'wallet', color: '#EC4899' },
-  { name: 'Friend', icon: 'people', color: '#8B5CF6' },
-  { name: 'Job', icon: 'briefcase', color: '#14B8A6' },
-  { name: 'Others', icon: 'list', color: '#8D99AE' },
+  { name: 'Food', icon: 'fast-food', color: '#FF6B6B', type: 'debit' },
+  { name: 'Transport', icon: 'car', color: '#0284C7', type: 'debit' },
+  { name: 'Shopping', icon: 'bag', color: '#9D4EDD', type: 'debit' },
+  { name: 'Bills', icon: 'receipt', color: '#FF9F1C', type: 'debit' },
+  { name: 'Health', icon: 'heart', color: '#E11D48', type: 'debit' },
+  { name: 'Education', icon: 'school', color: '#6366F1', type: 'debit' },
+  { name: 'Groceries', icon: 'cart', color: '#10B981', type: 'debit' },
+  { name: 'Dining', icon: 'restaurant', color: '#EF4444', type: 'debit' },
+  { name: 'Coffee', icon: 'cafe', color: '#7C3AED', type: 'debit' },
+  { name: 'Travel', icon: 'airplane', color: '#4D96FF', type: 'debit' },
+  { name: 'Fuel', icon: 'water', color: '#F59E0B', type: 'debit' },
+  { name: 'Rent', icon: 'home', color: '#6BCB77', type: 'debit' },
+  { name: 'Utilities', icon: 'bulb', color: '#3B82F6', type: 'debit' },
+  { name: 'EMI', icon: 'card', color: '#E63946', type: 'debit' },
+  { name: 'Entertainment', icon: 'film', color: '#FFD166', type: 'debit' },
+  { name: 'Subscriptions', icon: 'play-circle', color: '#118AB2', type: 'debit' },
+  { name: 'Healthcare', icon: 'medkit', color: '#06D6A0', type: 'debit' },
+  { name: 'Fitness', icon: 'barbell', color: '#F97316', type: 'debit' },
+  { name: 'Friend', icon: 'people', color: '#8B5CF6', type: 'debit' },
+  { name: 'Others', icon: 'list', color: '#8D99AE', type: 'debit' },
+  // Income default categories
+  { name: 'Salary', icon: 'briefcase', color: '#10B981', type: 'credit' },
+  { name: 'Job', icon: 'briefcase', color: '#14B8A6', type: 'credit' },
+  { name: 'Business', icon: 'trending-up', color: '#059669', type: 'credit' },
+  { name: 'Freelance', icon: 'laptop', color: '#0EA5E9', type: 'credit' },
+  { name: 'Investments', icon: 'bar-chart', color: '#8B5CF6', type: 'credit' },
+  { name: 'Savings', icon: 'cash', color: '#10B981', type: 'credit' },
+  { name: 'Income', icon: 'wallet', color: '#10B981', type: 'credit' },
 ];
+
+export function sanitizeAndDeduplicateCategories(categoriesList: CategoryItem[]): CategoryItem[] {
+  const seen = new Set<string>();
+  const result: CategoryItem[] = [];
+
+  // Sort so custom categories take precedence over default categories
+  const sorted = [...(categoriesList || [])].sort((a, b) => (b.isCustom ? 1 : 0) - (a.isCustom ? 1 : 0));
+
+  for (const item of sorted) {
+    const rawName = (item.name || '').trim();
+    const key = rawName.toLowerCase();
+    if (!key || seen.has(key)) continue;
+
+    seen.add(key);
+
+    let resolvedType = item.type;
+    if (KNOWN_INCOME_CATEGORY_NAMES.has(key)) {
+      resolvedType = 'credit';
+    } else if (!resolvedType) {
+      resolvedType = 'debit';
+    }
+
+    result.push({
+      ...item,
+      name: rawName,
+      type: resolvedType,
+    });
+  }
+
+  return result;
+}
 
 export async function initDatabase() {
   // No-op for Firestore
@@ -662,18 +703,19 @@ export async function deleteAllTransactions(userId: string) {
 // ==================== CATEGORIES ====================
 
 export async function getUserCategories(userId: string, forceRefresh = false): Promise<CategoryItem[]> {
-  if (!userId) return defaultCategories;
+  if (!userId) return sanitizeAndDeduplicateCategories(defaultCategories);
 
   const now = Date.now();
   const cached = memoryCache.categories.get(userId);
   if (!forceRefresh && cached && (now - cached.timestamp < CAT_CACHE_TTL_MS)) {
-    return cached.data;
+    return sanitizeAndDeduplicateCategories(cached.data);
   }
 
   // 1. Check local offline storage first
   const offlineCats = await getOfflineCategories(userId);
   if (offlineCats && offlineCats.length > 0) {
-    memoryCache.categories.set(userId, { data: offlineCats, timestamp: now });
+    const cleaned = sanitizeAndDeduplicateCategories(offlineCats);
+    memoryCache.categories.set(userId, { data: cleaned, timestamp: now });
 
     // Background check & update if online
     checkIsOnline().then((online) => {
@@ -685,7 +727,7 @@ export async function getUserCategories(userId: string, forceRefresh = false): P
             const remainingDefaults = defaultCategories.filter(
               d => !customNames.has((d.name || '').trim().toLowerCase())
             );
-            const merged = [...remainingDefaults, ...userCats];
+            const merged = sanitizeAndDeduplicateCategories([...remainingDefaults, ...userCats]);
             saveOfflineCategories(userId, merged);
             memoryCache.categories.set(userId, { data: merged, timestamp: Date.now() });
           }
@@ -693,24 +735,26 @@ export async function getUserCategories(userId: string, forceRefresh = false): P
       }
     });
 
-    return offlineCats;
+    return cleaned;
   }
 
   try {
     const categoriesRef = collection(db, `users/${userId}/categories`);
     const snapshot = await getDocs(categoriesRef);
     if (snapshot.empty) {
-      saveOfflineCategories(userId, defaultCategories);
-      memoryCache.categories.set(userId, { data: defaultCategories, timestamp: now });
-      return defaultCategories;
+      const cleaned = sanitizeAndDeduplicateCategories(defaultCategories);
+      saveOfflineCategories(userId, cleaned);
+      memoryCache.categories.set(userId, { data: cleaned, timestamp: now });
+      return cleaned;
     }
     const userCats = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as CategoryItem));
 
     const hasDefaults = userCats.some(c => c.isCustom === false);
     if (hasDefaults) {
-      saveOfflineCategories(userId, userCats);
-      memoryCache.categories.set(userId, { data: userCats, timestamp: now });
-      return userCats;
+      const cleaned = sanitizeAndDeduplicateCategories(userCats);
+      saveOfflineCategories(userId, cleaned);
+      memoryCache.categories.set(userId, { data: cleaned, timestamp: now });
+      return cleaned;
     }
 
     const customNames = new Set(userCats.map(c => (c.name || '').trim().toLowerCase()));
@@ -718,13 +762,13 @@ export async function getUserCategories(userId: string, forceRefresh = false): P
       d => !customNames.has((d.name || '').trim().toLowerCase())
     );
 
-    const merged = [...remainingDefaults, ...userCats];
+    const merged = sanitizeAndDeduplicateCategories([...remainingDefaults, ...userCats]);
     saveOfflineCategories(userId, merged);
     memoryCache.categories.set(userId, { data: merged, timestamp: now });
     return merged;
   } catch (err) {
     console.warn('Could not load categories; using defaults:', err);
-    return defaultCategories;
+    return sanitizeAndDeduplicateCategories(defaultCategories);
   }
 }
 

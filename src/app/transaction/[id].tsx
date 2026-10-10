@@ -29,7 +29,6 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Sharing from 'expo-sharing';
 import { captureRef } from 'react-native-view-shot';
 import { shareImageAndText } from '@/lib/shareHelper';
-import { shareTransactionReceiptPdf, downloadTransactionReceiptPdf } from '@/lib/transactionPdf';
 import { useAuth } from '@/context/AuthContext';
 import { RupeoAdBanner } from '@/lib/ads';
 import {
@@ -49,6 +48,42 @@ import CategoryIcon from '@/components/CategoryIcon';
 import Toast from 'react-native-toast-message';
 import Skeleton from '@/components/Skeleton';
 import ScannableBarcode from '@/components/ScannableBarcode';
+import ReceiptPaymentMethodBadge from '@/components/ReceiptPaymentMethodBadge';
+
+function formatDisplayDate(rawDate?: string): string {
+  if (!rawDate) {
+    const now = new Date();
+    return now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  }
+  if (/^\d{2}\s[A-Za-z]{3}\s\d{4}$/.test(rawDate)) {
+    return rawDate;
+  }
+  try {
+    const parts = rawDate.split('-');
+    if (parts.length === 3) {
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10) - 1;
+      const d = parseInt(parts[2], 10);
+      const dt = new Date(y, m, d);
+      if (!isNaN(dt.getTime())) {
+        return dt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+      }
+    }
+    const d = new Date(rawDate);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    }
+  } catch {}
+  return rawDate;
+}
+
+function formatDisplayTime(rawTime?: string): string {
+  if (!rawTime) {
+    const now = new Date();
+    return now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  }
+  return formatTime12Hour(rawTime);
+}
 
 const PAYMENT_MODES = [
   { id: 'UPI', label: 'UPI', icon: 'flash', color: '#7C3AED' },
@@ -95,7 +130,6 @@ export default function TransactionDetailScreen() {
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
   const [sharingImage, setSharingImage] = useState(false);
-  const [sharingPdf, setSharingPdf] = useState(false);
   const [imageAspectRatio, setImageAspectRatio] = useState<number | null>(null);
   const receiptCardRef = useRef<View>(null);
   const scrollViewRef = useRef<ScrollView>(null);
@@ -361,7 +395,7 @@ export default function TransactionDetailScreen() {
       `🧾 Rupeo Transaction Receipt: ${formattedAmt}`,
       `Ref ID: ${barcodeValue}`,
       `Paid to: ${merchant || 'Unknown Payee'}`,
-      `Date: ${date || 'Not set'}${time ? ` at ${formatTime12Hour(time)}` : ''}`,
+      `Date: ${formatDisplayDate(date)} at ${formatDisplayTime(time)}`,
       `Category: ${category} | Payment Mode: ${paymentMode}`,
       ...(description ? [`Note: ${description}`] : []),
       '',
@@ -402,91 +436,6 @@ export default function TransactionDetailScreen() {
     }
   };
 
-  const handleSharePdf = async (downloadOnly = false) => {
-    if (sharingPdf) return;
-    try {
-      setSharingPdf(true);
-      Toast.show({
-        type: 'info',
-        text1: downloadOnly ? 'Downloading PDF Bill...' : 'Preparing PDF Bill...',
-        text2: 'Generating authentic scannable barcode receipt.',
-        position: 'top',
-        visibilityTime: 2500,
-      });
-
-      const pdfOptions = {
-        id: id || 'TXN',
-        type,
-        amount,
-        merchant,
-        category,
-        paymentMode,
-        date,
-        time,
-        description,
-        barcodeValue,
-        currency,
-        userName: user?.displayName || 'Rupeo User',
-        receiptImage: receiptImage || null,
-      };
-
-      const res = downloadOnly
-        ? await downloadTransactionReceiptPdf(pdfOptions)
-        : await shareTransactionReceiptPdf(pdfOptions);
-
-      if (!res.success) {
-        Toast.show({
-          type: 'error',
-          text1: downloadOnly ? 'Download Failed' : 'PDF Generation Failed',
-          text2: res.error || 'Could not process PDF bill.',
-          position: 'top',
-        });
-      } else {
-        Toast.show({
-          type: 'success',
-          text1: downloadOnly ? 'PDF Bill Saved! 💾' : 'PDF Bill Ready! 📄',
-          text2: 'Scannable barcode document prepared.',
-          position: 'top',
-        });
-      }
-    } catch (err: any) {
-      console.error('Error generating PDF bill:', err);
-      Toast.show({
-        type: 'error',
-        text1: 'PDF Error',
-        text2: err?.message || 'Could not export PDF bill.',
-        position: 'top',
-      });
-    } finally {
-      setSharingPdf(false);
-    }
-  };
-
-  const handlePdfActionChoice = () => {
-    if (Platform.OS === 'web') {
-      handleSharePdf(false);
-      return;
-    }
-    Alert.alert(
-      'Transaction PDF Bill',
-      'Choose an action for this verified receipt:',
-      [
-        {
-          text: '📤 Share PDF Bill',
-          onPress: () => handleSharePdf(false),
-        },
-        {
-          text: '💾 Download / Save to Files',
-          onPress: () => handleSharePdf(true),
-        },
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-      ]
-    );
-  };
-
   if (loading) {
     return (
       <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
@@ -501,8 +450,8 @@ export default function TransactionDetailScreen() {
         </View>
         
         <ScrollView contentContainerStyle={styles.receiptContent} showsVerticalScrollIndicator={false}>
-          <View style={[styles.receiptCard, { backgroundColor: '#FFFFFF' }]}>
-            <View style={[styles.receiptCardTop, { backgroundColor: '#F0EEE7', height: 180, alignItems: 'center', justifyContent: 'center' }]}>
+          <View style={[styles.slipCard, { backgroundColor: '#FFFFFF' }]}>
+            <View style={[styles.slipCardTop, { backgroundColor: '#F0EEE7', height: 180, alignItems: 'center', justifyContent: 'center' }]}>
               <Skeleton width={52} height={52} borderRadius={26} style={{ marginBottom: 12 }} />
               <Skeleton width={160} height={32} style={{ marginBottom: 8 }} />
               <Skeleton width={100} height={16} />
@@ -652,318 +601,361 @@ export default function TransactionDetailScreen() {
 
           <ScrollView contentContainerStyle={styles.receiptContent} showsVerticalScrollIndicator={false}>
 
-          {/* ANIMATED RECEIPT CARD */}
-          <Animated.View
-            ref={receiptCardRef}
-            collapsable={false}
-            style={[
-              styles.receiptCard,
-              {
-                opacity: cardOpacityAnim,
-                transform: [
-                  { translateY: cardSlideAnim },
-                  {
-                    scale: cardOpacityAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [0.95, 1]
-                    })
-                  }
-                ]
-              }
-            ]}
-          >
+          {/* ANIMATED VOUCHER SLIP RECEIPT CARD */}
+          {(() => {
+            const isCredit = type === 'credit';
+            const catObj = categories.find((c) => c.name.toLowerCase() === category.toLowerCase());
 
-            {/* GRADIENT TOP BANNER */}
-            <LinearGradient
-              colors={
-                type === 'credit'
-                  ? ['#064E3B', '#047857', '#10B981']
-                  : ['#7F1D1D', '#991B1B', '#DC2626']
-              }
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.receiptCardTop}
-            >
-              {/* Decorative blob circles */}
-              <View style={[styles.receiptBlob1, {
-                backgroundColor: type === 'credit' ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.25)'
-              }]} />
-              <View style={[styles.receiptBlob2, {
-                backgroundColor: type === 'credit' ? 'rgba(16,185,129,0.15)' : 'rgba(255,215,64,0.18)'
-              }]} />
-
-              {/* Rupeo watermark */}
+            return (
               <Animated.View
-                style={[
-                  styles.receiptWatermark,
-                  {
-                    opacity: cardOpacityAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [0, 0.15]
-                    })
-                  }
-                ]}
-              >
-                <Text style={styles.receiptWatermarkText}>RUPEO</Text>
-              </Animated.View>
-
-              {/* HERO ARROW ICON BADGE (CLEAN & STATIC) */}
-              <Animated.View
-                style={[
-                  styles.receiptCardIcon,
-                  {
-                    backgroundColor: type === 'credit' ? 'rgba(16, 185, 129, 0.35)' : 'rgba(255, 255, 255, 0.22)',
-                    borderColor: type === 'credit' ? '#34D399' : 'rgba(255, 255, 255, 0.45)',
-                    borderWidth: 2,
-                    transform: [
-                      { scale: logoScaleAnim }
-                    ]
-                  }
-                ]}
-              >
-                <Ionicons
-                  name={type === 'credit' ? 'arrow-down' : 'arrow-up'}
-                  size={30}
-                  color="#FFFFFF"
-                />
-              </Animated.View>
-
-              {/* BIG FORMATTED AMOUNT */}
-              <Animated.Text
-                style={[
-                  styles.receiptCardAmount,
-                  {
-                    color: type === 'credit' ? '#6EE7B7' : '#FFFFFF',
-                    transform: [{ scale: amountBounceAnim }]
-                  }
-                ]}
-              >
-                {type === 'debit' ? '−' : '+'}{currency}{parseFloat(amount || '0').toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </Animated.Text>
-              
-              <Text style={styles.receiptCardMerchant}>{merchant || 'Transaction'}</Text>
-              
-              <View style={styles.receiptCardStatusChip}>
-                <View style={[styles.receiptCardStatusDot, { backgroundColor: type === 'credit' ? '#34D399' : '#10B981' }]} />
-                <Text style={styles.receiptCardStatusText}>TRANSACTION SUCCESSFUL</Text>
-              </View>
-            </LinearGradient>
-
-            {/* NOTCH DIVIDER */}
-            <View style={styles.receiptNotchRow}>
-              <View style={styles.receiptNotchLeft} />
-              <View style={styles.receiptNotchDash} />
-              <View style={styles.receiptNotchRight} />
-            </View>
-
-            {/* DETAILS */}
-            <View style={styles.receiptCardBody}>
-              <View style={styles.receiptRefLineRow}>
-                <Text style={styles.receiptRefLine}>RUPEO TXN · {(id as string || '').slice(0, 12).toUpperCase()}</Text>
-                <View style={styles.secureTag}>
-                  <Ionicons name="shield-checkmark" size={11} color="#059669" style={{ marginRight: 3 }} />
-                  <Text style={styles.secureTagText}>VERIFIED</Text>
-                </View>
-              </View>
-
-              <View style={styles.receiptSummaryGrid}>
-                <View style={styles.receiptSummaryItem}>
-                  <View style={[styles.receiptSummaryIcon, { backgroundColor: '#EFF6FF' }]}>
-                    <ExpoImage
-                      source={{ uri: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Calendar.png' }}
-                      style={{ width: 18, height: 18 }}
-                      contentFit="contain"
-                    />
-                  </View>
-                  <View>
-                    <Text style={styles.receiptSummaryLabel}>DATE</Text>
-                    <Text style={styles.receiptSummaryValue}>{date || 'Not set'}</Text>
-                  </View>
-                </View>
-                
-                <View style={styles.receiptSummaryItem}>
-                  <View style={[styles.receiptSummaryIcon, { backgroundColor: '#ECFDF5' }]}>
-                    <ExpoImage
-                      source={{ uri: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Travel%20and%20places/Sun.png' }}
-                      style={{ width: 18, height: 18 }}
-                      contentFit="contain"
-                    />
-                  </View>
-                  <View>
-                    <Text style={styles.receiptSummaryLabel}>TIME</Text>
-                    <Text style={styles.receiptSummaryValue}>{time ? formatTime12Hour(time) : 'Recorded'}</Text>
-                  </View>
-                </View>
-              </View>
-
-              <View style={styles.receiptRow}>
-                <Text style={styles.receiptRowLabel}>Category</Text>
-                <View style={styles.receiptRowValueContainer}>
-                  {(() => {
-                    const catObj = categories.find(c => c.name.toLowerCase() === category.toLowerCase());
-                    return <CategoryIcon categoryName={catObj?.name || category} iconName={catObj?.icon || 'receipt-outline'} size={18} color={catObj?.color || '#3B82F6'} />;
-                  })()}
-                  <Text style={styles.receiptRowValue}>{category}</Text>
-                </View>
-              </View>
-
-              <View style={styles.receiptRow}>
-                <Text style={styles.receiptRowLabel}>Payment Mode</Text>
-                <View style={styles.receiptRowValueContainer}>
-                  {(() => {
-                    const modeObj = PAYMENT_MODES.find(m => m.id === paymentMode);
-                    return <PaymentModeIcon mode={modeObj?.id || paymentMode} size={16} color={modeObj?.color || '#7C3AED'} />;
-                  })()}
-                  <Text style={styles.receiptRowValue}>{paymentMode}</Text>
-                </View>
-              </View>
-
-              {description ? (
-                <View style={[styles.receiptRow, { alignItems: 'flex-start' }]}>
-                  <Text style={styles.receiptRowLabel}>Note / Memo</Text>
-                  <Text style={[styles.receiptRowValue, { flex: 1, textAlign: 'right', lineHeight: 20 }]}>{description}</Text>
-                </View>
-              ) : null}
-
-              {/* PHOTO SECTION */}
-              {receiptImage && (
-                <>
-                  <View style={styles.receiptInnerDash} />
-                  <View style={styles.receiptPhotoLabelRow}>
-                    <Ionicons name="image" size={14} color="#2563EB" style={{ marginRight: 4 }} />
-                    <Text style={styles.receiptPhotoLabel}>Payment Screenshot / Bill Proof</Text>
-                  </View>
-                  <TouchableOpacity
-                    onPress={() => setPreviewModalOpen(true)}
-                    activeOpacity={0.92}
-                    style={styles.receiptPhotoWrap}
-                  >
-                    <Image
-                      source={{ uri: receiptImage }}
-                      style={[
-                        styles.receiptPhoto,
-                        imageAspectRatio ? { aspectRatio: imageAspectRatio } : { height: 200 },
-                      ]}
-                      resizeMode="contain"
-                    />
-                    <View style={styles.receiptPhotoExpandPill}>
-                      <Ionicons name="expand" size={14} color="#FFFFFF" />
-                    </View>
-                  </TouchableOpacity>
-                </>
-              )}
-
-              {/* AUTHENTIC FINTECH SCANNABLE CODE 39 BARCODE */}
-              <ScannableBarcode value={barcodeValue} width={280} height={50} />
-            </View>
-
-            {/* CARD FOOTER WITH RUPEO BRANDING */}
-            <View style={styles.receiptCardFooter}>
-              <Animated.View
-                style={[
-                  styles.rupeoLogoSection,
-                  {
-                    opacity: cardOpacityAnim,
-                    transform: [{
-                      translateY: cardOpacityAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [10, 0]
-                      })
-                    }]
-                  }
-                ]}
-              >
-                <Animated.View
+                  ref={receiptCardRef}
+                  collapsable={false}
                   style={[
-                    styles.rupeoLogoIcon,
-                    {
-                      transform: [{ scale: logoScaleAnim }]
-                    }
-                  ]}
-                >
-                  <Text style={styles.rupeoLogoText}>₹</Text>
-                </Animated.View>
-                <Text style={styles.rupeoAppName}>Rupeo</Text>
-                <Animated.View
-                  style={[
-                    styles.verifiedBadge,
+                    styles.slipCard,
                     {
                       opacity: cardOpacityAnim,
-                      transform: [{
-                        scale: cardOpacityAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [0.8, 1]
-                        })
-                      }]
-                    }
+                      transform: [
+                        { translateY: cardSlideAnim },
+                        {
+                          scale: cardOpacityAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [0.95, 1],
+                          }),
+                        },
+                      ],
+                    },
                   ]}
                 >
-                  <Ionicons name="checkmark-circle" size={13} color="#10B981" style={{ marginRight: 3 }} />
-                  <Text style={styles.verifiedText}>Saved & Verified</Text>
+                  {/* TOP GRADIENT BANNER */}
+                  <LinearGradient
+                    colors={
+                      type === 'credit'
+                        ? ['#065F46', '#047857', '#059669', '#10B981']
+                        : ['#7F1D1D', '#991B1B', '#B91C1C', '#DC2626']
+                    }
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.slipCardTop}
+                  >
+                    {/* Decorative blobs */}
+                    <View
+                      style={[
+                        styles.slipBlob1,
+                        {
+                          backgroundColor:
+                            type === 'credit'
+                              ? 'rgba(16, 185, 129, 0.25)'
+                              : 'rgba(239, 68, 68, 0.25)',
+                        },
+                      ]}
+                    />
+                    <View
+                      style={[
+                        styles.slipBlob2,
+                        {
+                          backgroundColor:
+                            type === 'credit'
+                              ? 'rgba(16, 185, 129, 0.15)'
+                              : 'rgba(255, 215, 64, 0.18)',
+                        },
+                      ]}
+                    />
+
+                    {/* Rupeo watermark */}
+                    <View style={styles.slipWatermark}>
+                      <Text style={styles.slipWatermarkText}>RUPEO</Text>
+                    </View>
+
+                    {/* HERO ARROW ICON BADGE */}
+                    <Animated.View
+                      style={[
+                        styles.slipCardIcon,
+                        {
+                          backgroundColor:
+                            type === 'credit'
+                              ? 'rgba(16, 185, 129, 0.35)'
+                              : 'rgba(255, 255, 255, 0.22)',
+                          borderColor:
+                            type === 'credit' ? '#34D399' : 'rgba(255, 255, 255, 0.45)',
+                          borderWidth: 2,
+                          transform: [{ scale: logoScaleAnim }],
+                        },
+                      ]}
+                    >
+                      <Ionicons
+                        name={type === 'credit' ? 'arrow-down' : 'arrow-up'}
+                        size={28}
+                        color="#FFFFFF"
+                      />
+                    </Animated.View>
+
+                    {/* BIG FORMATTED AMOUNT */}
+                    <Animated.Text
+                      style={[
+                        styles.slipCardAmount,
+                        {
+                          color: type === 'credit' ? '#6EE7B7' : '#FFFFFF',
+                          transform: [{ scale: amountBounceAnim }],
+                        },
+                      ]}
+                    >
+                      {type === 'debit' ? '−' : '+'}
+                      {currency}
+                      {parseFloat(amount || '0').toLocaleString('en-IN', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </Animated.Text>
+
+                    <Text style={styles.slipCardMerchant} numberOfLines={1}>
+                      {merchant || (isCredit ? 'Sender' : 'Transaction')}
+                    </Text>
+
+                    <View style={styles.slipCardStatusChip}>
+                      <View
+                        style={[
+                          styles.slipCardStatusDot,
+                          {
+                            backgroundColor:
+                              type === 'credit' ? '#34D399' : '#10B981',
+                          },
+                        ]}
+                      />
+                      <Text style={styles.slipCardStatusText}>
+                        TRANSACTION SUCCESSFUL
+                      </Text>
+                    </View>
+                  </LinearGradient>
+
+                  {/* NOTCH DIVIDER */}
+                  <View style={styles.slipNotchRow}>
+                    <View style={styles.slipNotchLeft} />
+                    <View style={styles.slipNotchDash} />
+                    <View style={styles.slipNotchRight} />
+                  </View>
+
+                  {/* SLIP BODY */}
+                  <View style={styles.slipCardBody}>
+                    <View style={styles.slipRefLineRow}>
+                      <Text style={styles.slipRefLine}>
+                        RUPEO TXN · {barcodeValue}
+                      </Text>
+                      <View style={styles.slipSecureTag}>
+                        <Ionicons
+                          name="shield-checkmark"
+                          size={11}
+                          color="#059669"
+                          style={{ marginRight: 3 }}
+                        />
+                        <Text style={styles.slipSecureTagText}>VERIFIED</Text>
+                      </View>
+                    </View>
+
+                    {/* DATE & TIME SUMMARY */}
+                    <View style={styles.slipSummaryGrid}>
+                      <View style={styles.slipSummaryItem}>
+                        <View
+                          style={[
+                            styles.slipSummaryIcon,
+                            { backgroundColor: '#EFF6FF' },
+                          ]}
+                        >
+                          <ExpoImage
+                            source={{
+                              uri: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Calendar.png',
+                            }}
+                            style={{ width: 18, height: 18 }}
+                            contentFit="contain"
+                          />
+                        </View>
+                        <View>
+                          <Text style={styles.slipSummaryLabel}>DATE</Text>
+                          <Text style={styles.slipSummaryValue}>
+                            {date || 'Not set'}
+                          </Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.slipSummaryItem}>
+                        <View
+                          style={[
+                            styles.slipSummaryIcon,
+                            { backgroundColor: '#ECFDF5' },
+                          ]}
+                        >
+                          <ExpoImage
+                            source={{
+                              uri: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Travel%20and%20places/Sun.png',
+                            }}
+                            style={{ width: 18, height: 18 }}
+                            contentFit="contain"
+                          />
+                        </View>
+                        <View>
+                          <Text style={styles.slipSummaryLabel}>TIME</Text>
+                          <Text style={styles.slipSummaryValue}>
+                            {time ? formatTime12Hour(time) : 'Recorded'}
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+
+                    {/* CATEGORY ROW */}
+                    <View style={styles.slipRow}>
+                      <Text style={styles.slipRowLabel}>CATEGORY</Text>
+                      <View style={styles.slipRowValueContainer}>
+                        <CategoryIcon
+                          categoryName={catObj?.name || category}
+                          iconName={catObj?.icon || 'receipt-outline'}
+                          size={18}
+                          color={catObj?.color || '#3B82F6'}
+                        />
+                        <Text style={styles.slipRowValue}>{category}</Text>
+                      </View>
+                    </View>
+
+                    {/* PAYMENT MODE ROW */}
+                    <View style={styles.slipRow}>
+                      <Text style={styles.slipRowLabel}>PAYMENT MODE</Text>
+                      <View style={styles.slipRowValueContainer}>
+                        <ReceiptPaymentMethodBadge mode={paymentMode} isDark={false} />
+                        <Text style={styles.slipRowValue}>{paymentMode}</Text>
+                      </View>
+                    </View>
+
+                    {/* NOTE ROW (IF PRESENT) */}
+                    {description ? (
+                      <View style={[styles.slipRow, { alignItems: 'flex-start' }]}>
+                        <Text style={styles.slipRowLabel}>NOTE</Text>
+                        <Text
+                          style={[
+                            styles.slipRowValue,
+                            { flex: 1, textAlign: 'right', lineHeight: 20 },
+                          ]}
+                        >
+                          {description}
+                        </Text>
+                      </View>
+                    ) : null}
+
+                    {/* PHOTO OR NO-PHOTO PLACEHOLDER */}
+                    {receiptImage ? (
+                      <>
+                        <View style={styles.slipInnerDash} />
+                        <View style={styles.slipPhotoLabelRow}>
+                          <Ionicons
+                            name="image"
+                            size={14}
+                            color="#2563EB"
+                            style={{ marginRight: 4 }}
+                          />
+                          <Text style={styles.slipPhotoLabel}>
+                            Payment Screenshot / Bill Proof
+                          </Text>
+                        </View>
+                        <TouchableOpacity
+                          onPress={() => setPreviewModalOpen(true)}
+                          activeOpacity={0.92}
+                          style={styles.slipPhotoWrap}
+                        >
+                          <Image
+                            source={{ uri: receiptImage }}
+                            style={[
+                              styles.slipPhoto,
+                              imageAspectRatio
+                                ? { aspectRatio: imageAspectRatio }
+                                : { height: 200 },
+                            ]}
+                            resizeMode="contain"
+                          />
+                          <View style={styles.slipPhotoExpandPill}>
+                            <Ionicons name="expand" size={14} color="#FFFFFF" />
+                          </View>
+                        </TouchableOpacity>
+                      </>
+                    ) : (
+                      <View style={styles.slipNoPhotoCard}>
+                        <View style={styles.slipNoPhotoIcon}>
+                          <Ionicons name="image-outline" size={22} color="#64748B" />
+                        </View>
+                        <View style={styles.slipNoPhotoTextWrap}>
+                          <Text style={styles.slipNoPhotoTitle}>
+                            No receipt photo attached
+                          </Text>
+                          <Text style={styles.slipNoPhotoSub}>
+                            You can attach bills or screenshots anytime via Edit.
+                          </Text>
+                        </View>
+                      </View>
+                    )}
+
+                    {/* SCANNABLE BARCODE */}
+                    <View style={styles.slipBarcodeContainer}>
+                      <ScannableBarcode value={barcodeValue} width={280} height={50} />
+                    </View>
+                  </View>
+
+                  {/* FOOTER */}
+                  <View style={styles.slipCardFooter}>
+                    <View style={styles.slipLogoSection}>
+                      <View style={styles.slipLogoIcon}>
+                        <Text style={styles.slipLogoText}>₹</Text>
+                      </View>
+                      <Text style={styles.slipAppName}>Rupeo</Text>
+                      <View style={styles.slipVerifiedBadge}>
+                        <Ionicons
+                          name="checkmark-circle"
+                          size={13}
+                          color="#10B981"
+                          style={{ marginRight: 3 }}
+                        />
+                        <Text style={styles.slipVerifiedText}>SAVED & VERIFIED</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.slipFooterSubtext}>
+                      TRACKED WITH RUPEO • SMART EXPENSE TRACKER
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() =>
+                        Linking.openURL('https://rupeoo.vercel.app/scanner').catch(
+                          () => {}
+                        )
+                      }
+                      activeOpacity={0.7}
+                      style={styles.slipVerifyLinkPill}
+                    >
+                      <Ionicons
+                        name="shield-checkmark"
+                        size={11}
+                        color="#0F172A"
+                        style={{ marginRight: 4 }}
+                      />
+                      <Text style={styles.slipVerifyLinkText}>
+                        Verify: rupeoo.vercel.app/scanner
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
                 </Animated.View>
-              </Animated.View>
-              <Animated.Text
-                style={[
-                  styles.receiptFooterSubtext,
-                  {
-                    opacity: cardOpacityAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [0, 0.7]
-                    })
-                  }
-                ]}
-              >
-                Tracked with Rupeo • Smart Expense Tracker
-              </Animated.Text>
-              <TouchableOpacity
-                onPress={() => Linking.openURL('https://rupeoo.vercel.app/scanner').catch(() => {})}
-                activeOpacity={0.7}
-                style={styles.verifyPillSlip}
-              >
-                <Ionicons name="shield-checkmark" size={10} color="#0F172A" style={{ marginRight: 3.5 }} />
-                <Text style={styles.verifyPillSlipText}>
-                  Verify: rupeoo.vercel.app/scanner
-                </Text>
-              </TouchableOpacity>
-            </View>
+              );
+            })()}
 
-          </Animated.View>
-
-          {/* ACTIONS: PDF BILL & SHARE IMAGE */}
+          {/* ACTION: SHARE RECEIPT */}
           <View style={styles.bottomActionsContainer}>
-            <TouchableOpacity
-              style={[styles.pdfBillButton, sharingPdf && { opacity: 0.75 }]}
-              onPress={handlePdfActionChoice}
-              disabled={sharingPdf || sharingImage}
-              activeOpacity={0.85}
-            >
-              {sharingPdf ? (
-                <ActivityIndicator size="small" color="#FFFFFF" style={{ marginRight: 8 }} />
-              ) : (
-                <View style={styles.pdfBillIconBg}>
-                  <Ionicons name="document-text" size={16} color="#FFD740" />
-                </View>
-              )}
-              <Text style={styles.pdfBillText}>
-                {sharingPdf ? 'Generating PDF Bill...' : 'Download / Share PDF Bill'}
-              </Text>
-            </TouchableOpacity>
-
             <TouchableOpacity
               style={[styles.bottomShareButton, sharingImage && { opacity: 0.75 }]}
               onPress={handleShareReceipt}
-              disabled={sharingImage || sharingPdf}
+              disabled={sharingImage}
               activeOpacity={0.85}
             >
               {sharingImage ? (
-                <ActivityIndicator size="small" color="#0F172A" style={{ marginRight: 8 }} />
+                <ActivityIndicator size="small" color="#FFFFFF" style={{ marginRight: 8 }} />
               ) : (
                 <View style={styles.bottomShareIconBg}>
-                  <Ionicons name="share-social-outline" size={16} color="#0F172A" />
+                  <Ionicons name="share-social-outline" size={17} color="#FFFFFF" />
                 </View>
               )}
               <Text style={styles.bottomShareText}>
-                {sharingImage ? 'Preparing Image...' : 'Share Image Receipt'}
+                {sharingImage ? 'Preparing Receipt...' : 'Share Receipt'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -1190,6 +1182,10 @@ export default function TransactionDetailScreen() {
         </KeyboardAvoidingView>
       )}
 
+
+
+
+
       {/* FULLSCREEN IMAGE PREVIEW MODAL */}
       <Modal visible={previewModalOpen} transparent animationType="fade" onRequestClose={() => setPreviewModalOpen(false)}>
         <View style={styles.modalBg}>
@@ -1304,9 +1300,8 @@ const styles = StyleSheet.create({
     width: '100%',
     marginTop: 16,
     marginBottom: 10,
-    gap: 10,
   },
-  pdfBillButton: {
+  bottomShareButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1314,45 +1309,11 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 20,
     borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#1E293B',
     shadowColor: '#0F172A',
-    shadowOpacity: 0.18,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 10,
+    shadowOpacity: 0.12,
+    shadowOffset: { width: 0, height: 3 },
+    shadowRadius: 8,
     elevation: 3,
-    width: '100%',
-  },
-  pdfBillIconBg: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255, 255, 255, 0.12)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 8,
-  },
-  pdfBillText: {
-    fontSize: 14.5,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    letterSpacing: 0.2,
-  },
-  bottomShareButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-    paddingVertical: 13,
-    paddingHorizontal: 20,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#0F172A',
-    shadowOpacity: 0.05,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
-    elevation: 2,
     alignSelf: 'center',
     width: '100%',
   },
@@ -1360,17 +1321,16 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 8,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
   },
   bottomShareText: {
-    fontSize: 14,
+    fontSize: 14.5,
     fontWeight: '800',
-    color: '#0F172A',
+    color: '#FFFFFF',
+    letterSpacing: 0.2,
   },
   editButton: {
     flexDirection: 'row',
@@ -1516,47 +1476,38 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
     letterSpacing: 1.5,
   },
-  receiptCard: {
+
+
+  /* GRADIENT SLIP RECEIPT CARD STYLES */
+  slipCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 24,
+    overflow: 'hidden',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.12,
+    shadowOffset: { width: 0, height: 8 },
+    shadowRadius: 20,
+    elevation: 4,
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    overflow: 'hidden',
-    shadowColor: '#000000',
-    shadowOpacity: 0.06,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
-    elevation: 2,
   },
-  receiptCardTop: {
+  slipCardTop: {
+    paddingTop: 32,
+    paddingBottom: 28,
+    paddingHorizontal: 20,
     alignItems: 'center',
-    paddingTop: 36,
-    paddingBottom: 32,
-    paddingHorizontal: 24,
-    overflow: 'hidden',
     position: 'relative',
+    overflow: 'hidden',
   },
-  receiptWatermark: {
+  slipBlob1: {
     position: 'absolute',
-    top: 16,
-    right: 20,
-    opacity: 0.15,
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    top: -30,
+    right: -30,
   },
-  receiptWatermarkText: {
-    fontSize: 18,
-    fontWeight: '900',
-    color: '#FFFFFF',
-    letterSpacing: 3,
-  },
-  receiptBlob1: {
-    position: 'absolute',
-    width: 180,
-    height: 180,
-    borderRadius: 90,
-    top: -60,
-    right: -50,
-  },
-  receiptBlob2: {
+  slipBlob2: {
     position: 'absolute',
     width: 120,
     height: 120,
@@ -1564,36 +1515,41 @@ const styles = StyleSheet.create({
     bottom: -30,
     left: -30,
   },
-  receiptCardIcon: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
+  slipWatermark: {
+    position: 'absolute',
+    top: 14,
+    right: 18,
+    opacity: 0.22,
   },
-  receiptCardAmount: {
-    fontSize: 42,
+  slipWatermarkText: {
+    fontSize: 13,
     fontWeight: '900',
     color: '#FFFFFF',
-    marginBottom: 8,
+    letterSpacing: 2.2,
+  },
+  slipCardIcon: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  slipCardAmount: {
+    fontSize: 40,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    marginBottom: 6,
     letterSpacing: -1,
   },
-  receiptCardMerchant: {
+  slipCardMerchant: {
     fontSize: 18,
     fontWeight: '800',
-    color: 'rgba(255,255,255,0.9)',
-    marginBottom: 6,
+    color: 'rgba(255,255,255,0.92)',
+    marginBottom: 10,
     textAlign: 'center',
   },
-  receiptCardDate: {
-    fontSize: 14,
-    color: 'rgba(255,255,255,0.6)',
-    fontWeight: '600',
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  receiptCardStatusChip: {
+  slipCardStatusChip: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(16,185,129,0.18)',
@@ -1603,33 +1559,35 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(16,185,129,0.35)',
   },
-  receiptCardStatusDot: {
+  slipCardStatusDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#10B981',
     marginRight: 6,
   },
-  receiptCardStatusText: {
-    fontSize: 13,
+  slipCardStatusText: {
+    fontSize: 12,
     fontWeight: '800',
     color: '#10B981',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
-  receiptNotchRow: {
+  slipNotchRow: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
+    marginTop: -10,
+    marginBottom: 4,
+    zIndex: 2,
   },
-  receiptNotchLeft: {
+  slipNotchLeft: {
     width: 20,
     height: 20,
     borderRadius: 10,
     backgroundColor: '#F1F5F9',
     marginLeft: -10,
   },
-  receiptNotchDash: {
+  slipNotchDash: {
     flex: 1,
     height: 1,
     borderWidth: 1,
@@ -1637,35 +1595,36 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
     marginHorizontal: 8,
   },
-  receiptNotchRight: {
+  slipNotchRight: {
     width: 20,
     height: 20,
     borderRadius: 10,
     backgroundColor: '#F1F5F9',
     marginRight: -10,
   },
-  receiptCardBody: {
-    paddingHorizontal: 24,
-    paddingTop: 12,
+  slipCardBody: {
+    paddingHorizontal: 22,
+    paddingTop: 8,
     paddingBottom: 20,
+    backgroundColor: '#FFFFFF',
   },
-  receiptRefLineRow: {
+  slipRefLineRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    marginBottom: 14,
     paddingBottom: 8,
     borderBottomWidth: 1,
     borderBottomColor: '#F1F5F9',
   },
-  receiptRefLine: {
+  slipRefLine: {
     fontSize: 11,
     fontWeight: '800',
     color: '#94A3B8',
     letterSpacing: 1.2,
     fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
   },
-  secureTag: {
+  slipSecureTag: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#ECFDF5',
@@ -1675,18 +1634,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#A7F3D0',
   },
-  secureTagText: {
+  slipSecureTagText: {
     fontSize: 9.5,
     fontWeight: '900',
     color: '#059669',
     letterSpacing: 0.5,
   },
-  receiptSummaryGrid: {
+  slipSummaryGrid: {
     flexDirection: 'row',
     gap: 10,
     marginBottom: 8,
   },
-  receiptSummaryItem: {
+  slipSummaryItem: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1696,7 +1655,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
-  receiptSummaryIcon: {
+  slipSummaryIcon: {
     width: 30,
     height: 30,
     borderRadius: 9,
@@ -1704,19 +1663,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: 8,
   },
-  receiptSummaryLabel: {
+  slipSummaryLabel: {
     fontSize: 9,
     fontWeight: '800',
     color: '#94A3B8',
     letterSpacing: 0.6,
     marginBottom: 2,
   },
-  receiptSummaryValue: {
-    fontSize: 11,
+  slipSummaryValue: {
+    fontSize: 11.5,
     fontWeight: '800',
     color: '#1E293B',
   },
-  receiptRow: {
+  slipRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -1724,24 +1683,24 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#F1F5F9',
   },
-  receiptRowLabel: {
-    fontSize: 14,
+  slipRowLabel: {
+    fontSize: 13,
     color: '#64748B',
-    fontWeight: '600',
+    fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
-  receiptRowValue: {
-    fontSize: 15,
+  slipRowValue: {
+    fontSize: 14.5,
     color: '#1C1C1E',
     fontWeight: '800',
   },
-  receiptRowValueContainer: {
+  slipRowValueContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
   },
-  receiptInnerDash: {
+  slipInnerDash: {
     height: 1,
     borderWidth: 1,
     borderColor: '#E2E8F0',
@@ -1749,52 +1708,19 @@ const styles = StyleSheet.create({
     marginTop: 16,
     marginBottom: 14,
   },
-  receiptNoPhoto: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 16,
-    padding: 12,
-    borderRadius: 14,
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderStyle: 'dashed',
-  },
-  receiptNoPhotoIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: '#E2E8F0',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
-  },
-  receiptNoPhotoTextWrap: {
-    flex: 1,
-  },
-  receiptNoPhotoTitle: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#334155',
-  },
-  receiptNoPhotoSub: {
-    fontSize: 10,
-    color: '#94A3B8',
-    marginTop: 3,
-  },
-  receiptPhotoLabelRow: {
+  slipPhotoLabelRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 10,
   },
-  receiptPhotoLabel: {
+  slipPhotoLabel: {
     fontSize: 11,
     fontWeight: '700',
     color: '#64748B',
     textTransform: 'uppercase',
     letterSpacing: 0.6,
   },
-  receiptPhotoWrap: {
+  slipPhotoWrap: {
     width: '100%',
     borderRadius: 14,
     overflow: 'hidden',
@@ -1806,11 +1732,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignSelf: 'center',
   },
-  receiptPhoto: {
+  slipPhoto: {
     width: '100%',
     maxHeight: 280,
   },
-  receiptPhotoExpandPill: {
+  slipPhotoExpandPill: {
     position: 'absolute',
     bottom: 8,
     right: 8,
@@ -1821,20 +1747,75 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'rgba(15,23,42,0.72)',
   },
-  receiptCardFooter: {
+  slipNoPhotoCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 14,
+    padding: 12,
+    borderRadius: 14,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderStyle: 'dashed',
+  },
+  slipNoPhotoIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  slipNoPhotoTextWrap: {
+    flex: 1,
+  },
+  slipNoPhotoTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#334155',
+  },
+  slipNoPhotoSub: {
+    fontSize: 10,
+    color: '#94A3B8',
+    marginTop: 2,
+  },
+  slipBarcodeContainer: {
+    marginTop: 16,
+    alignItems: 'center',
+  },
+  slipBarcodeFooterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 6,
+  },
+  slipBarcodeGreenDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: '#10B981',
+  },
+  slipBarcodeFooterText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#475569',
+    letterSpacing: 0.6,
+  },
+  slipCardFooter: {
     alignItems: 'center',
     paddingVertical: 18,
-    paddingHorizontal: 24,
+    paddingHorizontal: 22,
     borderTopWidth: 1,
     borderTopColor: '#F1F5F9',
     backgroundColor: '#FAFBFC',
   },
-  rupeoLogoSection: {
+  slipLogoSection: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 4,
   },
-  rupeoLogoIcon: {
+  slipLogoIcon: {
     width: 24,
     height: 24,
     borderRadius: 6,
@@ -1848,19 +1829,19 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-  rupeoLogoText: {
+  slipLogoText: {
     fontSize: 14,
     fontWeight: '900',
     color: '#1C1C1E',
   },
-  rupeoAppName: {
+  slipAppName: {
     fontSize: 16,
     fontWeight: '900',
     color: '#1C1C1E',
     marginRight: 10,
     letterSpacing: 0.5,
   },
-  verifiedBadge: {
+  slipVerifiedBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#ECFDF5',
@@ -1868,30 +1849,43 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderWidth: 1,
-    borderColor: '#D1FAE5',
+    borderColor: '#A7F3D0',
   },
-  verifiedText: {
-    fontSize: 11,
+  slipVerifiedText: {
+    fontSize: 9.5,
+    fontWeight: '900',
+    color: '#059669',
+    letterSpacing: 0.4,
+  },
+  slipFooterSubtext: {
+    fontSize: 10,
     fontWeight: '800',
-    color: '#10B981',
-    marginLeft: 3,
-    textTransform: 'uppercase',
-    letterSpacing: 0.3,
-  },
-  receiptFooterSubtext: {
-    fontSize: 11,
-    color: '#64748B',
-    fontWeight: '600',
-    textAlign: 'center',
-    marginTop: 2,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  receiptFooterText: {
-    fontSize: 12,
     color: '#94A3B8',
-    fontWeight: '500',
+    letterSpacing: 0.8,
+    marginBottom: 10,
+    textAlign: 'center',
   },
+  slipVerifyLinkPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.03,
+    shadowOffset: { width: 0, height: 1 },
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  slipVerifyLinkText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+
   typeSelector: {
     flexDirection: 'row',
     backgroundColor: '#E2E8F0',
@@ -2235,4 +2229,6 @@ const styles = StyleSheet.create({
     color: '#0F172A',
     letterSpacing: 0.2,
   },
+
+
 });

@@ -19,8 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { getCategoryTotals, deleteAllTransactions, saveStartingBalance, saveUserSettings, UserSettings, getAllTransactions } from '@/lib/database';
-import { syncWidgetWithTransactions, triggerWidgetUpdate } from '@/lib/widgetSync';
-import { getWidgetSnapshot } from '@/lib/widgetSnapshot';
+import { syncWidgetWithTransactions } from '@/lib/widgetSync';
 import { getSyncUdharToDashboardTx, setSyncUdharToDashboardTx, saveLastUsedUpiId } from '@/lib/udharStorage';
 import { validateUpiId } from '@/lib/splitPayment';
 import { getLocalMonthString } from '@/lib/dateUtils';
@@ -287,35 +286,12 @@ export default function SettingsScreen() {
   const [isRestoring, setIsRestoring] = useState(false);
   const [showSupportModal, setShowSupportModal] = useState(false);
   const [showReviewModal, setShowReviewModal] = useState(false);
-  const [showWidgetDebugModal, setShowWidgetDebugModal] = useState(false);
-  const [widgetSnapshotData, setWidgetSnapshotData] = useState<any>(null);
-  const [isRefreshingWidgets, setIsRefreshingWidgets] = useState(false);
-
-  const handleForceRefreshWidgets = async () => {
-    try {
-      setIsRefreshingWidgets(true);
-      if (user?.uid) {
-        await syncWidgetWithTransactions(user.uid);
-      } else {
-        await triggerWidgetUpdate();
-      }
-      const snap = await getWidgetSnapshot();
-      setWidgetSnapshotData(snap);
-      Toast.show({
-        type: 'success',
-        text1: 'Widgets Refreshed',
-        text2: 'Snapshot rebuilt and all widgets updated',
-      });
-    } catch (err: any) {
-      Toast.show({
-        type: 'error',
-        text1: 'Refresh Failed',
-        text2: err?.message || 'Error refreshing widgets',
-      });
-    } finally {
-      setIsRefreshingWidgets(false);
+  // Automatically sync widgets in the background when settings screen is active
+  useEffect(() => {
+    if (user?.uid) {
+      syncWidgetWithTransactions(user.uid).catch(() => {});
     }
-  };
+  }, [user?.uid]);
 
   const handleRestorePurchases = async () => {
     if (!user?.uid) return;
@@ -692,6 +668,7 @@ export default function SettingsScreen() {
     setSettings(newSettings);
     try {
       await saveUserSettings(user.uid, newSettings);
+      syncWidgetWithTransactions(user.uid).catch(() => {});
     } catch (e) {
       console.error(e);
       // Revert optimistic update on failure
@@ -1324,28 +1301,8 @@ export default function SettingsScreen() {
             </TouchableOpacity>
           </View>
 
-          {__DEV__ && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>WIDGET DIAGNOSTICS (DEV)</Text>
-              <View style={styles.infoCard}>
-                <SettingsRow
-                  icon="phone-portrait-outline"
-                  iconBg="#EEF2FF"
-                  iconColor="#4F46E5"
-                  label="Widget Debug & Snapshot"
-                  value="Inspect snapshot JSON & force refresh"
-                  onPress={async () => {
-                    const snap = await getWidgetSnapshot();
-                    setWidgetSnapshotData(snap);
-                    setShowWidgetDebugModal(true);
-                  }}
-                />
-              </View>
-            </View>
-          )}
-
           <View style={{ alignItems: 'center', marginTop: 8 }}>
-            <Text style={styles.versionText}>Rupeo {t('version')} 2.1.3</Text>
+            <Text style={styles.versionText}>Rupeo Version 2.1.6</Text>
           </View>
         </View>
       </ScrollView>
@@ -1927,7 +1884,7 @@ export default function SettingsScreen() {
                   • <Text style={styles.legalTextSemibold}>Microphone (RECORD_AUDIO):</Text> Enables hands-free Voice Quick Add to transcribe expense amounts and categories. Audio is processed on-device and never stored remotely.{'\n'}
                   • <Text style={styles.legalTextSemibold}>Contacts (READ_CONTACTS):</Text> Allows you to select friend names and numbers when adding contacts to the Friends & Udhar ledger. Your contacts list is never uploaded or scraped.{'\n'}
                   • <Text style={styles.legalTextSemibold}>Camera (CAMERA):</Text> Used solely to allow you to photograph bills, receipts, or payment confirmations directly within the app.{'\n'}
-                  • <Text style={styles.legalTextSemibold}>Photos & Storage (READ_MEDIA_IMAGES):</Text> Used to select receipt images from your photo gallery and save exported receipts, payment QR passes, PDF summaries, and CSV spreadsheets.{'\n'}
+                  • <Text style={styles.legalTextSemibold}>Photos & Documents (System Photo Picker):</Text> Uses Android's secure system photo picker to let you attach receipt images without requiring broad media storage permissions.{'\n'}
                   • <Text style={styles.legalTextSemibold}>Notifications (POST_NOTIFICATIONS):</Text> Used to deliver timely alerts for upcoming bill due dates, recharge expirations, and budget status.{'\n\n'}
                 </Text>
 
@@ -2102,59 +2059,6 @@ export default function SettingsScreen() {
         userId={user?.uid || ''}
         onClose={() => setShowReviewModal(false)}
       />
-
-      <BottomSheetModal
-        visible={showWidgetDebugModal}
-        onClose={() => setShowWidgetDebugModal(false)}
-        title="Widget Diagnostics"
-        icon="phone-portrait-outline"
-        iconBg="#EEF2FF"
-        iconColor="#4F46E5"
-        autoHeight={false}
-      >
-        <View style={{ flex: 1, paddingBottom: 24 }}>
-          <TouchableOpacity
-            style={[styles.primaryBtn, isRefreshingWidgets && styles.btnDisabled, { marginBottom: 16 }]}
-            onPress={handleForceRefreshWidgets}
-            disabled={isRefreshingWidgets}
-            activeOpacity={0.8}
-          >
-            {isRefreshingWidgets ? (
-              <ActivityIndicator size="small" color="#1C1C1E" />
-            ) : (
-              <Text style={styles.primaryBtnText}>Force Refresh All Widgets</Text>
-            )}
-          </TouchableOpacity>
-
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <Text style={styles.statementSectionLabel}>SNAPSHOT JSON (V1)</Text>
-            {widgetSnapshotData && (
-              <TouchableOpacity
-                onPress={() => {
-                  Share.share({ message: JSON.stringify(widgetSnapshotData, null, 2) });
-                }}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <Text style={{ fontSize: 12, fontWeight: '700', color: '#4F46E5' }}>Share / Copy</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          <ScrollView
-            style={{
-              backgroundColor: '#0F172A',
-              borderRadius: 12,
-              padding: 12,
-              maxHeight: 350,
-            }}
-            nestedScrollEnabled
-          >
-            <Text style={{ fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 11, color: '#38BDF8' }}>
-              {widgetSnapshotData ? JSON.stringify(widgetSnapshotData, null, 2) : '// No snapshot saved in AsyncStorage yet'}
-            </Text>
-          </ScrollView>
-        </View>
-      </BottomSheetModal>
     </View>
   );
 }

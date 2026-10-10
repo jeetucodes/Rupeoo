@@ -35,19 +35,9 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Contacts from 'expo-contacts';
 import * as LegacyContacts from 'expo-contacts/legacy';
 
-// Safe dynamic getter for expo-media-library that avoids crashing on Web / environments without native module
-const getMediaLibrary = () => {
-  if (Platform.OS === 'web') return null;
-  try {
-    return require('expo-media-library');
-  } catch {
-    return null;
-  }
-};
-
 import { useAuth } from '@/context/AuthContext';
 import { useTranslation } from '@/lib/i18n';
-import { insertTransaction, deleteTransaction } from '@/lib/database';
+import { insertTransaction, deleteTransaction, getAllTransactions } from '@/lib/database';
 import { safeGoBack } from '@/lib/navigation';
 import { validateUpiId, validateAmount, generateUpiUri, sanitizeUpiId } from '@/lib/splitPayment';
 import { ThreeDDoubleTickIcon, ThreeDPendingClockIcon } from '@/components/ThreeDIcons';
@@ -75,20 +65,13 @@ import {
   getSyncUdharToDashboardTx,
   setSyncUdharToDashboardTx,
 } from '@/lib/udharStorage';
-import {
-  generateUdharInvoiceWhatsAppText,
-  generateAndShareInvoicePDF,
-  generateInvoicePDFOnly,
-  shareInvoiceDirectToWhatsApp,
-  getInitials,
-  GroupedEntryInvoiceData,
-  UdharInvoiceOptions,
-} from '@/lib/udharInvoice';
+
 import { getLocalDateString, formatTime12Hour } from '@/lib/dateUtils';
 import { triggerTransactionVibration } from '@/lib/sound';
 
 import { Image as ExpoImage } from 'expo-image';
 import { ShareStatementModal } from '@/components/ShareStatementModal';
+import { RUPEO_QR_LOGO_DATA_URI } from '@/constants/qrLogo';
 
 const UDHAR_ICONS = {
   ledger: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Ledger.png',
@@ -214,17 +197,7 @@ export default function UdharScreen() {
   const [interestNoteInput, setInterestNoteInput] = useState<string>('');
   const [isSavingInterest, setIsSavingInterest] = useState<boolean>(false);
 
-  // Invoice & Receipt Modal State
-  const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState<boolean>(false);
-  const [invoiceMode, setInvoiceMode] = useState<'single' | 'all'>('single');
-  const [invoiceSingleGroup, setInvoiceSingleGroup] = useState<GroupedEntryInvoiceData | null>(null);
-  const [isGeneratingInvoicePdf, setIsGeneratingInvoicePdf] = useState<boolean>(false);
-  const [isSharingInvoicePhoto, setIsSharingInvoicePhoto] = useState<boolean>(false);
-  const [isDownloadingInvoice, setIsDownloadingInvoice] = useState<boolean>(false);
-  const [isSharingInvoice, setIsSharingInvoice] = useState<boolean>(false);
-  const [generatedInvoiceUri, setGeneratedInvoiceUri] = useState<string | null>(null);
-  const [generatedInvoiceType, setGeneratedInvoiceType] = useState<'pdf' | 'photo' | null>(null);
-  const invoicePreviewRef = useRef<View>(null);
+
 
   // Share Statement Card Modal State
   const [isShareStatementModalOpen, setIsShareStatementModalOpen] = useState<boolean>(false);
@@ -247,8 +220,49 @@ export default function UdharScreen() {
       });
       return;
     }
-    const targetGroup = groupedLedgerEntries.find(g => !g.isFullySettled) || groupedLedgerEntries[0];
-    openShareStatement(targetGroup.parent, targetGroup.children);
+
+    if (groupedLedgerEntries.length === 1) {
+      openShareStatement(groupedLedgerEntries[0].parent, groupedLedgerEntries[0].children);
+      return;
+    }
+
+    // If multiple entries, check unsettled groups
+    const unsettledGroups = groupedLedgerEntries.filter(g => !g.isFullySettled);
+    const candidateGroups = unsettledGroups.length > 0 ? unsettledGroups : groupedLedgerEntries;
+    const firstType = candidateGroups[0].parent.type;
+    const sameDirection = candidateGroups.every(g => g.parent.type === firstType);
+
+    // Separate principal groups from standalone balance interest groups
+    const principalGroups = candidateGroups.filter(g => !g.parent.isInterest);
+    const standaloneInterestGroups = candidateGroups.filter(g => g.parent.isInterest);
+
+    // Collect all children and convert standalone interest parents into interest child records
+    const childrenFromGroups = candidateGroups.flatMap(g => g.children);
+    const standaloneInterestChildren: UdharEntry[] = standaloneInterestGroups.map(g => ({
+      ...g.parent,
+      settlementType: 'interest',
+      isInterest: true,
+    }));
+    const allCombinedChildren = [...childrenFromGroups, ...standaloneInterestChildren];
+
+    if (sameDirection && principalGroups.length > 1) {
+      const totalPrincipal = principalGroups.reduce((sum, g) => sum + g.parent.amount, 0);
+      const firstParent = principalGroups[0].parent;
+      const consolidatedParent: UdharEntry = {
+        id: firstParent.id || 'STMT',
+        friendId: selectedFriendDetail.id,
+        amount: totalPrincipal,
+        type: firstParent.type,
+        date: firstParent.date,
+        createdAt: firstParent.createdAt,
+      };
+      openShareStatement(consolidatedParent, allCombinedChildren);
+    } else if (principalGroups.length === 1) {
+      openShareStatement(principalGroups[0].parent, allCombinedChildren);
+    } else {
+      const targetGroup = candidateGroups[0];
+      openShareStatement(targetGroup.parent, allCombinedChildren);
+    }
   };
 
   // Load friends summary data (offline-first & instant)
@@ -282,16 +296,39 @@ export default function UdharScreen() {
     }));
   };
 
+  // Helper to clean up any erroneously inserted interest debit transactions from main transactions
+  const cleanupErroneousInterestTransactions = useCallback(async (userId: string) => {
+    try {
+      const txs = await getAllTransactions(userId);
+      const toDelete = txs.filter(
+        (t) =>
+          t &&
+          t.id &&
+          t.type === 'debit' &&
+          t.source === 'udhar' &&
+          (t.description?.includes('Interest Charged to') || t.description?.includes('ब्याज'))
+      );
+      for (const badTx of toDelete) {
+        await deleteTransaction(userId, badTx.id).catch(() => {});
+      }
+    } catch (err) {
+      console.warn('Could not cleanup erroneous interest debit transactions:', err);
+    }
+  }, []);
+
   // Load last UPI ID and dashboard toggle preference on mount
   useEffect(() => {
     loadData();
+    if (user?.uid) {
+      cleanupErroneousInterestTransactions(user.uid);
+    }
     getLastUsedUpiId(user?.uid).then((saved) => {
       if (saved) setMyUpiId(saved);
     });
     getSyncUdharToDashboardTx(user?.uid).then((val) => {
       setSyncOnDashboardDefault(val);
     });
-  }, [loadData, user?.uid]);
+  }, [loadData, user?.uid, cleanupErroneousInterestTransactions]);
 
   const handleToggleDashboard = async (val: boolean) => {
     setSyncOnDashboardDefault(val);
@@ -325,6 +362,17 @@ export default function UdharScreen() {
       try {
         setIsLoadingEntries(true);
         const entries = await getUdharEntries(user?.uid, friendId);
+
+        // Proactively clean up any erroneously created transactions linked to interest entries
+        if (user?.uid) {
+          for (const e of entries) {
+            if ((e.isInterest || e.settlementType === 'interest') && e.linkedTxId) {
+              await deleteTransaction(user.uid, e.linkedTxId).catch(() => {});
+              e.linkedTxId = undefined;
+            }
+          }
+        }
+
         setFriendEntries(entries);
       } catch (err) {
         console.warn('Failed to load friend entries:', err);
@@ -367,15 +415,17 @@ export default function UdharScreen() {
   // Pick profile photo for friend
   const handlePickFriendPhoto = async () => {
     try {
-      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!perm.granted) {
-        Toast.show({
-          type: 'error',
-          text1: 'Permission Required',
-          text2: 'Gallery access is needed to pick a profile photo.',
-          position: 'top',
-        });
-        return;
+      if (Platform.OS === 'ios') {
+        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!perm.granted) {
+          Toast.show({
+            type: 'error',
+            text1: 'Permission Required',
+            text2: 'Gallery access is needed to pick a profile photo.',
+            position: 'top',
+          });
+          return;
+        }
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -873,14 +923,14 @@ export default function UdharScreen() {
       const settleType: UdharEntryType = isUserReceiving ? 'got' : 'gave';
 
       let createdTxId: string | undefined = undefined;
-      if (user?.uid && syncOnDashboardDefault) {
+      if (user?.uid) {
         try {
           const desc = isUserReceiving
             ? lang === 'Hindi'
-              ? `${settleFriend.name} से हिसाब चुकता (प्राप्त)`
+              ? `${settleFriend.name} से हिसाब चुकता (प्राप्त - कुल राशि)`
               : lang === 'Hinglish'
-                ? `Settlement from ${settleFriend.name} (Hisaab Clear)`
-                : `Settlement received from ${settleFriend.name} (All Cleared)`
+                ? `Settlement from ${settleFriend.name} (Hisaab Clear - Total Amount)`
+                : `Settlement received from ${settleFriend.name} (All Cleared - Total Amount)`
             : lang === 'Hindi'
               ? `${settleFriend.name} को हिसाब चुकता (भुगतान)`
               : lang === 'Hinglish'
@@ -906,19 +956,33 @@ export default function UdharScreen() {
 
       // Link to target parent entry if explicitly selected, or auto-link to open parent
       let targetParentId = settleTargetEntry?.id;
-      let targetParentAmt = settleTargetEntry?.amount || amt;
+      let targetParentAmt = settleTargetEntry
+        ? settleTargetEntry.amount +
+          friendEntries
+            .filter((c) => c.parentEntryId === settleTargetEntry.id && (c.isInterest || c.settlementType === 'interest'))
+            .reduce((sum, c) => sum + getDynamicEntryAmount(c), 0)
+        : amt;
 
       if (!targetParentId && selectedFriendDetail) {
         const candidate = friendEntries.find((e) => {
           const isOpposite = isUserReceiving ? e.type === 'gave' : e.type === 'got';
           if (!isOpposite || e.parentEntryId) return false;
           const children = friendEntries.filter((c) => c.parentEntryId === e.id);
-          const settled = children.reduce((s, c) => s + c.amount, 0);
-          return settled < e.amount;
+          const settled = children
+            .filter((c) => !c.isInterest && c.settlementType !== 'interest')
+            .reduce((s, c) => s + c.amount, 0);
+          const interestAmt = children
+            .filter((c) => c.isInterest || c.settlementType === 'interest')
+            .reduce((s, c) => s + getDynamicEntryAmount(c), 0);
+          return settled < e.amount + interestAmt;
         });
         if (candidate) {
           targetParentId = candidate.id;
-          targetParentAmt = candidate.amount;
+          const candidateChildren = friendEntries.filter((c) => c.parentEntryId === candidate.id);
+          const candInterest = candidateChildren
+            .filter((c) => c.isInterest || c.settlementType === 'interest')
+            .reduce((s, c) => s + getDynamicEntryAmount(c), 0);
+          targetParentAmt = candidate.amount + candInterest;
         }
       }
 
@@ -1069,30 +1133,11 @@ export default function UdharScreen() {
       const baseAmt = isTargetEntry ? interestTargetEntry.amount : Math.abs(selectedFriendDetail.balance);
       const initialAmt = interestPeriod === 'one_time' ? rateVal : interestAccrualCalc.accruedAmount;
 
-      let createdTxId: string | undefined = undefined;
-      if (user?.uid && initialAmt > 0) {
-        try {
-          const desc =
-            type === 'gave'
-              ? `Interest Charged to ${selectedFriendDetail.name} (${periodLabel})`
-              : `Interest Owed to ${selectedFriendDetail.name} (${periodLabel})`;
-
-          const id = await insertTransaction(user.uid, {
-            date: dateStr,
-            time: timeStr,
-            amount: initialAmt,
-            type: type === 'gave' ? 'debit' : 'credit',
-            merchant_name: selectedFriendDetail.name,
-            category: 'Friend',
-            description: desc,
-            payment_mode: 'Cash',
-            source: 'udhar',
-          });
-          if (id) createdTxId = id;
-        } catch (txErr) {
-          console.warn('Could not insert transaction to main list:', txErr);
-        }
-      }
+      // NOTE: Do NOT insert a transaction into the main Transactions page when applying interest.
+      // Khata interest is an accrued obligation calculation between friends (not actual money out).
+      // When settlement is made by the borrower, the entire settlement amount (including interest)
+      // will be added to the Transactions page as a CREDIT (+) record.
+      const createdTxId: string | undefined = undefined;
 
       await addUdharEntry(user?.uid, {
         friendId: selectedFriendDetail.id,
@@ -1572,435 +1617,7 @@ export default function UdharScreen() {
     });
   }, [friendEntries]);
 
-  // Open Invoice Modal
-  const openInvoiceModal = (mode: 'single' | 'all', group?: GroupedEntryInvoiceData) => {
-    setInvoiceMode(mode);
-    if (mode === 'single' && group) {
-      setInvoiceSingleGroup(group);
-    } else if (mode === 'single' && groupedLedgerEntries.length > 0) {
-      setInvoiceSingleGroup(groupedLedgerEntries[0]);
-    } else {
-      setInvoiceSingleGroup(null);
-    }
-    setGeneratedInvoiceUri(null);
-    setGeneratedInvoiceType(null);
-    setIsInvoiceModalOpen(true);
-  };
 
-  // Helper to build invoice options
-  const getInvoiceOptions = (): UdharInvoiceOptions | null => {
-    if (!selectedFriendDetail) return null;
-    return {
-      mode: invoiceMode,
-      friend: selectedFriendDetail,
-      userName: user?.displayName || 'Rupeo User',
-      upiId: myUpiId || undefined,
-      curr,
-      singleGroup: invoiceMode === 'single' ? (invoiceSingleGroup || groupedLedgerEntries[0] || undefined) : undefined,
-      allGroups: groupedLedgerEntries,
-      netBalance: selectedFriendDetail.balance,
-    };
-  };
-
-  // Share Invoice on WhatsApp
-  const handleShareInvoiceWhatsApp = async () => {
-    const opts = getInvoiceOptions();
-    if (!opts) return;
-
-    try {
-      setIsSharingInvoicePhoto(true);
-      Toast.show({
-        type: 'info',
-        text1: 'Opening WhatsApp... 💬',
-        text2: 'Preparing digital invoice bill.',
-        position: 'top',
-      });
-
-      let imageUri: string | undefined = undefined;
-      if (invoicePreviewRef.current && Platform.OS !== 'web') {
-        try {
-          imageUri = await captureRef(invoicePreviewRef, {
-            format: 'png',
-            quality: 1.0,
-            result: 'tmpfile',
-          });
-        } catch (snapErr) {
-          console.warn('Could not snapshot invoice preview:', snapErr);
-        }
-      }
-
-      const res = await shareInvoiceDirectToWhatsApp(opts, imageUri);
-      if (!res.success && res.error) {
-        const msg = generateUdharInvoiceWhatsAppText(opts);
-        Clipboard.setString(msg);
-        Toast.show({
-          type: 'info',
-          text1: 'Copied to Clipboard 📋',
-          text2: 'WhatsApp not opened directly. Paste message in chat.',
-          position: 'top',
-        });
-      }
-    } catch (err: any) {
-      console.warn('WhatsApp share invoice error:', err);
-      Toast.show({
-        type: 'error',
-        text1: 'Share Failed',
-        text2: err?.message || 'Could not share to WhatsApp.',
-        position: 'top',
-      });
-    } finally {
-      setIsSharingInvoicePhoto(false);
-    }
-  };
-
-  // Generate PDF Invoice (Step 1 - PDF clicked)
-  const handleGenerateInvoicePDF = async () => {
-    const opts = getInvoiceOptions();
-    if (!opts) return;
-
-    try {
-      setIsGeneratingInvoicePdf(true);
-      Toast.show({
-        type: 'info',
-        text1: 'Creating PDF Invoice... 📄',
-        text2: 'Generating official A4 document.',
-        position: 'top',
-      });
-
-      const res = await generateInvoicePDFOnly(opts);
-      if (res.success && res.uri) {
-        setGeneratedInvoiceUri(res.uri);
-        setGeneratedInvoiceType('pdf');
-        Toast.show({
-          type: 'success',
-          text1: 'PDF Ready! 📄',
-          text2: 'Tap Download or Share below.',
-          position: 'top',
-        });
-      } else {
-        Toast.show({
-          type: 'error',
-          text1: 'PDF Generation Failed',
-          text2: res.error || 'Could not create PDF file.',
-          position: 'top',
-        });
-      }
-    } catch (err: any) {
-      console.warn('PDF generation error:', err);
-      Toast.show({
-        type: 'error',
-        text1: 'PDF Failed',
-        text2: err?.message || 'Could not create PDF.',
-        position: 'top',
-      });
-    } finally {
-      setIsGeneratingInvoicePdf(false);
-    }
-  };
-
-  // Capture Photo Slip (Step 1 - Photo clicked)
-  const handleGenerateInvoicePhoto = async () => {
-    const opts = getInvoiceOptions();
-    if (!opts) {
-      Toast.show({
-        type: 'error',
-        text1: 'Error',
-        text2: 'Friend details not loaded.',
-        position: 'top',
-      });
-      return;
-    }
-
-    try {
-      setIsSharingInvoicePhoto(true);
-
-      let uri = '';
-
-      if (Platform.OS === 'web') {
-        // On web, capture DOM element or create SVG data URL
-        try {
-          const el = invoicePreviewRef.current as any;
-          if (el && typeof document !== 'undefined') {
-            const width = el.offsetWidth || 380;
-            const height = el.offsetHeight || 600;
-            const canvas = document.createElement('canvas');
-            canvas.width = width * 2;
-            canvas.height = height * 2;
-            const ctx = canvas.getContext('2d');
-            if (ctx) {
-              ctx.scale(2, 2);
-              ctx.fillStyle = '#FFFFFF';
-              ctx.fillRect(0, 0, width, height);
-
-              const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
-                <foreignObject width="100%" height="100%">
-                  <div xmlns="http://www.w3.org/1999/xhtml">
-                    ${el.outerHTML || el.innerHTML}
-                  </div>
-                </foreignObject>
-              </svg>`;
-
-              const img = typeof window !== 'undefined' ? new (window as any).Image() : null;
-              if (img) {
-                uri = await new Promise<string>((resolve) => {
-                  img.onload = () => {
-                    try {
-                      ctx.drawImage(img, 0, 0);
-                      resolve(canvas.toDataURL('image/png'));
-                    } catch {
-                      resolve('data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg));
-                    }
-                  };
-                  img.onerror = () => {
-                    resolve('data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg));
-                  };
-                  img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
-                });
-              }
-            }
-          }
-        } catch (webErr) {
-          console.warn('Web capture error:', webErr);
-        }
-
-        if (!uri) {
-          const safeFriendName = opts.friend?.name || 'Customer';
-          const fallbackAmt = Math.abs(opts.singleGroup ? opts.singleGroup.remaining : (opts.netBalance || 0));
-          const fallbackSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="520">
-            <rect width="100%" height="100%" fill="#F8FAFC"/>
-            <rect x="20" y="20" width="360" height="480" rx="16" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="2"/>
-            <text x="200" y="70" font-family="sans-serif" font-size="20" font-weight="bold" text-anchor="middle" fill="#0F172A">RUPEO KHATA</text>
-            <text x="200" y="95" font-family="sans-serif" font-size="12" text-anchor="middle" fill="#64748B">DIGITAL RECEIPT SLIP</text>
-            <line x1="40" y1="120" x2="360" y2="120" stroke="#E2E8F0" stroke-dasharray="4"/>
-            <text x="200" y="160" font-family="sans-serif" font-size="14" text-anchor="middle" fill="#64748B">Account: ${safeFriendName}</text>
-            <text x="200" y="240" font-family="sans-serif" font-size="34" font-weight="bold" text-anchor="middle" fill="#15803D">${curr}${fallbackAmt.toLocaleString('en-IN')}</text>
-            <text x="200" y="280" font-family="sans-serif" font-size="12" text-anchor="middle" fill="#94A3B8">Verified Digital Proof</text>
-          </svg>`;
-          uri = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(fallbackSvg);
-        }
-      } else {
-        // Native mobile (Android / iOS)
-        await new Promise((r) => setTimeout(r, 60));
-        if (invoicePreviewRef.current) {
-          try {
-            uri = await captureRef(invoicePreviewRef, {
-              format: 'png',
-              quality: 1.0,
-              result: 'tmpfile',
-            });
-          } catch (captureRefErr) {
-            console.warn('captureRef with ref failed, trying with current:', captureRefErr);
-            uri = await captureRef(invoicePreviewRef.current, {
-              format: 'png',
-              quality: 1.0,
-              result: 'tmpfile',
-            });
-          }
-        }
-      }
-
-      if (!uri) {
-        throw new Error('Could not capture photo bill.');
-      }
-
-      setGeneratedInvoiceUri(uri);
-      setGeneratedInvoiceType('photo');
-      Toast.show({
-        type: 'success',
-        text1: 'Photo Ready! 🖼️',
-        text2: 'Tap Download or Share below.',
-        position: 'top',
-      });
-    } catch (err: any) {
-      console.warn('Photo capture error:', err);
-      Toast.show({
-        type: 'error',
-        text1: 'Photo Capture Failed',
-        text2: err?.message || 'Could not capture photo bill.',
-        position: 'top',
-      });
-    } finally {
-      setIsSharingInvoicePhoto(false);
-    }
-  };
-
-  // Download Invoice to Device (Step 2 - Download clicked)
-  const handleDownloadInvoice = async () => {
-    if (!generatedInvoiceUri) return;
-
-    try {
-      setIsDownloadingInvoice(true);
-
-      if (Platform.OS === 'web') {
-        try {
-          const a = document.createElement('a');
-          a.href = generatedInvoiceUri;
-          a.download = generatedInvoiceType === 'pdf' ? 'Rupeo_Invoice.html' : 'Rupeo_Bill.png';
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          Toast.show({
-            type: 'success',
-            text1: 'Downloaded! 📥',
-            text2: 'File saved to your Downloads.',
-            position: 'top',
-          });
-          return;
-        } catch (webDlErr) {
-          console.warn('Web download error:', webDlErr);
-        }
-      }
-
-      if (generatedInvoiceType === 'photo') {
-        const MediaLibrary = getMediaLibrary();
-        if (MediaLibrary?.requestPermissionsAsync && MediaLibrary?.saveToLibraryAsync) {
-          try {
-            const { status } = await MediaLibrary.requestPermissionsAsync();
-            if (status === 'granted') {
-              await MediaLibrary.saveToLibraryAsync(generatedInvoiceUri);
-              Toast.show({
-                type: 'success',
-                text1: 'Saved to Photos! 🖼️',
-                text2: 'Invoice saved directly to your Gallery.',
-                position: 'top',
-              });
-              return;
-            }
-          } catch (mediaErr) {
-            console.warn('MediaLibrary save error, fallback to share:', mediaErr);
-          }
-        }
-
-        // Fallback to Sharing with save intent if permission denied or failed
-        if (await Sharing.isAvailableAsync()) {
-          await Sharing.shareAsync(generatedInvoiceUri, {
-            mimeType: 'image/png',
-            dialogTitle: 'Save Invoice Photo',
-          });
-        }
-      } else if (generatedInvoiceType === 'pdf') {
-        let savedViaSaf = false;
-        if (Platform.OS === 'android' && FileSystem?.StorageAccessFramework) {
-          try {
-            const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
-            if (permissions.granted) {
-              const base64 = await FileSystem.readAsStringAsync(generatedInvoiceUri, {
-                encoding: FileSystem.EncodingType.Base64,
-              });
-              const rawName = (selectedFriendDetail?.name || 'Customer').trim();
-              const cleanFriendName = rawName.replace(/[^a-zA-Z0-9]/g, '_').replace(/_+/g, '_').slice(0, 20) || 'Customer';
-              const filename = `Rupeo_Invoice_${cleanFriendName}_${Date.now().toString().slice(-6)}.pdf`;
-              const createdFileUri = await FileSystem.StorageAccessFramework.createFileAsync(
-                permissions.directoryUri,
-                filename,
-                'application/pdf'
-              );
-              await FileSystem.writeAsStringAsync(createdFileUri, base64, {
-                encoding: FileSystem.EncodingType.Base64,
-              });
-              savedViaSaf = true;
-              Toast.show({
-                type: 'success',
-                text1: 'PDF Downloaded! 📥',
-                text2: 'Invoice saved to your selected folder.',
-                position: 'top',
-              });
-              return;
-            }
-          } catch (safErr) {
-            console.warn('StorageAccessFramework error, fallback to share:', safErr);
-          }
-        }
-
-        // iOS or fallback when Android SAF is cancelled/restricted: System share sheet allows saving or sending
-        if (!savedViaSaf && await Sharing.isAvailableAsync()) {
-          Toast.show({
-            type: 'info',
-            text1: 'Save / Download PDF 📄',
-            text2: 'Choose "Save to device" or an app to save your PDF.',
-            position: 'top',
-          });
-          await Sharing.shareAsync(generatedInvoiceUri, {
-            mimeType: 'application/pdf',
-            dialogTitle: 'Save / Download PDF Invoice',
-            UTI: 'com.adobe.pdf',
-          });
-        }
-      }
-    } catch (err: any) {
-      console.warn('Download error:', err);
-      Toast.show({
-        type: 'error',
-        text1: 'Download Failed',
-        text2: err?.message || 'Could not download invoice.',
-        position: 'top',
-      });
-    } finally {
-      setIsDownloadingInvoice(false);
-    }
-  };
-
-  // Share Invoice via System Share (Step 2 - Share clicked)
-  const handleShareInvoice = async () => {
-    if (!generatedInvoiceUri) return;
-    try {
-      setIsSharingInvoice(true);
-
-      if (Platform.OS === 'web') {
-        if (typeof navigator !== 'undefined' && (navigator as any).share) {
-          try {
-            await (navigator as any).share({
-              title: `Rupeo Invoice - ${selectedFriendDetail?.name || 'Customer'}`,
-              url: generatedInvoiceUri,
-            });
-            return;
-          } catch { }
-        }
-        if (typeof window !== 'undefined') {
-          window.open(generatedInvoiceUri, '_blank');
-          return;
-        }
-      }
-
-      if (generatedInvoiceType === 'photo') {
-        const opts = getInvoiceOptions();
-        const invoiceText = opts ? generateUdharInvoiceWhatsAppText(opts) : undefined;
-        await shareImageAndText({
-          uri: generatedInvoiceUri,
-          text: invoiceText,
-          title: `Rupeo Invoice - ${selectedFriendDetail?.name || 'Customer'}`,
-          dialogTitle: `Rupeo Invoice - ${selectedFriendDetail?.name || 'Customer'}`,
-        });
-        return;
-      }
-
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(generatedInvoiceUri, {
-          mimeType: generatedInvoiceType === 'pdf' ? 'application/pdf' : 'image/png',
-          dialogTitle: `Rupeo Invoice - ${selectedFriendDetail?.name || 'Customer'}`,
-          UTI: generatedInvoiceType === 'pdf' ? 'com.adobe.pdf' : 'public.png',
-        });
-      }
-    } catch (err: any) {
-      console.warn('Share invoice error:', err);
-    } finally {
-      setIsSharingInvoice(false);
-    }
-  };
-
-  // Copy Invoice Summary Text
-  const handleCopyInvoiceText = () => {
-    const opts = getInvoiceOptions();
-    if (!opts) return;
-    const msg = generateUdharInvoiceWhatsAppText(opts);
-    Clipboard.setString(msg);
-    Toast.show({
-      type: 'success',
-      text1: 'Copied to Clipboard! 📋',
-      text2: 'Invoice breakdown ready to paste anywhere.',
-      position: 'top',
-    });
-  };
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
@@ -3793,12 +3410,12 @@ export default function UdharScreen() {
                           color="#0F172A"
                           backgroundColor="#FFFFFF"
                           quietZone={10}
-                          ecl="Q"
-                          logo={require('../../assets/images/rupeo-qr-emblem.png')}
-                          logoSize={32}
+                          ecl="H"
+                          logo={{ uri: RUPEO_QR_LOGO_DATA_URI }}
+                          logoSize={36}
                           logoBackgroundColor="#FFFFFF"
                           logoMargin={3}
-                          logoBorderRadius={0}
+                          logoBorderRadius={6}
                         />
                       </View>
                     </View>
@@ -4754,473 +4371,6 @@ export default function UdharScreen() {
                 )}
               </TouchableOpacity>
             </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* ================= MODAL 10: INVOICE & STATEMENT MODAL ================= */}
-      <Modal
-        visible={isInvoiceModalOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => {
-          if (!isGeneratingInvoicePdf && !isSharingInvoicePhoto) {
-            setIsInvoiceModalOpen(false);
-          }
-        }}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { maxHeight: '92%', width: '92%', maxWidth: 440 }]}>
-            {/* Header */}
-            <View style={styles.modalHeaderRow}>
-              <View style={[styles.modalIconCircle, { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' }]}>
-                <Ionicons name="receipt" size={20} color="#2563EB" />
-              </View>
-              <View style={{ flex: 1, marginLeft: 12 }}>
-                <Text style={styles.modalTitle}>
-                  {lang === 'Hindi' ? 'चालान व रसीद (Invoice)' : 'Invoice & Bill'}
-                </Text>
-                <Text style={styles.modalSubtitle} numberOfLines={1}>
-                  {selectedFriendDetail?.name} • Rupeo Khata
-                </Text>
-              </View>
-              <TouchableOpacity
-                onPress={() => {
-                  if (!isGeneratingInvoicePdf && !isSharingInvoicePhoto) {
-                    setIsInvoiceModalOpen(false);
-                  }
-                }}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <Ionicons name="close" size={22} color="#94A3B8" />
-              </TouchableOpacity>
-            </View>
-
-            {/* Mode Switcher Tabs */}
-            <View style={styles.invoiceTabRow}>
-              <TouchableOpacity
-                style={[styles.invoiceTab, invoiceMode === 'single' && styles.invoiceTabActive]}
-                onPress={() => setInvoiceMode('single')}
-                activeOpacity={0.75}
-              >
-                <Ionicons
-                  name="document-text-outline"
-                  size={13}
-                  color={invoiceMode === 'single' ? '#FFFFFF' : '#64748B'}
-                  style={{ marginRight: 4 }}
-                />
-                <Text style={[styles.invoiceTabText, invoiceMode === 'single' && styles.invoiceTabTextActive]}>
-                  {lang === 'Hindi' ? 'चुना हुआ बिल' : 'This Payment'}
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.invoiceTab, invoiceMode === 'all' && styles.invoiceTabActive]}
-                onPress={() => setInvoiceMode('all')}
-                activeOpacity={0.75}
-              >
-                <Ionicons
-                  name="albums-outline"
-                  size={13}
-                  color={invoiceMode === 'all' ? '#FFFFFF' : '#64748B'}
-                  style={{ marginRight: 4 }}
-                />
-                <Text style={[styles.invoiceTabText, invoiceMode === 'all' && styles.invoiceTabTextActive]}>
-                  {lang === 'Hindi' ? 'पूरा खाता (All)' : 'Complete Khata'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Scrollable Live Receipt Preview Box */}
-            <ScrollView
-              style={{ maxHeight: 380, marginVertical: 10 }}
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ paddingBottom: 6 }}
-            >
-              <View ref={invoicePreviewRef} collapsable={false} style={styles.invoiceSlipBox}>
-                {/* Brand Header */}
-                <View style={styles.invoiceSlipHeader}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <View style={styles.invoiceSlipLogoBadge}>
-                      <Text style={styles.invoiceSlipLogoText}>₹</Text>
-                    </View>
-                    <View>
-                      <Text style={styles.invoiceSlipBrandTitle}>RUPEO KHATA</Text>
-                      <Text style={styles.invoiceSlipBrandSub}>OFFICIAL FINANCIAL STATEMENT</Text>
-                    </View>
-                  </View>
-                  <View style={{ alignItems: 'flex-end' }}>
-                    <View style={styles.invoiceSlipRefBadge}>
-                      <Text style={styles.invoiceSlipRefText}>
-                        #{Date.now().toString(36).toUpperCase().slice(-5)}
-                      </Text>
-                    </View>
-                    <Text style={styles.invoiceSlipDateText}>
-                      {new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Parties Info Cards with Avatars */}
-                <View style={styles.invoiceSlipPartiesGrid}>
-                  <View style={styles.invoiceSlipPartyCard}>
-                    <Text style={styles.invoiceSlipPartyLabel}>ISSUED BY (LENDER)</Text>
-                    <View style={styles.invoiceSlipPartyContent}>
-                      <View style={[styles.invoiceSlipAvatar, { backgroundColor: '#0F172A' }]}>
-                        <Text style={styles.invoiceSlipAvatarText}>{getInitials(user?.displayName || 'Rupeo')}</Text>
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.invoiceSlipPartyVal} numberOfLines={1}>{user?.displayName || 'Rupeo User'}</Text>
-                        {myUpiId ? (
-                          <Text style={[styles.invoiceSlipPartySub, { color: '#059669', fontWeight: '700' }]} numberOfLines={1}>
-                            ⚡ {myUpiId}
-                          </Text>
-                        ) : null}
-                      </View>
-                    </View>
-                  </View>
-
-                  <View style={styles.invoiceSlipPartyCard}>
-                    <Text style={styles.invoiceSlipPartyLabel}>PARTY (BORROWER)</Text>
-                    <View style={styles.invoiceSlipPartyContent}>
-                      <View style={[styles.invoiceSlipAvatar, { backgroundColor: '#0284C7' }]}>
-                        <Text style={styles.invoiceSlipAvatarText}>{getInitials(selectedFriendDetail?.name || 'Party')}</Text>
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.invoiceSlipPartyVal} numberOfLines={1}>{selectedFriendDetail?.name}</Text>
-                        {selectedFriendDetail?.phone ? (
-                          <Text style={styles.invoiceSlipPartySub} numberOfLines={1}>{selectedFriendDetail.phone}</Text>
-                        ) : (
-                          <Text style={[styles.invoiceSlipPartySub, { color: '#94A3B8' }]} numberOfLines={1}>Contact not set</Text>
-                        )}
-                      </View>
-                    </View>
-                  </View>
-                </View>
-
-                {/* Content Section: Single Entry vs All Entries */}
-                {invoiceMode === 'single' ? (
-                  (() => {
-                    const activeGroup = invoiceSingleGroup || groupedLedgerEntries[0];
-                    if (!activeGroup) {
-                      return (
-                        <Text style={{ textAlign: 'center', color: '#94A3B8', padding: 20 }}>
-                          No transaction selected.
-                        </Text>
-                      );
-                    }
-                    const { parent, settlementChildren, interestChildren, totalInterest, totalSettled, remaining, isFullySettled, isPartiallySettled } = activeGroup;
-                    const isGave = parent.type === 'gave';
-
-                    return (
-                      <View style={{ marginTop: 8 }}>
-                        {/* Principal Row */}
-                        <View style={styles.invoiceSlipRow}>
-                          <View style={{ flex: 1, marginRight: 8 }}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                              <View style={[styles.invoiceSlipTag, { backgroundColor: '#E2E8F0' }]}>
-                                <Text style={[styles.invoiceSlipTagText, { color: '#334155' }]}>PRINCIPAL</Text>
-                              </View>
-                              <Text style={styles.invoiceSlipItemName} numberOfLines={1}>
-                                {isGave ? 'Money Lent (दिया)' : 'Money Borrowed (लिया)'}
-                              </Text>
-                            </View>
-                            <Text style={styles.invoiceSlipItemSub}>
-                              Date: {parent.date} {parent.note ? `• ${parent.note}` : ''}
-                            </Text>
-                          </View>
-                          <Text style={styles.invoiceSlipItemAmt}>
-                            {curr}{parent.amount.toLocaleString('en-IN')}
-                          </Text>
-                        </View>
-
-                        {/* Interest Accruals */}
-                        {interestChildren.map((ic) => {
-                          const dynAmt = getDynamicEntryAmount(ic);
-                          const rateLabel = ic.interestPercent
-                            ? `${ic.interestPercent}%${ic.interestPeriod === 'monthly' ? '/mo' : ic.interestPeriod === 'yearly' ? '/yr' : ''}`
-                            : 'Interest';
-                          return (
-                            <View key={ic.id} style={[styles.invoiceSlipRow, { backgroundColor: '#FFFBEB', paddingHorizontal: 8, borderRadius: 8, marginVertical: 3 }]}>
-                              <View style={{ flex: 1, marginRight: 8 }}>
-                                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                  <View style={[styles.invoiceSlipTag, { backgroundColor: '#FEF3C7' }]}>
-                                    <Text style={[styles.invoiceSlipTagText, { color: '#B45309' }]}>INTEREST</Text>
-                                  </View>
-                                  <Text style={[styles.invoiceSlipItemName, { color: '#B45309' }]} numberOfLines={1}>
-                                    Accrued Interest ({rateLabel})
-                                  </Text>
-                                </View>
-                                <Text style={[styles.invoiceSlipItemSub, { color: '#92400E' }]}>
-                                  {ic.interestStartDate ? `Active since ${ic.interestStartDate}` : ic.date}
-                                </Text>
-                              </View>
-                              <Text style={[styles.invoiceSlipItemAmt, { color: '#D97706' }]}>
-                                +{curr}{dynAmt.toLocaleString('en-IN')}
-                              </Text>
-                            </View>
-                          );
-                        })}
-
-                        {/* Settlements Paid */}
-                        {settlementChildren.map((sc) => (
-                          <View key={sc.id} style={[styles.invoiceSlipRow, { backgroundColor: '#F0FDF4', paddingHorizontal: 8, borderRadius: 8, marginVertical: 3 }]}>
-                            <View style={{ flex: 1, marginRight: 8 }}>
-                              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                <View style={[styles.invoiceSlipTag, { backgroundColor: '#DCFCE7' }]}>
-                                  <Text style={[styles.invoiceSlipTagText, { color: '#15803D' }]}>PAYMENT</Text>
-                                </View>
-                                <Text style={[styles.invoiceSlipItemName, { color: '#15803D' }]} numberOfLines={1}>
-                                  Payment Received ({sc.paymentMode || 'Cash'})
-                                </Text>
-                              </View>
-                              <Text style={[styles.invoiceSlipItemSub, { color: '#166534' }]}>
-                                {sc.date} {sc.note ? `• ${sc.note}` : ''}
-                              </Text>
-                            </View>
-                            <Text style={[styles.invoiceSlipItemAmt, { color: '#15803D' }]}>
-                              -{curr}{sc.amount.toLocaleString('en-IN')}
-                            </Text>
-                          </View>
-                        ))}
-
-                        {/* Total Highlight Banner */}
-                        <View style={styles.invoiceSlipHighlight}>
-                          <View>
-                            <Text style={styles.invoiceSlipHighlightLabel}>NET REMAINING BALANCE DUE</Text>
-                            <Text style={styles.invoiceSlipHighlightSub}>
-                              {isFullySettled ? '✓ Fully Cleared & Settled' : isPartiallySettled ? `₹${totalSettled.toLocaleString('en-IN')} paid of ₹${(parent.amount + totalInterest).toLocaleString('en-IN')}` : 'Active Unsettled Loan'}
-                            </Text>
-                          </View>
-                          <Text style={[styles.invoiceSlipHighlightAmt, isFullySettled ? { color: '#4ADE80' } : null]}>
-                            {curr}{remaining.toLocaleString('en-IN')}
-                          </Text>
-                        </View>
-                      </View>
-                    );
-                  })()
-                ) : (
-                  /* ALL TRANSACTIONS STATEMENT */
-                  (() => {
-                    let totalGiven = 0;
-                    let totalGot = 0;
-                    let totalInterestAll = 0;
-                    let totalSettledAll = 0;
-
-                    groupedLedgerEntries.forEach((g) => {
-                      if (g.parent.type === 'gave') totalGiven += g.parent.amount;
-                      else totalGot += g.parent.amount;
-                      totalInterestAll += g.totalInterest;
-                      totalSettledAll += g.totalSettled;
-                    });
-
-                    const bal = selectedFriendDetail?.balance || 0;
-                    const isPositive = bal > 0;
-
-                    return (
-                      <View style={{ marginTop: 8 }}>
-                        {/* 4 Summary Stats */}
-                        <View style={styles.invoiceSlipGrid}>
-                          <View style={styles.invoiceSlipGridItem}>
-                            <Text style={styles.invoiceSlipGridLabel}>LENT (दिया)</Text>
-                            <Text style={[styles.invoiceSlipGridVal, { color: '#15803D' }]}>
-                              {curr}{totalGiven.toLocaleString('en-IN')}
-                            </Text>
-                          </View>
-                          <View style={styles.invoiceSlipGridItem}>
-                            <Text style={styles.invoiceSlipGridLabel}>TAKEN (लिया)</Text>
-                            <Text style={[styles.invoiceSlipGridVal, { color: '#DC2626' }]}>
-                              {curr}{totalGot.toLocaleString('en-IN')}
-                            </Text>
-                          </View>
-                          <View style={styles.invoiceSlipGridItem}>
-                            <Text style={styles.invoiceSlipGridLabel}>INTEREST</Text>
-                            <Text style={[styles.invoiceSlipGridVal, { color: '#D97706' }]}>
-                              +{curr}{totalInterestAll.toLocaleString('en-IN')}
-                            </Text>
-                          </View>
-                          <View style={styles.invoiceSlipGridItem}>
-                            <Text style={styles.invoiceSlipGridLabel}>SETTLED</Text>
-                            <Text style={[styles.invoiceSlipGridVal, { color: '#2563EB' }]}>
-                              -{curr}{totalSettledAll.toLocaleString('en-IN')}
-                            </Text>
-                          </View>
-                        </View>
-
-                        {/* Net Outstanding Balance Banner */}
-                        <View style={[styles.invoiceSlipHighlight, { marginTop: 10 }]}>
-                          <View>
-                            <Text style={styles.invoiceSlipHighlightLabel}>
-                              {isPositive ? 'YOU WILL GET (लेना बाकी)' : bal < 0 ? 'YOU WILL PAY (देना बाकी)' : 'ALL CLEARED & BALANCED'}
-                            </Text>
-                            <Text style={styles.invoiceSlipHighlightSub}>
-                              Across {groupedLedgerEntries.length} total entries
-                            </Text>
-                          </View>
-                          <Text
-                            style={[
-                              styles.invoiceSlipHighlightAmt,
-                              { color: isPositive ? '#38BDF8' : bal < 0 ? '#F87171' : '#94A3B8' },
-                            ]}
-                          >
-                            {curr}{Math.abs(bal).toLocaleString('en-IN')}
-                          </Text>
-                        </View>
-                      </View>
-                    );
-                  })()
-                )}
-
-                {/* Instant Repayment UPI Strip if configured */}
-                {myUpiId ? (
-                  <View style={styles.invoiceSlipUpiStrip}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                      <Text style={{ fontSize: 13, marginRight: 4 }}>📲</Text>
-                      <Text style={styles.invoiceSlipUpiLabel}>UPI: </Text>
-                      <Text style={styles.invoiceSlipUpiId} numberOfLines={1}>{myUpiId}</Text>
-                    </View>
-                    <Text style={styles.invoiceSlipUpiApps}>GPay • PhonePe • Paytm</Text>
-                  </View>
-                ) : null}
-
-                {/* Footer notes */}
-                <View style={styles.invoiceSlipFooter}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, marginBottom: 2 }}>
-                    <Ionicons name="shield-checkmark" size={13} color="#0284C7" />
-                    <Text style={{ fontSize: 9.5, fontWeight: '800', color: '#0369A1', letterSpacing: 0.5 }}>
-                      RUPEO KHATA • VERIFIED LEDGER • TAMPER-PROOF
-                    </Text>
-                  </View>
-                  <Text style={styles.invoiceSlipFootText}>
-                    Certified Digital Ledger Record • IT Act Compliant
-                  </Text>
-                </View>
-              </View>
-            </ScrollView>
-
-            {/* Action Buttons: 2-step flow */}
-            {!generatedInvoiceUri ? (
-              /* Step 1: Exactly 2 buttons - PDF & Photo */
-              <View style={styles.invoiceTwoBtnRow}>
-                {/* PDF Button */}
-                <TouchableOpacity
-                  style={[styles.invoiceFormatBtn, styles.invoiceFormatBtnPdf]}
-                  onPress={handleGenerateInvoicePDF}
-                  disabled={isGeneratingInvoicePdf || isSharingInvoicePhoto}
-                  activeOpacity={0.85}
-                >
-                  {isGeneratingInvoicePdf ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                  ) : (
-                    <>
-                      <Ionicons name="document-text" size={22} color="#FFFFFF" style={{ marginRight: 8 }} />
-                      <View>
-                        <Text style={styles.invoiceFormatBtnTitle}>PDF</Text>
-                        <Text style={styles.invoiceFormatBtnSub}>Official bill</Text>
-                      </View>
-                    </>
-                  )}
-                </TouchableOpacity>
-
-                {/* Photo Button */}
-                <TouchableOpacity
-                  style={[styles.invoiceFormatBtn, styles.invoiceFormatBtnPhoto]}
-                  onPress={handleGenerateInvoicePhoto}
-                  disabled={isSharingInvoicePhoto || isGeneratingInvoicePdf}
-                  activeOpacity={0.85}
-                >
-                  {isSharingInvoicePhoto ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                  ) : (
-                    <>
-                      <Ionicons name="image" size={22} color="#FFFFFF" style={{ marginRight: 8 }} />
-                      <View>
-                        <Text style={styles.invoiceFormatBtnTitle}>Photo</Text>
-                        <Text style={styles.invoiceFormatBtnSub}>Slip image</Text>
-                      </View>
-                    </>
-                  )}
-                </TouchableOpacity>
-              </View>
-            ) : (
-              /* Step 2: Exactly 2 buttons - Download & Share */
-              <View style={{ gap: 8, marginTop: 4 }}>
-                {/* Status Bar showing what was generated with Change button */}
-                <View style={styles.invoiceReadyBanner}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
-                    <View style={styles.invoiceReadyDot}>
-                      <Ionicons
-                        name={generatedInvoiceType === 'pdf' ? 'document-text' : 'image'}
-                        size={13}
-                        color="#FFFFFF"
-                      />
-                    </View>
-                    <Text style={styles.invoiceReadyText}>
-                      {generatedInvoiceType === 'pdf' ? 'PDF Generated' : 'Photo Captured'}
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    onPress={() => {
-                      setGeneratedInvoiceUri(null);
-                      setGeneratedInvoiceType(null);
-                    }}
-                    style={styles.invoiceChangeFormatBtn}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Ionicons name="refresh-outline" size={13} color="#64748B" />
-                    <Text style={styles.invoiceChangeFormatText}>Change</Text>
-                  </TouchableOpacity>
-                </View>
-
-                {/* Download and Share Buttons */}
-                <View style={styles.invoiceTwoBtnRow}>
-                  {/* Download Button */}
-                  <TouchableOpacity
-                    style={[styles.invoiceActionBtn, styles.invoiceDownloadBtn]}
-                    onPress={handleDownloadInvoice}
-                    disabled={isDownloadingInvoice}
-                    activeOpacity={0.85}
-                  >
-                    {isDownloadingInvoice ? (
-                      <ActivityIndicator size="small" color="#FFFFFF" />
-                    ) : (
-                      <>
-                        <Ionicons name="download-outline" size={20} color="#FFFFFF" style={{ marginRight: 6 }} />
-                        <Text style={styles.invoiceActionBtnText}>Download</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-
-                  {/* Share Button */}
-                  <TouchableOpacity
-                    style={[styles.invoiceActionBtn, styles.invoiceShareBtn]}
-                    onPress={handleShareInvoice}
-                    disabled={isSharingInvoice}
-                    activeOpacity={0.85}
-                  >
-                    {isSharingInvoice ? (
-                      <ActivityIndicator size="small" color="#FFFFFF" />
-                    ) : (
-                      <>
-                        <Ionicons name="share-social-outline" size={20} color="#FFFFFF" style={{ marginRight: 6 }} />
-                        <Text style={styles.invoiceActionBtnText}>Share</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                </View>
-
-                {/* Direct WhatsApp Share to Friend */}
-                <TouchableOpacity
-                  style={styles.invoiceWhatsAppDirectBtn}
-                  onPress={handleShareInvoiceWhatsApp}
-                  disabled={isSharingInvoicePhoto}
-                  activeOpacity={0.85}
-                >
-                  <Ionicons name="logo-whatsapp" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
-                  <Text style={styles.invoiceWhatsAppDirectBtnText}>Send to Friend on WhatsApp</Text>
-                </TouchableOpacity>
-              </View>
-            )}
           </View>
         </View>
       </Modal>

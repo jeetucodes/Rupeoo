@@ -9,7 +9,7 @@ interface Props {
   style?: any;
 }
 
-export default function PaymentModeIcon({ mode, size = 16, color = '#6B7280', style }: Props) {
+function PaymentModeIconComponent({ mode, size = 16, color = '#6B7280', style }: Props) {
   const m = (mode || '').toLowerCase();
 
   if (m.includes('upi')) {
@@ -28,3 +28,5 @@ export default function PaymentModeIcon({ mode, size = 16, color = '#6B7280', st
   // Fallback
   return <Ionicons name="cash-outline" size={size} color={color} style={style} />;
 }
+
+export default React.memo(PaymentModeIconComponent);

@@ -82,7 +82,7 @@ To protect your financial security:
 | **Microphone** | `android.permission.RECORD_AUDIO` | Enables hands-free Voice Quick Add to transcribe expense amounts and categories. Audio is processed on-device and never stored remotely. |
 | **Contacts** | `android.permission.READ_CONTACTS` | Allows you to quickly select friend names and numbers when adding contacts to the Friends & Udhar bookkeeping ledger. |
 | **Camera** | `android.permission.CAMERA` | Allows you to photograph physical bill receipts, invoices, or payment confirmations. |
-| **Media / Photos** | `READ_MEDIA_IMAGES` / `READ_EXTERNAL_STORAGE` | Allows you to choose receipt photos from your gallery and save exported receipts/PDFs. |
+| **Media / Photos** | System Photo Picker (Zero Storage Permissions) | Allows you to select receipt photos using Android's privacy-preserving system photo picker. Rupeo does not request broad media storage permissions (`READ_MEDIA_IMAGES` / `READ_MEDIA_VIDEO`). |
 | **Notifications** | `android.permission.POST_NOTIFICATIONS` | Delivers timely bill due date alerts, recharge expiration warnings, and budget notifications. |
 
 ---

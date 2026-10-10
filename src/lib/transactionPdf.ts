@@ -3,6 +3,9 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 import { formatTime12Hour } from './dateUtils';
+import type { ReceiptTheme } from './receiptTheme';
+
+export type { ReceiptTheme };
 
 export interface TransactionReceiptPdfOptions {
   id: string;
@@ -18,6 +21,7 @@ export interface TransactionReceiptPdfOptions {
   currency?: string;
   userName?: string;
   receiptImage?: string | null;
+  theme?: ReceiptTheme;
 }
 
 function formatDisplayDate(rawDate?: string): string {
@@ -43,7 +47,7 @@ function formatDisplayDate(rawDate?: string): string {
     if (!isNaN(d.getTime())) {
       return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
     }
-  } catch {}
+  } catch { }
   return rawDate;
 }
 
@@ -182,7 +186,76 @@ function getCategoryIcon(catName?: string): string {
   return '🏷️';
 }
 
-export function generateTransactionReceiptHtml(
+export function getPaymentMethodLogoHtml(mode?: string, isDark = false): string {
+  const m = (mode || '').toLowerCase().trim();
+
+  if (m.includes('upi')) {
+    return `
+      <div class="pm-logo-pill upi-pill">
+        <svg width="18" height="13" viewBox="0 0 28 20" fill="none" style="display:inline-block;vertical-align:middle;">
+          <path d="M7 18L19 2L23 10L11 18H7Z" fill="#0F753A"/>
+          <path d="M11 18L23 10L19 2L7 18H11Z" fill="#F47920"/>
+          <path d="M3 18L15 2L19 10L7 18H3Z" fill="#0F753A"/>
+        </svg>
+        <span class="pm-pill-text upi-text">UPI</span>
+      </div>
+    `;
+  }
+
+  if (m.includes('cash')) {
+    return `
+      <div class="pm-logo-pill cash-pill">
+        <svg width="17" height="13" viewBox="0 0 24 18" fill="none" style="display:inline-block;vertical-align:middle;">
+          <rect x="1" y="2" width="22" height="14" rx="3" stroke="#16A34A" stroke-width="1.8" fill="${isDark ? '#064E3B' : '#DCFCE7'}"/>
+          <circle cx="12" cy="9" r="3.2" fill="#16A34A"/>
+          <path d="M12 7.2v3.6M10.8 8.1h2.4M10.8 9.2h2.4" stroke="#FFFFFF" stroke-width="0.8"/>
+        </svg>
+        <span class="pm-pill-text cash-text">CASH</span>
+      </div>
+    `;
+  }
+
+  if (m.includes('bank')) {
+    return `
+      <div class="pm-logo-pill bank-pill">
+        <svg width="15" height="13" viewBox="0 0 24 22" fill="none" style="display:inline-block;vertical-align:middle;">
+          <path d="M12 2L2 7H22L12 2Z" fill="#2563EB"/>
+          <rect x="4" y="9" width="2.5" height="8" rx="0.5" fill="#2563EB"/>
+          <rect x="8.75" y="9" width="2.5" height="8" rx="0.5" fill="#2563EB"/>
+          <rect x="13.5" y="9" width="2.5" height="8" rx="0.5" fill="#2563EB"/>
+          <rect x="18" y="9" width="2.5" height="8" rx="0.5" fill="#2563EB"/>
+          <rect x="2" y="18" width="20" height="2.5" rx="0.5" fill="#2563EB"/>
+        </svg>
+        <span class="pm-pill-text bank-text">BANK</span>
+      </div>
+    `;
+  }
+
+  if (m.includes('card')) {
+    return `
+      <div class="pm-logo-pill card-pill">
+        <svg width="18" height="13" viewBox="0 0 26 18" fill="none" style="display:inline-block;vertical-align:middle;">
+          <rect x="1" y="1" width="24" height="16" rx="3" stroke="${isDark ? '#475569' : '#CBD5E1'}" stroke-width="1" fill="${isDark ? '#1E293B' : '#0F172A'}"/>
+          <circle cx="10" cy="9" r="4.2" fill="#DC2626" opacity="0.9"/>
+          <circle cx="16" cy="9" r="4.2" fill="#F59E0B" opacity="0.9"/>
+        </svg>
+        <span class="pm-pill-text card-text">CARD</span>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="pm-logo-pill other-pill">
+      <svg width="15" height="13" viewBox="0 0 24 20" fill="none" stroke="#7C3AED" stroke-width="1.8" style="display:inline-block;vertical-align:middle;">
+        <rect x="2" y="4" width="20" height="14" rx="2" fill="${isDark ? '#3B0764' : '#F3E8FF'}"/>
+        <path d="M16 11h4v3h-4a1.5 1.5 0 0 1 0-3z" fill="#7C3AED"/>
+      </svg>
+      <span class="pm-pill-text other-text">OTHER</span>
+    </div>
+  `;
+}
+
+function generateGradientSlipHtml(
   options: TransactionReceiptPdfOptions,
   resolvedImageSrc?: string | null
 ): string {
@@ -195,9 +268,616 @@ export function generateTransactionReceiptHtml(
     paymentMode = 'UPI',
     date = '',
     time = '',
+    description = '',
     barcodeValue,
     currency = '₹',
   } = options;
+
+  const numAmount = typeof amount === 'number' ? amount : parseFloat(amount || '0');
+  const formattedAmt = numAmount.toLocaleString('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
+  const isCredit = type === 'credit';
+  const merchant = (rawMerchant || '').trim() || (isCredit ? 'Sender' : category || 'Payment');
+  const formattedDate = formatDisplayDate(date);
+  const formattedTime = formatDisplayTime(time);
+  const txRefId = formatTxId(id, barcodeValue);
+  const catIcon = getCategoryIcon(category);
+  const barcodeValueToUse = barcodeValue || txRefId;
+  const barcodeInfo = generateCode39Svg(barcodeValueToUse, 280, 48);
+  const paymentBadgeHtml = getPaymentMethodLogoHtml(paymentMode, false);
+
+  const topGradient = isCredit
+    ? 'linear-gradient(135deg, #065F46 0%, #047857 40%, #059669 75%, #10B981 100%)'
+    : 'linear-gradient(135deg, #7F1D1D 0%, #991B1B 40%, #B91C1C 75%, #DC2626 100%)';
+
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Rupeo Receipt - ${txRefId}</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #F1F5F9;
+      color: #0F172A;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      height: auto;
+      min-height: 0;
+    }
+    body {
+      padding: 16px 12px;
+      display: block;
+    }
+    .slip-container {
+      width: 100%;
+      max-width: 440px;
+      margin: 0 auto;
+      background: #FFFFFF;
+      border-radius: 24px;
+      overflow: hidden;
+      box-shadow: 0 14px 40px rgba(15, 23, 42, 0.08);
+      border: 1px solid #E2E8F0;
+      position: relative;
+      page-break-before: avoid;
+      break-before: avoid;
+    }
+    .slip-top {
+      background: ${topGradient};
+      padding: 32px 20px 26px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .slip-watermark {
+      position: absolute;
+      top: 14px;
+      right: 20px;
+      font-size: 14px;
+      font-weight: 900;
+      letter-spacing: 2.5px;
+      color: rgba(255, 255, 255, 0.22);
+      text-transform: uppercase;
+      user-select: none;
+    }
+    .slip-blob-1 {
+      position: absolute;
+      width: 140px;
+      height: 140px;
+      border-radius: 50%;
+      right: -30px;
+      top: -30px;
+      background: ${isCredit ? 'rgba(16, 185, 129, 0.25)' : 'rgba(239, 68, 68, 0.25)'};
+      pointer-events: none;
+    }
+    .slip-blob-2 {
+      position: absolute;
+      width: 110px;
+      height: 110px;
+      border-radius: 50%;
+      left: -25px;
+      bottom: -25px;
+      background: ${isCredit ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255, 215, 64, 0.18)'};
+      pointer-events: none;
+    }
+    .slip-arrow-circle {
+      width: 58px;
+      height: 58px;
+      border-radius: 29px;
+      background: ${isCredit ? 'rgba(16, 185, 129, 0.35)' : 'rgba(255, 255, 255, 0.22)'};
+      border: 2px solid ${isCredit ? '#34D399' : 'rgba(255, 255, 255, 0.45)'};
+      margin: 0 auto 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      z-index: 1;
+    }
+    .slip-amount {
+      font-size: 42px;
+      font-weight: 900;
+      color: ${isCredit ? '#6EE7B7' : '#FFFFFF'};
+      letter-spacing: -1px;
+      line-height: 1.1;
+      margin-bottom: 6px;
+      position: relative;
+      z-index: 1;
+    }
+    .slip-merchant {
+      font-size: 18px;
+      font-weight: 800;
+      color: rgba(255, 255, 255, 0.95);
+      margin-bottom: 12px;
+      position: relative;
+      z-index: 1;
+    }
+    .slip-status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(16, 185, 129, 0.2);
+      border: 1px solid rgba(16, 185, 129, 0.4);
+      border-radius: 20px;
+      padding: 5px 14px;
+      position: relative;
+      z-index: 1;
+    }
+    .slip-status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: ${isCredit ? '#34D399' : '#10B981'};
+    }
+    .slip-status-text {
+      font-size: 11.5px;
+      font-weight: 800;
+      color: #10B981;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+    }
+    .notch-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: relative;
+      margin-top: -10px;
+      margin-bottom: 10px;
+      z-index: 2;
+      background: #FFFFFF;
+    }
+    .notch-left, .notch-right {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #F1F5F9;
+    }
+    .notch-left { margin-left: -10px; }
+    .notch-right { margin-right: -10px; }
+    .notch-dash {
+      flex: 1;
+      border-top: 1.5px dashed #CBD5E1;
+      margin: 0 6px;
+    }
+    .slip-body {
+      padding: 10px 24px 22px;
+      background: #FFFFFF;
+    }
+    .slip-ref-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #F1F5F9;
+      margin-bottom: 14px;
+    }
+    .slip-ref-code {
+      font-size: 11px;
+      font-weight: 800;
+      color: #94A3B8;
+      letter-spacing: 1.2px;
+      font-family: monospace;
+    }
+    .slip-ref-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: #ECFDF5;
+      border: 1px solid #A7F3D0;
+      border-radius: 6px;
+      padding: 3px 8px;
+      font-size: 10px;
+      font-weight: 900;
+      color: #059669;
+    }
+    .slip-summary-grid {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .slip-summary-item {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: #F8FAFC;
+      border: 1px solid #E2E8F0;
+    }
+    .slip-summary-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 9px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 17px;
+    }
+    .slip-summary-label {
+      font-size: 9px;
+      font-weight: 800;
+      color: #94A3B8;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      margin-bottom: 2px;
+    }
+    .slip-summary-value {
+      font-size: 12px;
+      font-weight: 800;
+      color: #1E293B;
+    }
+    .slip-spec-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 0;
+      border-bottom: 1px solid #F1F5F9;
+    }
+    .slip-spec-label {
+      font-size: 12px;
+      font-weight: 800;
+      color: #64748B;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .slip-spec-value {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      font-weight: 800;
+      color: #0F172A;
+    }
+    .slip-no-photo-card {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 14px;
+      padding: 12px 14px;
+      border-radius: 14px;
+      background: #F8FAFC;
+      border: 1px dashed #CBD5E1;
+    }
+    .slip-no-photo-title {
+      font-size: 12px;
+      font-weight: 800;
+      color: #334155;
+      margin-bottom: 2px;
+    }
+    .slip-no-photo-sub {
+      font-size: 10px;
+      color: #94A3B8;
+    }
+    .slip-photo-wrap {
+      margin-top: 14px;
+      border-radius: 14px;
+      overflow: hidden;
+      border: 1px solid #E2E8F0;
+      max-height: 260px;
+      text-align: center;
+      background: #F8FAFC;
+    }
+    .slip-photo {
+      max-width: 100%;
+      max-height: 260px;
+      display: block;
+      margin: 0 auto;
+    }
+    .slip-barcode-wrap {
+      margin-top: 18px;
+      text-align: center;
+    }
+    .slip-barcode-footer {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      margin-top: 6px;
+    }
+    .slip-barcode-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #10B981;
+    }
+    .slip-barcode-text {
+      font-size: 9.5px;
+      font-weight: 800;
+      color: #475569;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+    }
+    .slip-footer {
+      background: #FAFBFC;
+      border-top: 1px solid #F1F5F9;
+      padding: 18px 24px 20px;
+      text-align: center;
+    }
+    .slip-footer-brand {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+    .slip-footer-logo {
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      background: #FFD740;
+      color: #0F172A;
+      font-size: 14px;
+      font-weight: 900;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+    }
+    .slip-footer-name {
+      font-size: 16px;
+      font-weight: 900;
+      color: #0F172A;
+      letter-spacing: -0.3px;
+    }
+    .slip-footer-verified {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: #ECFDF5;
+      border: 1px solid #A7F3D0;
+      border-radius: 12px;
+      padding: 2.5px 8px;
+      font-size: 9.5px;
+      font-weight: 800;
+      color: #059669;
+    }
+    .slip-footer-tagline {
+      font-size: 10px;
+      font-weight: 700;
+      color: #64748B;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+    .slip-verify-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: #F1F5F9;
+      border: 1px solid #E2E8F0;
+      border-radius: 18px;
+      padding: 5px 14px;
+      font-size: 10.5px;
+      font-weight: 800;
+      color: #0F172A;
+      text-decoration: none;
+    }
+    .pm-logo-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2.5px 7px;
+      border-radius: 6px;
+      font-size: 10.5px;
+      font-weight: 800;
+    }
+    .upi-pill { background: #ECFDF5; border: 1px solid #A7F3D0; }
+    .upi-text { color: #0F753A; font-weight: 900; }
+    .cash-pill { background: #F0FDF4; border: 1px solid #BBF7D0; }
+    .cash-text { color: #16A34A; font-weight: 900; }
+    .bank-pill { background: #EFF6FF; border: 1px solid #BFDBFE; }
+    .bank-text { color: #2563EB; font-weight: 900; }
+    .card-pill { background: #FEF3C7; border: 1px solid #FDE68A; }
+    .card-text { color: #B45309; font-weight: 900; }
+    .other-pill { background: #F5F3FF; border: 1px solid #DDD6FE; }
+    .other-text { color: #7C3AED; font-weight: 900; }
+
+    @page {
+      size: auto;
+      margin: 0mm;
+    }
+    @media print {
+      html, body {
+        background: #FFFFFF !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        display: block !important;
+        height: auto !important;
+        min-height: 0 !important;
+      }
+      .slip-container {
+        margin: 0 auto !important;
+        box-shadow: none !important;
+        page-break-before: avoid !important;
+        break-before: avoid !important;
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="slip-container">
+    <div class="slip-top">
+      <div class="slip-blob-1"></div>
+      <div class="slip-blob-2"></div>
+      <div class="slip-watermark">RUPEO</div>
+
+      <div class="slip-arrow-circle">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          ${isCredit
+      ? '<line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline>'
+      : '<line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline>'
+    }
+        </svg>
+      </div>
+
+      <div class="slip-amount">${isCredit ? '+' : '−'}${currency}${formattedAmt}</div>
+      <div class="slip-merchant">${merchant}</div>
+
+      <div class="slip-status-pill">
+        <div class="slip-status-dot"></div>
+        <span class="slip-status-text">TRANSACTION SUCCESSFUL</span>
+      </div>
+    </div>
+
+    <div class="notch-row">
+      <div class="notch-left"></div>
+      <div class="notch-dash"></div>
+      <div class="notch-right"></div>
+    </div>
+
+    <div class="slip-body">
+      <div class="slip-ref-row">
+        <div class="slip-ref-code">RUPEO TXN · ${barcodeValueToUse}</div>
+        <div class="slip-ref-badge">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="3">
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
+          VERIFIED
+        </div>
+      </div>
+
+      <div class="slip-summary-grid">
+        <div class="slip-summary-item">
+          <div class="slip-summary-icon" style="background:#EFF6FF;">📅</div>
+          <div>
+            <div class="slip-summary-label">DATE</div>
+            <div class="slip-summary-value">${formattedDate}</div>
+          </div>
+        </div>
+        <div class="slip-summary-item">
+          <div class="slip-summary-icon" style="background:#ECFDF5;">☀️</div>
+          <div>
+            <div class="slip-summary-label">TIME</div>
+            <div class="slip-summary-value">${formattedTime}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="slip-spec-row">
+        <div class="slip-spec-label">CATEGORY</div>
+        <div class="slip-spec-value">
+          <span>${catIcon}</span>
+          <span>${category}</span>
+        </div>
+      </div>
+
+      <div class="slip-spec-row">
+        <div class="slip-spec-label">PAYMENT MODE</div>
+        <div class="slip-spec-value">
+          ${paymentBadgeHtml}
+          <span>${paymentMode}</span>
+        </div>
+      </div>
+
+      ${description
+      ? `
+      <div class="slip-spec-row" style="align-items:flex-start;">
+        <div class="slip-spec-label">NOTE</div>
+        <div class="slip-spec-value" style="font-weight:600;color:#475569;max-width:65%;text-align:right;">
+          ${description}
+        </div>
+      </div>
+      `
+      : ''
+    }
+
+      ${resolvedImageSrc
+      ? `
+      <div class="slip-photo-wrap">
+        <img class="slip-photo" src="${resolvedImageSrc}" alt="Receipt Photo" />
+      </div>
+      `
+      : `
+      <div class="slip-no-photo-card">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+          <circle cx="8.5" cy="8.5" r="1.5"></circle>
+          <polyline points="21 15 16 10 5 21"></polyline>
+        </svg>
+        <div>
+          <div class="slip-no-photo-title">No receipt photo attached</div>
+          <div class="slip-no-photo-sub">You can attach bills or screenshots anytime via Edit.</div>
+        </div>
+      </div>
+      `
+    }
+
+      <div class="slip-barcode-wrap">
+        ${barcodeInfo.svg}
+        <div style="font-size:11px;font-weight:800;color:#0F172A;letter-spacing:2px;margin-top:4px;">
+          ${barcodeInfo.text}
+        </div>
+        <div class="slip-barcode-footer">
+          <div class="slip-barcode-dot"></div>
+          <div class="slip-barcode-text">RUPEO · CODE 39 SCANNABLE RECORD</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="slip-footer">
+      <div class="slip-footer-brand">
+        <div class="slip-footer-logo">₹</div>
+        <div class="slip-footer-name">Rupeo</div>
+        <div class="slip-footer-verified">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="3">
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
+          SAVED & VERIFIED
+        </div>
+      </div>
+      <div class="slip-footer-tagline">Tracked with Rupeo • Smart Expense Tracker</div>
+      <a class="slip-verify-pill" href="https://rupeoo.vercel.app/scanner">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#0F172A" stroke-width="2.5">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+        </svg>
+        Verify: rupeoo.vercel.app/scanner
+      </a>
+    </div>
+  </div>
+</body>
+</html>
+  `;
+}
+
+export function generateTransactionReceiptHtml(
+  options: TransactionReceiptPdfOptions,
+  resolvedImageSrc?: string | null
+): string {
+  if (options.theme === 'gradient_slip') {
+    return generateGradientSlipHtml(options, resolvedImageSrc);
+  }
+
+  const {
+    id,
+    type,
+    amount,
+    merchant: rawMerchant,
+    category = 'Food',
+    paymentMode = 'UPI',
+    date = '',
+    time = '',
+    description = '',
+    barcodeValue,
+    currency = '₹',
+    theme = 'classic_amber',
+  } = options;
+
+  const isDark = theme === 'midnight_obsidian';
 
   const numAmount = typeof amount === 'number' ? amount : parseFloat(amount || '0');
   const formattedAmt = numAmount.toLocaleString('en-IN', {
@@ -231,314 +911,323 @@ export function generateTransactionReceiptHtml(
       box-sizing: border-box;
       margin: 0;
       padding: 0;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      background: ${isDark ? '#030712' : '#F1F5F9'};
+      color: ${isDark ? '#F8FAFC' : '#0F172A'};
+      -webkit-font-smoothing: antialiased;
+      height: auto;
+      min-height: 0;
     }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-      background: #F8FAFC;
-      color: #0F172A;
-      padding: 24px 16px;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      min-height: 100vh;
-      -webkit-font-smoothing: antialiased;
+      padding: 16px 12px;
+      display: block;
     }
     .receipt-container {
       width: 100%;
       max-width: 440px;
-      background: #FFFFFF;
-      border-radius: 24px;
+      margin: 0 auto;
+      background: ${isDark ? '#090D16' : '#FFFFFF'};
+      border-radius: 20px;
       overflow: hidden;
-      box-shadow: 0 14px 40px rgba(15, 23, 42, 0.08);
-      border: 1px solid #E2E8F0;
+      box-shadow: ${isDark ? '0 14px 40px rgba(0, 0, 0, 0.75)' : '0 10px 32px rgba(15, 23, 42, 0.07)'};
+      border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0'};
       position: relative;
-      padding: 28px 24px 22px;
+      page-break-before: avoid;
+      break-before: avoid;
     }
 
-    /* Ambient Soft Yellow Curved Waves */
-    .top-wave {
-      position: absolute;
-      top: 0;
-      right: 0;
-      pointer-events: none;
-      z-index: 0;
+    /* Top Security / Audit Strip */
+    .security-strip {
+      background: ${isDark ? '#050811' : '#F8FAFC'};
+      border-bottom: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0'};
+      padding: 9px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
     }
-    .bottom-wave {
-      position: absolute;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      pointer-events: none;
-      z-index: 0;
-      width: 100%;
+    .security-strip-left {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 10px;
+      font-weight: 800;
+      color: ${isDark ? '#94A3B8' : '#0F172A'};
+      letter-spacing: 0.7px;
+    }
+    .security-strip-right {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 10px;
+      font-weight: 900;
+      color: ${isDark ? '#34D399' : '#16A34A'};
+      letter-spacing: 0.6px;
+    }
+    .security-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: ${isDark ? '#34D399' : '#16A34A'};
     }
 
     .card-content {
-      position: relative;
-      z-index: 1;
+      padding: 20px 22px 22px;
     }
 
-    /* Header */
+    /* Brand Header */
     .receipt-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 20px;
+      margin-bottom: 16px;
     }
     .brand-left {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
     }
     .brand-logo-emblem {
-      width: 44px;
-      height: 44px;
+      width: 40px;
+      height: 40px;
       background: #0F172A;
-      border-radius: 12px;
+      border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.18)' : 'transparent'};
+      border-radius: 11px;
       display: flex;
       align-items: center;
       justify-content: center;
       color: #FFD740;
-      font-size: 26px;
+      font-size: 22px;
       font-weight: 900;
       line-height: 1;
-      box-shadow: 0 4px 12px rgba(15, 23, 42, 0.15);
     }
     .brand-title-group {
       display: flex;
       flex-direction: column;
     }
     .brand-name {
-      font-size: 26px;
+      font-size: 20px;
       font-weight: 900;
-      color: #0F172A;
-      letter-spacing: -0.5px;
+      color: ${isDark ? '#FFFFFF' : '#0F172A'};
+      letter-spacing: -0.4px;
       line-height: 1.1;
     }
     .brand-tagline {
-      font-size: 9.5px;
+      font-size: 9px;
       font-weight: 700;
-      color: #64748B;
-      letter-spacing: 1.2px;
+      color: ${isDark ? '#94A3B8' : '#64748B'};
+      letter-spacing: 1.1px;
       text-transform: uppercase;
       margin-top: 2px;
     }
     .status-badge {
       display: inline-flex;
       align-items: center;
-      gap: 6px;
-      background: #ECFDF5;
-      border: 1px solid #A7F3D0;
+      gap: 5px;
+      background: ${isDark ? 'rgba(16, 185, 129, 0.16)' : '#ECFDF5'};
+      border: 1px solid ${isDark ? 'rgba(16, 185, 129, 0.35)' : '#A7F3D0'};
       border-radius: 20px;
-      padding: 6px 14px;
+      padding: 5px 12px;
     }
     .status-badge-text {
-      font-size: 11.5px;
-      font-weight: 700;
-      color: #15803D;
+      font-size: 11px;
+      font-weight: 800;
+      color: ${isDark ? '#34D399' : '#15803D'};
     }
 
     /* Hero Amount Card */
     .hero-card {
-      background: #FFFDF0;
-      border: 1px solid #FEF3C7;
-      border-radius: 20px;
-      padding: 20px 22px;
+      background: ${isDark ? '#0D1526' : '#F8FAFC'};
+      border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0'};
+      border-radius: 16px;
+      padding: 16px 18px;
       position: relative;
       overflow: hidden;
-      margin-bottom: 18px;
+      margin-bottom: 14px;
     }
-    .hero-watermark {
+    .hero-accent-bar {
       position: absolute;
-      right: 20px;
-      top: 50%;
-      transform: translateY(-50%);
-      font-size: 92px;
-      font-weight: 900;
-      color: rgba(245, 158, 11, 0.18);
-      pointer-events: none;
-      line-height: 1;
-      user-select: none;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: ${isDark ? '#F59E0B' : (isCredit ? '#10B981' : '#EF4444')};
     }
-    .hero-amount-label {
-      font-size: 13px;
-      font-weight: 600;
-      color: #64748B;
+    .hero-top-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
       margin-bottom: 4px;
     }
+    .hero-amount-label {
+      font-size: 10px;
+      font-weight: 800;
+      color: ${isDark ? '#94A3B8' : '#64748B'};
+      letter-spacing: 0.8px;
+    }
+    .hero-type-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2.5px 7px;
+      border-radius: 6px;
+      font-size: 9.5px;
+      font-weight: 800;
+      background: ${isCredit ? '#ECFDF5' : '#FEF2F2'};
+      color: ${isCredit ? '#10B981' : '#EF4444'};
+    }
     .hero-amount-val {
-      font-size: 40px;
+      font-size: 36px;
       font-weight: 900;
-      color: #0F172A;
-      letter-spacing: -1px;
+      color: ${isDark ? '#FFFFFF' : '#0F172A'};
+      letter-spacing: -0.8px;
       line-height: 1.1;
       margin-bottom: 4px;
     }
     .hero-merchant {
-      font-size: 18px;
+      font-size: 15px;
       font-weight: 800;
-      color: #0F172A;
+      color: ${isDark ? '#E2E8F0' : '#1E293B'};
       margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .hero-badges-row {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
     }
     .category-pill {
       display: inline-flex;
       align-items: center;
-      gap: 6px;
-      background: #FEF3C7;
-      border-radius: 12px;
-      padding: 5px 14px;
-      font-size: 13px;
+      gap: 5px;
+      background: ${isDark ? 'rgba(56, 189, 248, 0.1)' : '#FFFFFF'};
+      border: 1px solid ${isDark ? 'rgba(56, 189, 248, 0.25)' : '#E2E8F0'};
+      border-radius: 8px;
+      padding: 4px 10px;
+      font-size: 11.5px;
       font-weight: 700;
-      color: #D97706;
+      color: ${isDark ? '#38BDF8' : '#D97706'};
     }
 
-    /* 2x3 Specification Details Grid */
-    .details-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px 14px;
-      margin-bottom: 16px;
-    }
-    .grid-item {
-      background: #FFFFFF;
-      border: 1px solid #F1F5F9;
+    /* Financial Ledger Table */
+    .ledger-box {
+      background: ${isDark ? '#0D1526' : '#FFFFFF'};
+      border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0'};
       border-radius: 14px;
-      padding: 10px 12px;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      min-width: 0;
-    }
-    .grid-icon-box {
-      width: 34px;
-      height: 34px;
-      border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-    }
-    .icon-grey {
-      background: #F1F5F9;
-    }
-    .icon-amber {
-      background: #FEF3C7;
-    }
-    .grid-text {
-      flex: 1;
-      min-width: 0;
-    }
-    .grid-label {
-      font-size: 10.5px;
-      font-weight: 600;
-      color: #64748B;
-      margin-bottom: 2px;
-    }
-    .grid-val {
-      font-size: 13px;
-      font-weight: 800;
-      color: #0F172A;
-      white-space: nowrap;
       overflow: hidden;
-      text-overflow: ellipsis;
+      margin-bottom: 14px;
     }
-    .id-val {
-      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Mono', Menlo, Consolas, monospace;
-      font-size: 10.5px;
-      font-weight: 700;
-      letter-spacing: -0.2px;
-    }
-    .flag-badge {
-      flex-shrink: 0;
+    .ledger-row {
       display: flex;
+      justify-content: space-between;
       align-items: center;
+      padding: 10px 14px;
+      border-bottom: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.05)' : '#F1F5F9'};
     }
-    .copy-icon {
-      flex-shrink: 0;
-      display: flex;
-      align-items: center;
+    .ledger-row:last-child {
+      border-bottom: none;
+    }
+    .ledger-label {
+      font-size: 9.5px;
+      font-weight: 800;
       color: #64748B;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+    }
+    .ledger-val {
+      font-size: 12px;
+      font-weight: 700;
+      color: ${isDark ? '#F8FAFC' : '#0F172A'};
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .ledger-txid {
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Mono', Menlo, Consolas, monospace;
+      font-size: 11px;
+      font-weight: 800;
+      color: ${isDark ? '#38BDF8' : '#0F172A'};
+      letter-spacing: 0.3px;
     }
 
-    /* Attached Receipt Image Card (Conditionally shown only if user attached an image) */
+    /* Attached Receipt Image Card */
     .receipt-image-card {
-      background: #FFFFFF;
-      border: 1px solid #F1F5F9;
+      background: ${isDark ? '#0D1526' : '#FFFFFF'};
+      border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0'};
       border-radius: 14px;
       padding: 12px 14px;
-      margin-bottom: 16px;
+      margin-bottom: 14px;
     }
     .image-card-header {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
       margin-bottom: 8px;
-    }
-    .image-card-title {
-      font-size: 11px;
-      font-weight: 700;
-      color: #475569;
+      font-size: 10.5px;
+      font-weight: 800;
+      color: #D97706;
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
     .attached-bill-img {
       width: 100%;
-      max-height: 280px;
+      max-height: 260px;
       object-fit: contain;
       border-radius: 10px;
-      border: 1px solid #E2E8F0;
-      background: #F8FAFC;
+      border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : '#E2E8F0'};
+      background: ${isDark ? '#050811' : '#F8FAFC'};
       display: block;
     }
 
-    /* Barcode Section */
+    /* Barcode Card */
     .barcode-card {
-      padding: 12px 16px 8px;
+      padding: 10px 14px 8px;
       text-align: center;
-      margin-bottom: 8px;
+      margin-bottom: 12px;
       background: #FFFFFF;
       border-radius: 12px;
-      border: 1px solid #E2E8F0;
+      border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.15)' : '#E2E8F0'};
     }
     .barcode-svg-wrap {
       display: flex;
       justify-content: center;
       align-items: center;
-      margin-bottom: 6px;
+      margin-bottom: 4px;
       background: #FFFFFF;
     }
     .barcode-subtext {
-      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Mono', Menlo, Consolas, 'Courier New', monospace;
-      font-size: 11px;
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Mono', Menlo, Consolas, monospace;
+      font-size: 10px;
       font-weight: 800;
       color: #0F172A;
       letter-spacing: 2px;
-      margin-top: 4px;
+      margin-top: 2px;
     }
-    .barcode-badge {
-      display: inline-flex;
+    .barcode-security-row {
+      display: flex;
       align-items: center;
       justify-content: center;
       gap: 5px;
       font-size: 8.5px;
       font-weight: 800;
       color: #64748B;
-      letter-spacing: 1px;
-      margin-top: 4px;
+      letter-spacing: 0.8px;
+      margin-top: 6px;
       text-transform: uppercase;
-    }
-    .barcode-dot {
-      width: 5px;
-      height: 5px;
-      border-radius: 50%;
-      background: #10B981;
-      display: inline-block;
     }
 
     /* Dashed Separator */
     .dashed-divider {
-      border-top: 1.5px dashed #CBD5E1;
-      margin: 14px 0 16px;
+      border-top: 1.5px dashed ${isDark ? 'rgba(255, 255, 255, 0.15)' : '#CBD5E1'};
+      margin: 12px 0 14px;
     }
 
     /* Footer */
@@ -546,34 +1235,35 @@ export function generateTransactionReceiptHtml(
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding-top: 2px;
+      margin-bottom: 12px;
     }
     .footer-left {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 7px;
     }
     .footer-logo {
-      width: 26px;
-      height: 26px;
-      border-radius: 7px;
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
       background: #0F172A;
+      border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.15)' : 'transparent'};
       display: flex;
       align-items: center;
       justify-content: center;
       color: #FFD740;
-      font-size: 15px;
+      font-size: 13px;
       font-weight: 900;
       line-height: 1;
     }
     .footer-title {
-      font-size: 12.5px;
+      font-size: 12px;
       font-weight: 800;
-      color: #0F172A;
+      color: ${isDark ? '#FFFFFF' : '#0F172A'};
       line-height: 1.1;
     }
     .footer-sub {
-      font-size: 9.5px;
+      font-size: 9px;
       color: #64748B;
       margin-top: 1px;
     }
@@ -581,14 +1271,30 @@ export function generateTransactionReceiptHtml(
       text-align: right;
     }
     .footer-date-label {
-      font-size: 9px;
+      font-size: 8.5px;
       color: #64748B;
       margin-bottom: 1px;
     }
     .footer-date-val {
-      font-size: 10px;
+      font-size: 9.5px;
       font-weight: 700;
-      color: #0F172A;
+      color: ${isDark ? '#FFFFFF' : '#0F172A'};
+    }
+    .verification-pill {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      background: ${isDark ? '#0D1526' : '#F8FAFC'};
+      border: 1px solid ${isDark ? 'rgba(56, 189, 248, 0.3)' : '#E2E8F0'};
+      border-radius: 12px;
+      padding: 5px 12px;
+      font-size: 9.5px;
+      font-weight: 700;
+      color: ${isDark ? '#38BDF8' : '#0F172A'};
+      text-decoration: none;
+      width: fit-content;
+      margin: 0 auto;
     }
 
     @page {
@@ -597,23 +1303,24 @@ export function generateTransactionReceiptHtml(
     }
     @media print {
       html, body {
-        background: #FFFFFF !important;
+        background: ${isDark ? '#030712' : '#FFFFFF'} !important;
         margin: 0 !important;
-        padding: 24px 0 !important;
-        display: flex !important;
-        justify-content: center !important;
-        align-items: flex-start !important;
+        padding: 0 !important;
+        display: block !important;
+        height: auto !important;
+        min-height: 0 !important;
         -webkit-print-color-adjust: exact !important;
         print-color-adjust: exact !important;
       }
       .receipt-container {
         box-shadow: none !important;
-        border: 1px solid #E2E8F0 !important;
-        border-radius: 24px !important;
+        border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.15)' : '#E2E8F0'} !important;
+        border-radius: 20px !important;
         width: 100% !important;
         max-width: 440px !important;
         margin: 0 auto !important;
-        padding: 28px 24px 22px !important;
+        page-break-before: avoid !important;
+        break-before: avoid !important;
         page-break-inside: avoid !important;
         break-inside: avoid !important;
       }
@@ -626,225 +1333,174 @@ export function generateTransactionReceiptHtml(
 </head>
 <body>
   <div class="receipt-container">
-    <!-- Top-Right Ambient Yellow Wave -->
-    <div class="top-wave">
-      <svg width="190" height="130" viewBox="0 0 190 130" fill="none">
-        <path d="M0 0C65 45 130 20 190 85V0H0Z" fill="url(#topWave1)" opacity="0.4" />
-        <path d="M45 0C95 52 145 12 190 55V0H45Z" fill="url(#topWave2)" opacity="0.5" />
-        <defs>
-          <linearGradient id="topWave1" x1="0" y1="0" x2="190" y2="85" gradientUnits="userSpaceOnUse">
-            <stop stop-color="#FEF08A" />
-            <stop offset="1" stop-color="#FDE047" />
-          </linearGradient>
-          <linearGradient id="topWave2" x1="45" y1="0" x2="190" y2="55" gradientUnits="userSpaceOnUse">
-            <stop stop-color="#FFFBEB" />
-            <stop offset="1" stop-color="#FCD34D" />
-          </linearGradient>
-        </defs>
-      </svg>
-    </div>
-
-    <!-- Bottom Ambient Yellow Wave -->
-    <div class="bottom-wave">
-      <svg width="440" height="50" viewBox="0 0 440 50" fill="none">
-        <path d="M0 24C95 44 210 6 320 34C375 48 405 38 440 28V50H0V24Z" fill="url(#botWave)" opacity="0.65" />
-        <defs>
-          <linearGradient id="botWave" x1="0" y1="20" x2="440" y2="50" gradientUnits="userSpaceOnUse">
-            <stop stop-color="#FEF08A" />
-            <stop offset="0.5" stop-color="#FDE047" />
-            <stop offset="1" stop-color="#FBBF24" />
-          </linearGradient>
-        </defs>
-      </svg>
+    <!-- TOP SECURITY AUDIT STRIP -->
+    <div class="security-strip">
+      <div class="security-strip-left">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="${isDark ? '#38BDF8' : '#0F172A'}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          <polyline points="9 12 11 14 15 10"/>
+        </svg>
+        <span>${isDark ? 'RUPEO OBSIDIAN • DIGITAL PAYMENT ADVICE' : 'RUPEO PAYMENTS • TRANSACTION ADVICE'}</span>
+      </div>
+      <div class="security-strip-right">
+        <div class="security-dot"></div>
+        <span>SETTLED</span>
+      </div>
     </div>
 
     <div class="card-content">
-      <!-- HEADER -->
+      <!-- BRAND HEADER -->
       <div class="receipt-header">
         <div class="brand-left">
           <div class="brand-logo-emblem">₹</div>
           <div class="brand-title-group">
             <span class="brand-name">Rupeo</span>
-            <span class="brand-tagline">TRANSACTION RECEIPT</span>
+            <span class="brand-tagline">${isDark ? 'OBSIDIAN DIGITAL VOUCHER' : 'OFFICIAL TRANSACTION ADVICE'}</span>
           </div>
         </div>
 
         <div class="status-badge">
-          <svg width="15" height="15" viewBox="0 0 20 20" fill="none">
-            <circle cx="10" cy="10" r="9" fill="#16A34A" />
+          <svg width="13" height="13" viewBox="0 0 20 20" fill="none">
+            <circle cx="10" cy="10" r="9" fill="${isDark ? '#34D399' : '#16A34A'}" />
             <path d="M6 10L8.8 12.8L14 7.5" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
-          <span class="status-badge-text">${statusLabel}</span>
+          <span class="status-badge-text">${isCredit ? 'FUNDS RECEIVED' : 'PAYMENT SUCCESSFUL'}</span>
         </div>
       </div>
 
       <!-- HERO AMOUNT CARD -->
       <div class="hero-card">
-        <div class="hero-watermark">₹</div>
-        <div class="hero-amount-label">${amountLabel}</div>
+        <div class="hero-accent-bar"></div>
+        <div class="hero-top-row">
+          <div class="hero-amount-label">${isCredit ? 'TOTAL AMOUNT RECEIVED' : 'TOTAL AMOUNT PAID'}</div>
+          <div class="hero-type-pill">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              ${isCredit ? '<line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline>' : '<line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline>'}
+            </svg>
+            <span>${isCredit ? 'CREDIT' : 'DEBIT'}</span>
+          </div>
+        </div>
+
         <div class="hero-amount-val">${currency}${formattedAmt}</div>
-        <div class="hero-merchant">${merchant}</div>
-        <div class="category-pill">
-          <span>${catIcon}</span>
-          <span>${category}</span>
+
+        <div class="hero-merchant">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${isDark ? '#94A3B8' : '#64748B'}" stroke-width="2">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+            <polyline points="9 22 9 12 15 12 15 22"/>
+          </svg>
+          <span>${isCredit ? 'From: ' : 'Paid to: '}${merchant}</span>
+        </div>
+
+        <div class="hero-badges-row">
+          <div class="category-pill">
+            <span>${catIcon}</span>
+            <span>${category}</span>
+          </div>
+          ${getPaymentMethodLogoHtml(paymentMode, isDark)}
         </div>
       </div>
 
-      <!-- SPECIFICATION GRID (2x3) -->
-      <div class="details-grid">
-        <!-- Date -->
-        <div class="grid-item">
-          <div class="grid-icon-box icon-grey">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <!-- STRUCTURED FINANCIAL LEDGER BREAKDOWN -->
+      <div class="ledger-box">
+        <div class="ledger-row">
+          <span class="ledger-label">REFERENCE NO.</span>
+          <span class="ledger-val ledger-txid">${txRefId}</span>
+        </div>
+        <div class="ledger-row">
+          <span class="ledger-label">DATE & TIME</span>
+          <span class="ledger-val">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748B" stroke-width="2">
               <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
               <line x1="16" y1="2" x2="16" y2="6" />
               <line x1="8" y1="2" x2="8" y2="6" />
               <line x1="3" y1="10" x2="21" y2="10" />
             </svg>
-          </div>
-          <div class="grid-text">
-            <div class="grid-label">Date</div>
-            <div class="grid-val">${formattedDate}</div>
-          </div>
+            ${formattedDate} • ${formattedTime}
+          </span>
         </div>
-
-        <!-- Time -->
-        <div class="grid-item">
-          <div class="grid-icon-box icon-amber">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#D97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="10" />
-              <polyline points="12 6 12 12 16 14" />
-            </svg>
-          </div>
-          <div class="grid-text">
-            <div class="grid-label">Time</div>
-            <div class="grid-val">${formattedTime}</div>
-          </div>
+        <div class="ledger-row">
+          <span class="ledger-label">PAYMENT CHANNEL</span>
+          <span class="ledger-val">
+            ${paymentMode}
+            ${getPaymentMethodLogoHtml(paymentMode, isDark)}
+          </span>
         </div>
-
-        <!-- Merchant -->
-        <div class="grid-item">
-          <div class="grid-icon-box icon-grey">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-              <polyline points="9 22 9 12 15 12 15 22" />
-            </svg>
-          </div>
-          <div class="grid-text">
-            <div class="grid-label">Merchant</div>
-            <div class="grid-val">${merchant}</div>
-          </div>
+        <div class="ledger-row">
+          <span class="ledger-label">CATEGORY</span>
+          <span class="ledger-val">${catIcon} ${category}</span>
         </div>
-
-        <!-- Category -->
-        <div class="grid-item">
-          <div class="grid-icon-box icon-amber">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#D97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
-              <line x1="7" y1="7" x2="7.01" y2="7" />
-            </svg>
-          </div>
-          <div class="grid-text">
-            <div class="grid-label">Category</div>
-            <div class="grid-val">${category}</div>
-          </div>
+        <div class="ledger-row">
+          <span class="ledger-label">TYPE</span>
+          <span class="ledger-val" style="color:${isCredit ? '#10B981' : '#EF4444'};font-weight:800;">
+            ${isCredit ? 'Credit (Income)' : 'Debit (Expense)'}
+          </span>
         </div>
-
-        <!-- Payment Method -->
-        <div class="grid-item">
-          <div class="grid-icon-box icon-grey">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="2" y="5" width="20" height="14" rx="2" />
-              <line x1="2" y1="10" x2="22" y2="10" />
-            </svg>
-          </div>
-          <div class="grid-text">
-            <div class="grid-label">Payment Method</div>
-            <div class="grid-val">${paymentMode}</div>
-          </div>
-          <div class="flag-badge">
-            <svg width="20" height="14" viewBox="0 0 30 20" style="border-radius: 2px; overflow: hidden; border: 0.5px solid #E2E8F0;">
-              <rect width="30" height="6.66" fill="#FF9933" />
-              <rect y="6.66" width="30" height="6.66" fill="#FFFFFF" />
-              <rect y="13.33" width="30" height="6.66" fill="#138808" />
-              <circle cx="15" cy="10" r="2.2" fill="#000080" />
-            </svg>
-          </div>
+        ${description && description.trim().length > 0 ? `
+        <div class="ledger-row">
+          <span class="ledger-label">REMARKS</span>
+          <span class="ledger-val" style="color:#64748B;font-weight:600;max-width:65%;text-align:right;">
+            ${description.trim()}
+          </span>
         </div>
-
-        <!-- Transaction ID -->
-        <div class="grid-item">
-          <div class="grid-icon-box icon-amber">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#D97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-              <polyline points="14 2 14 8 20 8" />
-              <line x1="16" y1="13" x2="8" y2="13" />
-              <line x1="16" y1="17" x2="8" y2="17" />
-            </svg>
-          </div>
-          <div class="grid-text">
-            <div class="grid-label">Transaction ID</div>
-            <div class="grid-val id-val">${txRefId}</div>
-          </div>
-          <div class="copy-icon">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#64748B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-            </svg>
-          </div>
-        </div>
+        ` : ''}
       </div>
 
-      <!-- RECEIPT / BILL IMAGE (Shown only if user added an image, otherwise omitted completely) -->
-      ${
-        resolvedImageSrc
-          ? `
+      <!-- ATTACHED RECEIPT IMAGE (if present) -->
+      ${resolvedImageSrc ? `
       <div class="receipt-image-card">
         <div class="image-card-header">
-          <div class="grid-icon-box icon-amber" style="width: 26px; height: 26px;">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#D97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-              <circle cx="8.5" cy="8.5" r="1.5" />
-              <polyline points="21 15 16 10 5 21" />
-            </svg>
-          </div>
-          <span class="image-card-title">Bill / Receipt Attachment</span>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#D97706" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+            <circle cx="8.5" cy="8.5" r="1.5"/>
+            <polyline points="21 15 16 10 5 21"/>
+          </svg>
+          <span>Document Proof Attachment</span>
         </div>
         <img src="${resolvedImageSrc}" alt="Attached Receipt" class="attached-bill-img" />
       </div>
-      `
-          : ''
-      }
+      ` : ''}
 
-      <!-- SCANNABLE ISO/IEC 16388 CODE 39 BARCODE -->
+      <!-- AUTHENTIC SCANNABLE BARCODE SECTION -->
       <div class="barcode-card">
         <div class="barcode-svg-wrap">
           ${barcodeInfo.svg}
         </div>
         <div class="barcode-subtext">${barcodeInfo.text}</div>
-        <div class="barcode-badge">
-          <span class="barcode-dot"></span>
-          <span>RUPEO · CODE 39 SCANNABLE RECORD</span>
+        <div class="barcode-security-row">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#64748B" stroke-width="2.5">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            <polyline points="9 12 11 14 15 10"/>
+          </svg>
+          <span>OFFICIAL TRANSACTION RECORD • ISO/IEC 16388</span>
         </div>
       </div>
 
       <!-- DASHED SEPARATOR -->
       <div class="dashed-divider"></div>
 
-      <!-- FOOTER -->
+      <!-- RECEIPT FOOTER -->
       <div class="bill-footer">
         <div class="footer-left">
           <div class="footer-logo">₹</div>
           <div>
-            <div class="footer-title">Rupeo</div>
-            <div class="footer-sub">Your Personal Expense Tracker</div>
+            <div class="footer-title">Rupeo Financial</div>
+            <div class="footer-sub">${isDark ? 'Digital Ledger Voucher • SHA-256' : 'Computer Generated Payment Advice'}</div>
           </div>
         </div>
         <div class="footer-right">
-          <div class="footer-date-label">Generated on</div>
+          <div class="footer-date-label">Issued on</div>
           <div class="footer-date-val">${generatedTimestamp}</div>
         </div>
       </div>
+
+      <!-- VERIFICATION LINK -->
+      <a class="verification-pill" href="https://rupeoo.vercel.app/scanner">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+        </svg>
+        Verify Authenticity: rupeoo.vercel.app/scanner
+      </a>
     </div>
   </div>
 </body>
@@ -925,7 +1581,7 @@ export async function generateTransactionReceiptPdfOnly(
                 if (document.body.contains(iframe)) {
                   document.body.removeChild(iframe);
                 }
-              } catch {}
+              } catch { }
             }, 3000);
           }
         }, 350);

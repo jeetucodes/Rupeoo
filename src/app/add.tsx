@@ -18,7 +18,7 @@ import {
   TouchableWithoutFeedback,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
@@ -34,6 +34,7 @@ import {
   addCustomCategory,
   CategoryItem,
   defaultCategories,
+  KNOWN_INCOME_CATEGORY_NAMES,
 } from '@/lib/database';
 import { markFirstTransactionReviewPending, hasUserBeenPromptedForReview } from '@/lib/review';
 import { useAuth } from '@/context/AuthContext';
@@ -65,12 +66,14 @@ const EXTRA_PAYMENT_MODES = [
 ];
 
 const DEFAULT_INCOME_CATEGORIES: CategoryItem[] = [
-  { name: 'Salary', icon: 'briefcase', color: '#10B981' },
-  { name: 'Business', icon: 'trending-up', color: '#059669' },
-  { name: 'Freelance', icon: 'laptop', color: '#0EA5E9' },
-  { name: 'Investments', icon: 'bar-chart', color: '#8B5CF6' },
-  { name: 'Income', icon: 'wallet', color: '#10B981' },
-  { name: 'Other', icon: 'cube', color: '#64748B' },
+  { name: 'Salary', icon: 'briefcase', color: '#10B981', type: 'credit' },
+  { name: 'Job', icon: 'briefcase', color: '#14B8A6', type: 'credit' },
+  { name: 'Business', icon: 'trending-up', color: '#059669', type: 'credit' },
+  { name: 'Freelance', icon: 'laptop', color: '#0EA5E9', type: 'credit' },
+  { name: 'Investments', icon: 'bar-chart', color: '#8B5CF6', type: 'credit' },
+  { name: 'Savings', icon: 'cash', color: '#10B981', type: 'credit' },
+  { name: 'Income', icon: 'wallet', color: '#10B981', type: 'credit' },
+  { name: 'Other', icon: 'cube', color: '#64748B', type: 'credit' },
 ];
 
 const ADD_CAT_ICONS = [
@@ -128,10 +131,13 @@ const CATEGORY_STYLES: Record<string, { bg: string; activeBorder: string; active
   dining: { bg: '#FFF1F1', activeBorder: '#FECACA', activeText: '#EF4444' },
   coffee: { bg: '#FDF4FF', activeBorder: '#F5D0FE', activeText: '#A21CAF' },
   salary: { bg: '#ECFDF5', activeBorder: '#A7F3D0', activeText: '#059669' },
+  job: { bg: '#F0FDFA', activeBorder: '#99F6E4', activeText: '#0D9488' },
   business: { bg: '#F0FDF4', activeBorder: '#BBF7D0', activeText: '#16A34A' },
   freelance: { bg: '#F0F9FF', activeBorder: '#BAE6FD', activeText: '#0284C7' },
   investments: { bg: '#FAF5FF', activeBorder: '#E9D5FF', activeText: '#7C3AED' },
+  savings: { bg: '#ECFDF5', activeBorder: '#A7F3D0', activeText: '#059669' },
   income: { bg: '#ECFDF5', activeBorder: '#A7F3D0', activeText: '#059669' },
+  'pocket money': { bg: '#FFF1F2', activeBorder: '#FECDD3', activeText: '#E11D48' },
 };
 
 export default function AddExpenseScreen() {
@@ -141,7 +147,22 @@ export default function AddExpenseScreen() {
   const { t } = useTranslation();
   const curr = settings?.currency === 'INR' ? '₹' : (settings?.currency || '₹');
 
-  const [type, setType] = useState<'debit' | 'credit'>('debit');
+  const params = useLocalSearchParams<{ type?: string; fromWidget?: string; voice?: string }>();
+  const [type, setType] = useState<'debit' | 'credit'>(
+    params?.type === 'income' || params?.type === 'credit' ? 'credit' : 'debit'
+  );
+
+  useEffect(() => {
+    if (params?.type === 'income' || params?.type === 'credit') {
+      setType('credit');
+    } else if (params?.type === 'expense' || params?.type === 'debit') {
+      setType('debit');
+    }
+    if (params?.voice === '1') {
+      setVoiceModalVisible(true);
+    }
+  }, [params?.type, params?.voice]);
+
   const [amount, setAmount] = useState('');
   const [merchant, setMerchant] = useState('');
   const [description, setDescription] = useState('');
@@ -291,15 +312,42 @@ export default function AddExpenseScreen() {
 
   // Income categories
   const incomeCategories = React.useMemo(() => {
-    const customIncome = categories.filter((c) => c.type === 'credit');
-    const existingNames = new Set(DEFAULT_INCOME_CATEGORIES.map((c) => c.name.toLowerCase()));
-    const extra = customIncome.filter((c) => !existingNames.has(c.name.toLowerCase()));
-    return [...DEFAULT_INCOME_CATEGORIES, ...extra];
+    const customIncome = categories.filter(
+      (c) => c.type === 'credit' || KNOWN_INCOME_CATEGORY_NAMES.has((c.name || '').trim().toLowerCase())
+    );
+    const combined = [...customIncome, ...DEFAULT_INCOME_CATEGORIES];
+    const seen = new Set<string>();
+    const result: CategoryItem[] = [];
+    // Prioritize custom categories over defaults
+    const sorted = [...combined].sort((a, b) => (b.isCustom ? 1 : 0) - (a.isCustom ? 1 : 0));
+    for (const c of sorted) {
+      const name = (c.name || '').trim();
+      const key = name.toLowerCase();
+      if (!key || seen.has(key)) continue;
+      // Do not allow debit categories unless explicitly a known income category
+      if (c.type === 'debit' && !KNOWN_INCOME_CATEGORY_NAMES.has(key)) continue;
+      seen.add(key);
+      result.push({ ...c, name, type: 'credit' });
+    }
+    return result;
   }, [categories]);
 
   // Expense categories
   const expenseCategories = React.useMemo(() => {
-    return categories.filter((c) => c.type !== 'credit');
+    const seen = new Set<string>();
+    const result: CategoryItem[] = [];
+    // Prioritize custom categories over defaults so custom Pocket money wins over default Pocket Money
+    const sorted = [...categories].sort((a, b) => (b.isCustom ? 1 : 0) - (a.isCustom ? 1 : 0));
+    for (const c of sorted) {
+      const name = (c.name || '').trim();
+      const key = name.toLowerCase();
+      if (!key || seen.has(key)) continue;
+      // Never allow credit or known income categories in expense categories
+      if (c.type === 'credit' || KNOWN_INCOME_CATEGORY_NAMES.has(key)) continue;
+      seen.add(key);
+      result.push({ ...c, name, type: 'debit' });
+    }
+    return result;
   }, [categories]);
 
   // Sorted display categories
@@ -1088,62 +1136,102 @@ export default function AddExpenseScreen() {
                   </TouchableOpacity>
                 </View>
 
-                {/* Category Grid */}
+                {/* Category Grid - Strict 3-Column Responsive Layout */}
                 <ScrollView
                   showsVerticalScrollIndicator={false}
                   contentContainerStyle={styles.categoryGridContent}
                 >
-                  {sortedDisplayCategories
-                    .filter((c) =>
+                  {(() => {
+                    const filteredCats = sortedDisplayCategories.filter((c) =>
                       c.name.toLowerCase().includes(searchCategoryText.trim().toLowerCase())
-                    )
-                    .map((cat) => {
-                      const isSel = category.toLowerCase() === cat.name.toLowerCase();
-                      const catKey = cat.name.toLowerCase();
-                      const styleConfig = CATEGORY_STYLES[catKey] || {
-                        bg: cat.color ? cat.color + '15' : '#F1F5F9',
-                        activeBorder: cat.color || '#3B82F6',
-                        activeText: cat.color || '#3B82F6',
-                      };
+                    );
 
+                    if (filteredCats.length === 0) {
                       return (
-                        <TouchableOpacity
-                          key={cat.id || cat.name}
-                          style={[
-                            styles.categoryGridItem,
-                            isSel && { borderColor: styleConfig.activeBorder, borderWidth: 1.8 },
-                          ]}
-                          onPress={() => {
-                            setCategory(cat.name);
-                            setSeeAllCategoriesOpen(false);
-                          }}
-                          activeOpacity={0.75}
-                        >
-                          <View style={[styles.gridIconBox, { backgroundColor: styleConfig.bg }]}>
-                            <CategoryIcon
-                              categoryName={cat.name}
-                              iconName={cat.icon}
-                              size={26}
-                              color={styleConfig.activeText}
-                            />
-                          </View>
-                          <Text
-                            style={[
-                              styles.gridLabel,
-                              isSel && { color: styleConfig.activeText, fontWeight: '800' },
-                            ]}
-                            numberOfLines={1}
-                          >
-                            {cat.name}
+                        <View style={styles.noCategoriesWrap}>
+                          <Ionicons name="search-outline" size={32} color="#94A3B8" style={{ marginBottom: 8 }} />
+                          <Text style={styles.noCategoriesTitle}>No categories found</Text>
+                          <Text style={styles.noCategoriesSubtitle}>
+                            Can't find what you're looking for? Add it as a custom category!
                           </Text>
-                          {isSel && (
-                            <View style={[styles.selectedCheckBadge, { backgroundColor: styleConfig.activeBorder }]}>
-                              <Ionicons name="checkmark" size={10} color="#FFFFFF" />
-                            </View>
-                          )}
-                        </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[styles.noCategoriesAddBtn, { backgroundColor: themeColor }]}
+                            onPress={openAddCategoryModal}
+                            activeOpacity={0.8}
+                          >
+                            <Ionicons name="add" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+                            <Text style={styles.noCategoriesAddBtnText}>
+                              Add "{searchCategoryText.trim()}"
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
                       );
-                    })}
+                    }
+
+                    // Group into chunks of 3 for guaranteed 3-column grid on all phone screens
+                    const rows: (typeof filteredCats)[] = [];
+                    for (let i = 0; i < filteredCats.length; i += 3) {
+                      rows.push(filteredCats.slice(i, i + 3));
+                    }
+
+                    return rows.map((row, rowIdx) => (
+                      <View key={`cat-row-${rowIdx}`} style={styles.categoryGridRow}>
+                        {row.map((cat) => {
+                          const isSel = category.toLowerCase() === cat.name.toLowerCase();
+                          const catKey = cat.name.toLowerCase();
+                          const styleConfig = CATEGORY_STYLES[catKey] || {
+                            bg: cat.color ? cat.color + '15' : '#F1F5F9',
+                            activeBorder: cat.color || '#3B82F6',
+                            activeText: cat.color || '#3B82F6',
+                          };
+
+                          return (
+                            <TouchableOpacity
+                              key={cat.id || cat.name}
+                              style={[
+                                styles.categoryGridItem,
+                                isSel && { borderColor: styleConfig.activeBorder, borderWidth: 1.8, backgroundColor: styleConfig.bg },
+                              ]}
+                              onPress={() => {
+                                setCategory(cat.name);
+                                setSeeAllCategoriesOpen(false);
+                              }}
+                              activeOpacity={0.75}
+                            >
+                              <View style={[styles.gridIconBox, { backgroundColor: styleConfig.bg }]}>
+                                <CategoryIcon
+                                  categoryName={cat.name}
+                                  iconName={cat.icon}
+                                  size={24}
+                                  color={styleConfig.activeText}
+                                />
+                              </View>
+                              <Text
+                                style={[
+                                  styles.gridLabel,
+                                  isSel && { color: styleConfig.activeText, fontWeight: '800' },
+                                ]}
+                                numberOfLines={1}
+                                ellipsizeMode="tail"
+                              >
+                                {cat.name}
+                              </Text>
+                              {isSel && (
+                                <View style={[styles.selectedCheckBadge, { backgroundColor: styleConfig.activeBorder }]}>
+                                  <Ionicons name="checkmark" size={10} color="#FFFFFF" />
+                                </View>
+                              )}
+                            </TouchableOpacity>
+                          );
+                        })}
+                        {/* Empty placeholder slots to keep items in the last row at exact 1/3 width */}
+                        {row.length < 3 &&
+                          Array.from({ length: 3 - row.length }).map((_, emptyIdx) => (
+                            <View key={`empty-${emptyIdx}`} style={styles.categoryGridPlaceholder} />
+                          ))}
+                      </View>
+                    ));
+                  })()}
                 </ScrollView>
               </View>
             </TouchableWithoutFeedback>
@@ -1885,10 +1973,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingTop: 12,
     paddingBottom: Platform.OS === 'ios' ? 36 : 24,
-    maxHeight: '80%',
+    maxHeight: '82%',
+    width: '100%',
+    maxWidth: 500,
+    alignSelf: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.12,
@@ -1953,43 +2044,86 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   categoryGridContent: {
+    paddingBottom: 24,
+  },
+  categoryGridRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    paddingBottom: 20,
+    gap: 8,
+    marginBottom: 8,
+    width: '100%',
   },
   categoryGridItem: {
-    width: (Dimensions.get('window').width - 40 - 24) / 3,
+    flex: 1,
+    minWidth: 0,
     backgroundColor: '#F8FAFC',
-    borderRadius: 16,
-    paddingVertical: 12,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  gridIconBox: {
-    width: 48,
-    height: 48,
-    borderRadius: 15,
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    position: 'relative',
+  },
+  categoryGridPlaceholder: {
+    flex: 1,
+    minWidth: 0,
+  },
+  gridIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 5,
   },
   gridLabel: {
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: '700',
     color: '#334155',
     textAlign: 'center',
+    paddingHorizontal: 2,
   },
   selectedCheckBadge: {
     position: 'absolute',
-    top: 6,
-    right: 6,
-    width: 16,
-    height: 16,
-    borderRadius: 8,
+    top: 5,
+    right: 5,
+    width: 15,
+    height: 15,
+    borderRadius: 7.5,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  noCategoriesWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 36,
+    paddingHorizontal: 20,
+  },
+  noCategoriesTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#334155',
+    marginBottom: 4,
+  },
+  noCategoriesSubtitle: {
+    fontSize: 12,
+    color: '#94A3B8',
+    textAlign: 'center',
+    marginBottom: 16,
+    lineHeight: 18,
+  },
+  noCategoriesAddBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 12,
+  },
+  noCategoriesAddBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
 
   // Action Sheet (Receipt & Payment)

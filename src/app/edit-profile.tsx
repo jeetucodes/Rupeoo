@@ -197,10 +197,12 @@ export default function EditProfileScreen() {
 
   const handlePickFromGallery = async () => {
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
-        Alert.alert('Permission Required', 'Gallery access is needed to select a profile picture.');
-        return;
+      if (Platform.OS === 'ios') {
+        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!permission.granted) {
+          Alert.alert('Permission Required', 'Gallery access is needed to select a profile picture.');
+          return;
+        }
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({

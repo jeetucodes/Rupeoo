@@ -67,8 +67,8 @@ export interface WidgetContainerProps {
 export function WidgetContainer({
   children,
   clickActionUri = 'rupeo://(tabs)/dashboard',
-  paddingHorizontal = 12,
-  paddingVertical = 10,
+  paddingHorizontal = 14,
+  paddingVertical = 12,
 }: WidgetContainerProps) {
   return (
     <FlexWidget
@@ -78,8 +78,8 @@ export function WidgetContainer({
         height: 'match_parent',
         width: 'match_parent',
         backgroundColor: '#FFFFFF',
-        borderRadius: 16,
-        borderWidth: 1,
+        borderRadius: 18,
+        borderWidth: 1.2,
         borderColor: '#E2E8F0',
         paddingHorizontal,
         paddingVertical,

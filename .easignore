@@ -1,6 +1,11 @@
 android/
 ios/
 node_modules/
+**/node_modules/
+.expo/
+dist/
+web-build/
 *.keystore
 src/assets/
 src/assets/**
+functions/node_modules/

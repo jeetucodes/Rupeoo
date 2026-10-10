@@ -70,7 +70,7 @@ export const ShareStatementModal: React.FC<ShareStatementModalProps> = ({
   childSettlements = [],
   onOpenSettingsForUpi,
 }) => {
-  const [hideMyPhone, setHideMyPhone] = useState(true);
+  const [hideMyPhone, setHideMyPhone] = useState(false);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [isSharingWhatsApp, setIsSharingWhatsApp] = useState(false);
@@ -112,7 +112,12 @@ export const ShareStatementModal: React.FC<ShareStatementModalProps> = ({
     const upiStr = statementData.upiId ? ` or UPI ID: ${statementData.upiId}` : '';
     const linkStr = statementData.upiUri ? `\n\n👉 Pay via UPI: ${statementData.upiUri}` : '';
 
-    return `Hi ${friendName}, here is your Rupeo Khata statement for ${amtStr}.${statementData.upiId ? ` You can pay by scanning the QR code${upiStr}.` : ''}${linkStr}\n\nTracked smartly with Rupeo.`;
+    let interestNote = '';
+    if (statementData.hasInterest && statementData.accruedInterest > 0) {
+      interestNote = ` (Includes ${formatIndianCurrency(statementData.principalAmount)} Principal + ${formatIndianCurrency(statementData.accruedInterest)} Interest)`;
+    }
+
+    return `Hi ${friendName}, here is your Rupeo Khata statement for ${amtStr}${interestNote}.${statementData.upiId ? ` You can pay by scanning the QR code${upiStr}.` : ''}${linkStr}\n\nTracked smartly with Rupeo.`;
   }, [friend.name, statementData]);
 
   // Capture statement card as PNG
@@ -205,16 +210,23 @@ export const ShareStatementModal: React.FC<ShareStatementModalProps> = ({
         return;
       }
 
-      // 2. Convert to Base64
-      const base64Data = await FileSystem.readAsStringAsync(capturedUri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
+      // 2. Prepare Image Source for HTML
+      let imageSrc = capturedUri;
+      if (Platform.OS !== 'web' && FileSystem?.readAsStringAsync) {
+        try {
+          const base64Data = await FileSystem.readAsStringAsync(capturedUri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          imageSrc = `data:image/png;base64,${base64Data}`;
+        } catch (readErr) {
+          console.warn('Could not read image as base64, using uri:', readErr);
+          imageSrc = capturedUri;
+        }
+      }
 
       // 3. HTML template embedding the image
       const filename = sanitizeFilename(friend.name, 'pdf');
-      const targetUri = `${FileSystem.documentDirectory}${filename}`;
-
-      const plainPayInfo = statementData.upiUri ? statementData.upiUri : undefined;
+      const targetUri = `${FileSystem?.documentDirectory || ''}${filename}`;
 
       const html = `
 <!DOCTYPE html>
@@ -224,73 +236,89 @@ export const ShareStatementModal: React.FC<ShareStatementModalProps> = ({
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${filename}</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
       background: #FFFFFF;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: flex-start;
-      padding: 16px 12px;
+      color: #0F172A;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-      min-height: 100vh;
       -webkit-font-smoothing: antialiased;
+      height: auto;
+      min-height: 0;
+      display: block;
+    }
+    body {
+      padding: 8px 12px;
     }
     .card-wrap {
       width: 100%;
-      max-width: 440px;
+      max-width: 410px;
       margin: 0 auto;
       text-align: center;
+      page-break-before: avoid;
+      break-before: avoid;
+      page-break-inside: auto;
     }
     .statement-img {
-      width: 100%;
+      max-width: 100%;
+      max-height: 88vh;
+      width: auto;
       height: auto;
       display: block;
-      border-radius: 20px;
+      margin: 0 auto;
+      border-radius: 16px;
       box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+      page-break-before: avoid;
+      break-before: avoid;
+      page-break-inside: avoid;
+      break-inside: avoid;
     }
-    .pay-link-card {
-      margin-top: 14px;
-      padding: 10px 14px;
-      background: #F8FAFC;
-      border: 1px solid #E2E8F0;
-      border-radius: 12px;
-      text-align: left;
+    @page {
+      margin: 0;
+      size: auto;
     }
-    .pay-link-label {
-      font-size: 10px;
-      font-weight: 800;
-      color: #64748B;
-      text-transform: uppercase;
-      letter-spacing: 0.6px;
-      margin-bottom: 3px;
-    }
-    .pay-link-text {
-      font-size: 11px;
-      font-family: monospace;
-      color: #0284C7;
-      word-break: break-all;
-      line-height: 1.4;
-    }
-    @page { margin: 0; size: auto; }
     @media print {
-      body { padding: 16px 0 !important; }
-      .statement-img { box-shadow: none !important; }
+      html, body {
+        margin: 0 !important;
+        padding: 0 !important;
+        background: #FFFFFF !important;
+        height: auto !important;
+        min-height: 0 !important;
+        display: block !important;
+      }
+      .card-wrap {
+        margin: 0 auto !important;
+        padding: 6px 0 !important;
+        max-width: 385px !important;
+        page-break-before: avoid !important;
+        break-before: avoid !important;
+      }
+      .statement-img {
+        max-height: 90vh !important;
+        max-width: 100% !important;
+        width: auto !important;
+        height: auto !important;
+        object-fit: contain !important;
+        margin: 0 auto !important;
+        box-shadow: none !important;
+        page-break-before: avoid !important;
+        break-before: avoid !important;
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+      }
     }
   </style>
 </head>
 <body>
   <div class="card-wrap">
-    <img src="data:image/png;base64,${base64Data}" class="statement-img" alt="Rupeo Statement" />
-    ${
-      plainPayInfo
-        ? `
-    <div class="pay-link-card">
-      <div class="pay-link-label">Direct UPI Payment Link (Tap / Copy)</div>
-      <div class="pay-link-text">${plainPayInfo}</div>
-    </div>`
-        : ''
-    }
+    <img src="${imageSrc}" class="statement-img" alt="Rupeo Statement" />
   </div>
 </body>
 </html>

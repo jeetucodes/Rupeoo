@@ -123,13 +123,18 @@ const ICON_FALLBACKS: Record<string, string> = {
   eggs: 'egg-outline',
 };
 
-export default function CategoryIcon({ categoryName, iconName, color = '#6B7280', size = 16, style }: Props) {
+const LOWERCASE_ONLINE_ICONS: Record<string, string> = Object.keys(ONLINE_ICONS).reduce((acc, k) => {
+  acc[k.toLowerCase()] = ONLINE_ICONS[k];
+  return acc;
+}, {} as Record<string, string>);
+
+function CategoryIconComponent({ categoryName, iconName, color = '#6B7280', size = 16, style }: Props) {
   const [imageError, setImageError] = React.useState(false);
 
-  // Case-insensitive match for category name
+  // Fast O(1) case-insensitive lookup
   const normalizedCat = (categoryName || '').trim().toLowerCase();
-  const key = Object.keys(ONLINE_ICONS).find(k => k.toLowerCase() === normalizedCat);
-  const imageUrl = ICON_NAME_IMAGES[iconName] || (key ? ONLINE_ICONS[key] : null);
+  const matchedOnlineIcon = LOWERCASE_ONLINE_ICONS[normalizedCat];
+  const imageUrl = ICON_NAME_IMAGES[iconName] || matchedOnlineIcon || null;
 
   if (imageUrl && !imageError) {
     return (
@@ -138,7 +143,7 @@ export default function CategoryIcon({ categoryName, iconName, color = '#6B7280'
         style={[{ width: size * 1.25, height: size * 1.25 }, style]}
         contentFit="contain"
         cachePolicy="memory-disk"
-        transition={150}
+        transition={100}
         onError={() => setImageError(true)}
       />
     );
@@ -147,3 +152,5 @@ export default function CategoryIcon({ categoryName, iconName, color = '#6B7280'
   // Fallback to Ionicons for custom categories or if image fails to load
   return <Ionicons name={(ICON_FALLBACKS[iconName] || iconName) as any} size={size} color={color} style={style} />;
 }
+
+export default React.memo(CategoryIconComponent);

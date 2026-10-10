@@ -430,120 +430,19 @@ export default function DashboardScreen() {
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [isExistingUserReview, setIsExistingUserReview] = useState(false);
 
-  // Ultra-smooth native pastel color morphing (100% GPU RenderThread, 0% JS load, works on all low-end devices)
-  const colorFade1 = useRef(new Animated.Value(0)).current;
-  const colorFade2 = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    const colorLoop = Animated.loop(
-      Animated.sequence([
-        // Step 1: Smoothly cross-fade into Soft Sky / Cyan
-        Animated.timing(colorFade1, {
-          toValue: 1,
-          duration: 4500,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-        // Step 2: Smoothly cross-fade into Warm Peach / Lavender
-        Animated.timing(colorFade2, {
-          toValue: 1,
-          duration: 4500,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-        // Step 3: Fade back gracefully to Mint & Sky
-        Animated.parallel([
-          Animated.timing(colorFade1, {
-            toValue: 0,
-            duration: 4500,
-            easing: Easing.inOut(Easing.ease),
-            useNativeDriver: true,
-          }),
-          Animated.timing(colorFade2, {
-            toValue: 0,
-            duration: 4500,
-            easing: Easing.inOut(Easing.ease),
-            useNativeDriver: true,
-          }),
-        ]),
-      ])
-    );
-
-    colorLoop.start();
-    return () => colorLoop.stop();
-  }, [colorFade1, colorFade2]);
-
-  // Floating & pulsing micro-animations for Quick Access 3D Tiles
-  const tileFloatAnimCalendar = useRef(new Animated.Value(0)).current;
-  const tileFloatAnimQr = useRef(new Animated.Value(0)).current;
-  const tileDotPulseAnim = useRef(new Animated.Value(1)).current;
-
-  useEffect(() => {
-    const floatLoopCalendar = Animated.loop(
-      Animated.sequence([
-        Animated.timing(tileFloatAnimCalendar, {
-          toValue: -3.5,
-          duration: 1800,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.timing(tileFloatAnimCalendar, {
-          toValue: 0,
-          duration: 1800,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-      ])
-    );
-
-    const floatLoopQr = Animated.loop(
-      Animated.sequence([
-        Animated.timing(tileFloatAnimQr, {
-          toValue: -3.5,
-          duration: 2100,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.timing(tileFloatAnimQr, {
-          toValue: 0,
-          duration: 2100,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-      ])
-    );
-
-    const pulseLoopDot = Animated.loop(
-      Animated.sequence([
-        Animated.timing(tileDotPulseAnim, {
-          toValue: 0.35,
-          duration: 900,
-          useNativeDriver: true,
-        }),
-        Animated.timing(tileDotPulseAnim, {
-          toValue: 1,
-          duration: 900,
-          useNativeDriver: true,
-        }),
-      ])
-    );
-
-    floatLoopCalendar.start();
-    floatLoopQr.start();
-    pulseLoopDot.start();
-
-    return () => {
-      floatLoopCalendar.stop();
-      floatLoopQr.stop();
-      pulseLoopDot.stop();
-    };
-  }, [tileFloatAnimCalendar, tileFloatAnimQr, tileDotPulseAnim]);
+  const lastLoadTimeRef = useRef<number>(0);
 
 
 
 
   const loadData = async (forceRefresh = false) => {
     if (!user?.uid) return;
+    const now = Date.now();
+    if (!forceRefresh && (now - lastLoadTimeRef.current < 2500)) {
+      return;
+    }
+    lastLoadTimeRef.current = now;
+
     try {
       const [allTxs, userCats, notifs, bills] = await Promise.all([
         getAllTransactions(user.uid, forceRefresh),
@@ -578,12 +477,11 @@ export default function DashboardScreen() {
       setThisMonthSpend(curMonthS);
       setTransactions(sortTransactionsRecentFirst(allTxs));
 
-      // Check whether Friends & Udhar should be shown on the home dashboard
+      // Fast background checks for Udhar
       getShowUdharOnDashboard(user.uid).then((visible) => {
         setShowUdharCard(visible);
       }).catch(() => { });
 
-      // Load live Udhar Len-Den dues for quick home glance
       getAllFriendsSummaries(user.uid).then((res) => {
         if (res && (res.totalToReceive > 0 || res.totalToPay > 0)) {
           setUdharDues({ totalToReceive: res.totalToReceive, totalToPay: res.totalToPay });
@@ -592,33 +490,28 @@ export default function DashboardScreen() {
         }
       }).catch(() => { });
 
-      // Trigger automatic 3-day reminder checks & budget alerts
-      checkBillReminders(user.uid).catch(() => { });
+      // Defer non-critical auxiliary checks until smooth transitions finish
+      InteractionManager.runAfterInteractions(() => {
+        checkBillReminders(user.uid).catch(() => { });
 
-      // Ensure welcome notification & daily routine reminders are scheduled
-      import('@/lib/notifications').then(({ sendWelcomeNotification, setupPeriodicSmartNotifications }) => {
-        sendWelcomeNotification(user.uid).catch(() => { });
-        setupPeriodicSmartNotifications().catch(() => { });
-      }).catch(() => { });
-
-      // Check and show Google Play Review modal if user hasn't reviewed yet
-      checkIsReviewPending(user.uid).then((pending) => {
-        if (pending) {
-          setIsExistingUserReview(false);
-          setTimeout(() => {
-            setShowReviewModal(true);
-          }, 800);
-        } else if (allTxs.length >= 1) {
-          hasUserBeenPromptedForReview(user.uid).then((alreadyPrompted) => {
-            if (!alreadyPrompted) {
-              setIsExistingUserReview(allTxs.length > 1);
-              setTimeout(() => {
-                setShowReviewModal(true);
-              }, 1200);
-            }
-          }).catch(() => { });
-        }
-      }).catch(() => { });
+        checkIsReviewPending(user.uid).then((pending) => {
+          if (pending) {
+            setIsExistingUserReview(false);
+            setTimeout(() => {
+              setShowReviewModal(true);
+            }, 800);
+          } else if (allTxs.length >= 1) {
+            hasUserBeenPromptedForReview(user.uid).then((alreadyPrompted) => {
+              if (!alreadyPrompted) {
+                setIsExistingUserReview(allTxs.length > 1);
+                setTimeout(() => {
+                  setShowReviewModal(true);
+                }, 1200);
+              }
+            }).catch(() => { });
+          }
+        }).catch(() => { });
+      });
     } catch (err) {
       console.error('Failed to load dashboard data', err);
     } finally {
@@ -630,26 +523,8 @@ export default function DashboardScreen() {
   useFocusEffect(
     useCallback(() => {
       loadData(false);
-      if (user?.uid) {
-        getShowUdharOnDashboard(user.uid).then((visible) => {
-          setShowUdharCard(visible);
-        }).catch(() => { });
-        getAllFriendsSummaries(user.uid).then((res) => {
-          if (res && (res.totalToReceive > 0 || res.totalToPay > 0)) {
-            setUdharDues({ totalToReceive: res.totalToReceive, totalToPay: res.totalToPay });
-          } else {
-            setUdharDues(null);
-          }
-        }).catch(() => { });
-      }
     }, [user?.uid])
   );
-
-  useEffect(() => {
-    if (user?.uid) {
-      loadData(false);
-    }
-  }, [user?.uid]);
 
   // Instant real-time & voice transaction listener: immediately updates dashboard transactions list at top
   useEffect(() => {
@@ -1213,35 +1088,14 @@ export default function DashboardScreen() {
           />
         }
       >
-        {/* HERO TOTAL BALANCE CARD (WITH NATIVE PASTEL AURORA MORPHING EFFECT) */}
+        {/* HERO TOTAL BALANCE CARD */}
         <View style={styles.balanceCard}>
-          {/* Base Layer: Soft Mint & Sky */}
           <LinearGradient
-            colors={['#D5F9E3', '#CFFAFE']}
+            colors={['#D5F9E3', '#CFFAFE', '#EDE9FE']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={StyleSheet.absoluteFill}
           />
-
-          {/* Native GPU Layer 1: Sky & Soft Lavender */}
-          <Animated.View style={[StyleSheet.absoluteFill, { opacity: colorFade1 }]}>
-            <LinearGradient
-              colors={['#CFFAFE', '#EDE9FE']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={StyleSheet.absoluteFill}
-            />
-          </Animated.View>
-
-          {/* Native GPU Layer 2: Warm Peach & Blossom Rose */}
-          <Animated.View style={[StyleSheet.absoluteFill, { opacity: colorFade2 }]}>
-            <LinearGradient
-              colors={['#FFEDD5', '#FFE4E6']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={StyleSheet.absoluteFill}
-            />
-          </Animated.View>
 
           {/* Header Row: Label Pill (✦ TOTAL BALANCE) & Action Controls */}
           <View style={styles.balanceTopRow}>
@@ -1380,20 +1234,19 @@ export default function DashboardScreen() {
 
             {/* Bottom: Pill Badge */}
             <View style={styles.tilePaidBadge}>
-              <Animated.View style={[styles.tilePaidDot, { opacity: tileDotPulseAnim }]} />
+              <View style={styles.tilePaidDot} />
               <Text style={styles.tilePaidBadgeText} numberOfLines={1}>
                 {recurringBills.length > 0 ? `${recurringBills.length} Active` : '3 Active'}
               </Text>
             </View>
 
-            {/* Right: 3D Calendar Scene with Floating Micro-Animation */}
-            <Animated.View
+            {/* Right: 3D Calendar Scene */}
+            <View
               style={[
                 styles.tileHeroSceneWrap,
                 {
                   width: heroImageSize,
                   height: heroImageSize,
-                  transform: [{ translateY: tileFloatAnimCalendar }],
                 },
               ]}
               pointerEvents="none"
@@ -1404,7 +1257,7 @@ export default function DashboardScreen() {
                 contentFit="contain"
                 cachePolicy="memory-disk"
               />
-            </Animated.View>
+            </View>
           </TouchableOpacity>
 
           {/* 2. SMART QR PAY CARD */}
@@ -1447,14 +1300,13 @@ export default function DashboardScreen() {
               <Text style={styles.tileQrBadgeText} numberOfLines={1}>Split Bills</Text>
             </View>
 
-            {/* Right: 3D QR Scene with Floating Micro-Animation */}
-            <Animated.View
+            {/* Right: 3D QR Scene */}
+            <View
               style={[
                 styles.tileHeroSceneWrapQr,
                 {
                   width: heroImageSize,
                   height: heroImageSize,
-                  transform: [{ translateY: tileFloatAnimQr }],
                 },
               ]}
               pointerEvents="none"
@@ -1465,7 +1317,7 @@ export default function DashboardScreen() {
                 contentFit="contain"
                 cachePolicy="memory-disk"
               />
-            </Animated.View>
+            </View>
           </TouchableOpacity>
         </View>
 

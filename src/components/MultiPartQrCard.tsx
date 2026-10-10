@@ -19,16 +19,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Toast from 'react-native-toast-message';
 import { SplitPart } from '@/lib/splitPayment';
 import BankLogo from '@/components/BankLogo';
-
-// Safe dynamic getter for expo-media-library that avoids crashing on Web
-const getMediaLibrary = () => {
-  if (Platform.OS === 'web') return null;
-  try {
-    return require('expo-media-library');
-  } catch {
-    return null;
-  }
-};
+import { RUPEO_QR_LOGO_DATA_URI } from '@/constants/qrLogo';
 
 interface MultiPartQrCardProps {
   part: SplitPart;
@@ -105,26 +96,6 @@ export const MultiPartQrCard: React.FC<MultiPartQrCardProps> = ({
         if (Platform.OS === 'web') {
           triggerWebDownload(uri);
           return;
-        }
-
-        const MediaLibrary = getMediaLibrary();
-        if (MediaLibrary?.requestPermissionsAsync && MediaLibrary?.saveToLibraryAsync) {
-          try {
-            const { status } = await MediaLibrary.requestPermissionsAsync();
-            if (status === 'granted') {
-              await MediaLibrary.saveToLibraryAsync(uri);
-              Toast.show({
-                type: 'success',
-                text1: 'Saved to Gallery! 📸',
-                text2: `QR code for Part ${part.partIndex} (₹${part.amountFormatted}) saved.`,
-                position: 'top',
-                visibilityTime: 3500,
-              });
-              return;
-            }
-          } catch (mediaErr) {
-            console.warn('MediaLibrary save error, falling back to Sharing:', mediaErr);
-          }
         }
 
         if (await Sharing.isAvailableAsync()) {
@@ -274,8 +245,8 @@ export const MultiPartQrCard: React.FC<MultiPartQrCardProps> = ({
               color={part.isPaid ? '#475569' : '#0F172A'}
               backgroundColor="#FFFFFF"
               quietZone={10}
-              ecl="Q"
-              logo={require('../../assets/images/rupeo-qr-emblem.png')}
+              ecl="H"
+              logo={{ uri: RUPEO_QR_LOGO_DATA_URI }}
               logoSize={Math.min(logoSize, 34)}
               logoBackgroundColor="#FFFFFF"
               logoMargin={3}

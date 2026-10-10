@@ -258,4 +258,154 @@ describe('Udhar Statement Calculator Unit Tests', () => {
     assert.strictEqual(formatIndianCurrency(253.5), '₹253.50');
     assert.strictEqual(formatIndianCurrency(0), '₹0');
   });
+
+  it('9. Statement with interest applied to payment as child settlement entry', () => {
+    // Parent loan entry (e.g. lent 1000)
+    const parentEntry: UdharEntry = {
+      id: 'loan_parent_123',
+      friendId: 'friend_1',
+      amount: 1000,
+      type: 'gave',
+      date: '2026-09-08',
+      createdAt: '2026-09-08T10:00:00Z',
+    };
+
+    // Child interest entry added via '% Interest' button
+    const interestChild: UdharEntry = {
+      id: 'interest_child_456',
+      friendId: 'friend_1',
+      amount: 20,
+      type: 'gave',
+      date: '2026-09-08',
+      parentEntryId: 'loan_parent_123',
+      settlementType: 'interest',
+      isInterest: true,
+      interestPercent: 2, // 2% per month
+      interestPeriod: 'monthly',
+      interestStartDate: '2026-09-08',
+      interestCalcType: 'pro_rata',
+      baseAmount: 1000,
+      createdAt: '2026-09-08T10:05:00Z',
+    };
+
+    const res = calculateStatementDetails({
+      entry: parentEntry,
+      friend: dummyFriend,
+      currentUserName: dummyUser.name,
+      currentUserUpiId: dummyUser.upiId,
+      childSettlements: [interestChild],
+      asOfDate: new Date('2026-10-08T12:00:00Z'), // 30 days elapsed
+    });
+
+    assert.strictEqual(res.hasInterest, true, 'hasInterest should be true for child interest');
+    assert.strictEqual(res.interestPercent, 2);
+    assert.strictEqual(res.principalAmount, 1000);
+    assert.strictEqual(res.accruedInterest, 20); // 1000 * 0.02 * (30/30) = 20
+    assert.strictEqual(res.totalWithInterest, 1020, 'totalWithInterest should be principal + interest');
+    assert.strictEqual(res.remainingDue, 1020, 'remainingDue should be total with interest');
+    assert.strictEqual(res.shouldShowPaymentSection, true);
+    assert.ok(res.upiUri?.includes('am=1020.00'), 'UPI URI must encode total amount including interest (1020.00)');
+  });
+
+  it('10. Statement with child interest and repayments', () => {
+    const parentEntry: UdharEntry = {
+      id: 'loan_parent_999',
+      friendId: 'friend_1',
+      amount: 5000,
+      type: 'gave',
+      date: '2026-09-08',
+      createdAt: '2026-09-08T10:00:00Z',
+    };
+
+    const interestChild: UdharEntry = {
+      id: 'interest_child_999',
+      friendId: 'friend_1',
+      amount: 250,
+      type: 'gave',
+      date: '2026-09-08',
+      parentEntryId: 'loan_parent_999',
+      settlementType: 'interest',
+      isInterest: true,
+      interestPercent: 5,
+      interestPeriod: 'monthly',
+      interestStartDate: '2026-09-08',
+      baseAmount: 5000,
+      createdAt: '2026-09-08T10:05:00Z',
+    };
+
+    const partialPayment: UdharEntry = {
+      id: 'repay_1',
+      friendId: 'friend_1',
+      amount: 1500,
+      type: 'got',
+      date: '2026-09-20',
+      parentEntryId: 'loan_parent_999',
+      settlementType: 'partial',
+      createdAt: '2026-09-20T10:00:00Z',
+    };
+
+    const res = calculateStatementDetails({
+      entry: parentEntry,
+      friend: dummyFriend,
+      currentUserName: dummyUser.name,
+      currentUserUpiId: dummyUser.upiId,
+      childSettlements: [interestChild, partialPayment],
+      asOfDate: new Date('2026-10-08T12:00:00Z'), // 30 days -> 250 interest
+    });
+
+    assert.strictEqual(res.hasInterest, true);
+    assert.strictEqual(res.principalAmount, 5000);
+    assert.strictEqual(res.accruedInterest, 250);
+    assert.strictEqual(res.totalWithInterest, 5250);
+    assert.strictEqual(res.totalPaymentsReceived, 1500);
+    assert.strictEqual(res.netDue, 3750); // 5250 - 1500 = 3750
+    assert.strictEqual(res.remainingDue, 3750);
+    assert.ok(res.upiUri?.includes('am=3750.00'), 'UPI URI should encode net remaining total with interest (3750.00)');
+  });
+
+  it('11. Complete interest breakdown details (formula, base principal, days, records)', () => {
+    const parentEntry: UdharEntry = {
+      id: 'loan_parent_full',
+      friendId: 'friend_1',
+      amount: 2000,
+      type: 'gave',
+      date: '2026-09-18',
+      createdAt: '2026-09-18T10:00:00Z',
+    };
+
+    const interestChild: UdharEntry = {
+      id: 'interest_child_full',
+      friendId: 'friend_1',
+      amount: 40,
+      type: 'gave',
+      date: '2026-09-18',
+      parentEntryId: 'loan_parent_full',
+      settlementType: 'interest',
+      isInterest: true,
+      interestPercent: 3,
+      interestPeriod: 'monthly',
+      interestStartDate: '2026-09-18',
+      baseAmount: 2000,
+      createdAt: '2026-09-18T10:05:00Z',
+    };
+
+    const res = calculateStatementDetails({
+      entry: parentEntry,
+      friend: dummyFriend,
+      currentUserName: dummyUser.name,
+      currentUserUpiId: dummyUser.upiId,
+      childSettlements: [interestChild],
+      asOfDate: new Date('2026-10-08T12:00:00Z'), // 20 days -> 2000 * 0.03 * 20/30 = 40
+    });
+
+    assert.strictEqual(res.hasInterest, true);
+    assert.strictEqual(res.interestBaseAmount, 2000);
+    assert.strictEqual(res.daysElapsed, 20);
+    assert.strictEqual(res.accruedInterest, 40);
+    assert.strictEqual(res.interestRecords.length, 1);
+    assert.strictEqual(res.interestRecords[0].ratePercent, 3);
+    assert.strictEqual(res.interestRecords[0].baseAmount, 2000);
+    assert.ok(res.interestFormulaStr?.includes('₹2,000') || res.interestFormulaStr?.includes('3%/mo'), 'Formula must show base and rate');
+    assert.ok(res.interestFormulaStr?.includes('₹40'), 'Formula must show final accrued interest');
+  });
 });

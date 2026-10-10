@@ -27,6 +27,7 @@ import {
   getAllTransactions,
   CategoryItem,
   defaultCategories,
+  KNOWN_INCOME_CATEGORY_NAMES,
 } from '@/lib/database';
 import { getLocalDateString, formatTime12Hour } from '@/lib/dateUtils';
 import { triggerTransactionVibration } from '@/lib/sound';
@@ -148,14 +149,27 @@ export default function QuickAddScreen() {
     // Append custom categories from user's custom categories
     const existingNames = new Set(baseList.map((c) => c.name.toLowerCase()));
     (categories || []).forEach((c) => {
-      if (c && c.name && !existingNames.has(c.name.toLowerCase())) {
-        if ((isExpense && c.type !== 'credit') || (!isExpense && c.type === 'credit')) {
-          baseList.push({
-            name: c.name,
-            icon: 'grid-outline',
-            color: c.color || '#64748B',
-          });
-        }
+      const name = (c?.name || '').trim();
+      const key = name.toLowerCase();
+      if (!name || existingNames.has(key)) return;
+
+      const isKnownIncome = KNOWN_INCOME_CATEGORY_NAMES.has(key);
+      const isIncome = c.type === 'credit' || isKnownIncome;
+
+      if (isExpense && !isIncome) {
+        existingNames.add(key);
+        baseList.push({
+          name,
+          icon: 'grid-outline',
+          color: c.color || '#64748B',
+        });
+      } else if (!isExpense && isIncome) {
+        existingNames.add(key);
+        baseList.push({
+          name,
+          icon: 'grid-outline',
+          color: c.color || '#64748B',
+        });
       }
     });
 
@@ -382,45 +396,61 @@ export default function QuickAddScreen() {
           {/* 3. Category Grid */}
           <Text style={styles.sectionLabel}>Category</Text>
           <View style={styles.categoryGrid}>
-            {displayCategories.slice(0, 10).map((cat) => {
-              const isSelected = selectedCategory.toLowerCase() === cat.name.toLowerCase();
-              return (
-                <TouchableOpacity
-                  key={cat.name}
-                  onPress={() => setSelectedCategory(cat.name)}
-                  style={[
-                    styles.categoryCard,
-                    isSelected && {
-                      borderColor: accentColor,
-                      backgroundColor: isExpense ? '#FEF2F2' : '#F0FDF4',
-                    },
-                  ]}
-                  activeOpacity={0.7}
-                >
-                  <View
-                    style={[
-                      styles.categoryIconWrap,
-                      { backgroundColor: isSelected ? accentColor : '#F1F5F9' },
-                    ]}
-                  >
-                    <Ionicons
-                      name={cat.icon}
-                      size={18}
-                      color={isSelected ? '#FFFFFF' : '#475569'}
-                    />
-                  </View>
-                  <Text
-                    style={[
-                      styles.categoryName,
-                      isSelected && { color: accentColor, fontWeight: '700' },
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {cat.name}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
+            {(() => {
+              const topCats = displayCategories.slice(0, 12);
+              const rows: (typeof topCats)[] = [];
+              for (let i = 0; i < topCats.length; i += 3) {
+                rows.push(topCats.slice(i, i + 3));
+              }
+
+              return rows.map((row, rowIdx) => (
+                <View key={`qa-row-${rowIdx}`} style={styles.categoryGridRow}>
+                  {row.map((cat) => {
+                    const isSelected = selectedCategory.toLowerCase() === cat.name.toLowerCase();
+                    return (
+                      <TouchableOpacity
+                        key={cat.name}
+                        onPress={() => setSelectedCategory(cat.name)}
+                        style={[
+                          styles.categoryCard,
+                          isSelected && {
+                            borderColor: accentColor,
+                            backgroundColor: isExpense ? '#FEF2F2' : '#F0FDF4',
+                          },
+                        ]}
+                        activeOpacity={0.7}
+                      >
+                        <View
+                          style={[
+                            styles.categoryIconWrap,
+                            { backgroundColor: isSelected ? accentColor : '#F1F5F9' },
+                          ]}
+                        >
+                          <Ionicons
+                            name={cat.icon as any}
+                            size={18}
+                            color={isSelected ? '#FFFFFF' : '#475569'}
+                          />
+                        </View>
+                        <Text
+                          style={[
+                            styles.categoryName,
+                            isSelected && { color: accentColor, fontWeight: '700' },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {cat.name}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                  {row.length < 3 &&
+                    Array.from({ length: 3 - row.length }).map((_, emptyIdx) => (
+                      <View key={`qa-empty-${emptyIdx}`} style={styles.categoryCardPlaceholder} />
+                    ))}
+                </View>
+              ));
+            })()}
           </View>
 
           {/* 4. Date Chip */}
@@ -618,13 +648,17 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   categoryGrid: {
+    marginBottom: 16,
+  },
+  categoryGridRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: 8,
-    marginBottom: 18,
+    marginBottom: 8,
+    width: '100%',
   },
   categoryCard: {
-    width: '31%',
+    flex: 1,
+    minWidth: 0,
     flexDirection: 'column',
     alignItems: 'center',
     paddingVertical: 10,
@@ -633,6 +667,10 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#E2E8F0',
+  },
+  categoryCardPlaceholder: {
+    flex: 1,
+    minWidth: 0,
   },
   categoryIconWrap: {
     width: 36,
