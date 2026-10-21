@@ -1,5 +1,6 @@
 import React from 'react';
-import { Image, StyleProp, ImageStyle, TextStyle } from 'react-native';
+import { StyleProp, ImageStyle, TextStyle } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 
 interface Props {
@@ -13,16 +14,16 @@ function PaymentModeIconComponent({ mode, size = 16, color = '#6B7280', style }:
   const m = (mode || '').toLowerCase();
 
   if (m.includes('upi')) {
-    return <Image source={require('@/assets/images/upi_user.png')} style={[{ width: size * 1.5, height: size, resizeMode: 'contain' }, style]} />;
+    return <ExpoImage source={require('@/assets/images/upi_user.png')} contentFit="contain" cachePolicy="memory-disk" style={[{ width: size * 1.5, height: size }, style]} />;
   }
   if (m.includes('bank')) {
-    return <Image source={require('@/assets/images/bank_user.png')} style={[{ width: size, height: size, resizeMode: 'contain' }, style]} />;
+    return <ExpoImage source={require('@/assets/images/bank_user.png')} contentFit="contain" cachePolicy="memory-disk" style={[{ width: size, height: size }, style]} />;
   }
   if (m.includes('card')) {
-    return <Image source={require('@/assets/images/card_user.png')} style={[{ width: size, height: size, resizeMode: 'contain' }, style]} />;
+    return <ExpoImage source={require('@/assets/images/card_user.png')} contentFit="contain" cachePolicy="memory-disk" style={[{ width: size, height: size }, style]} />;
   }
   if (m.includes('cash')) {
-    return <Image source={require('@/assets/images/cash_user.png')} style={[{ width: size, height: size, resizeMode: 'contain' }, style]} />;
+    return <ExpoImage source={require('@/assets/images/cash_user.png')} contentFit="contain" cachePolicy="memory-disk" style={[{ width: size, height: size }, style]} />;
   }
 
   // Fallback

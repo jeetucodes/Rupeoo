@@ -1191,7 +1191,7 @@ export default function ReportsScreen() {
           <View style={{ flex: 1, marginRight: 10 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Text style={styles.swissSectionNum}>04.</Text>
-              <ExpoImage source={{ uri: ICONS_3D.sparkles }} style={{ width: 20, height: 20 }} contentFit="contain" />
+              <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.sparkles }} style={{ width: 20, height: 20 }} contentFit="contain" />
               <Text style={styles.themeCardTitle}>{t('spending_wave') || 'Daily Spend & Average'}</Text>
             </View>
             <Text style={styles.themeCardSub}>
@@ -1687,7 +1687,7 @@ export default function ReportsScreen() {
           <View style={{ flex: 1, marginRight: 10 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Text style={styles.swissSectionNum}>05.</Text>
-              <ExpoImage source={{ uri: ICONS_3D.bar_chart }} style={{ width: 20, height: 20 }} contentFit="contain" />
+              <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.bar_chart }} style={{ width: 20, height: 20 }} contentFit="contain" />
               <Text style={styles.themeCardTitle}>{t('cash_flow_trends') || 'Cash Flow Trends'}</Text>
               <View style={styles.trendLiveBadge}>
                 <Text style={styles.trendLiveBadgeText}>{t('six_month_badge')}</Text>
@@ -2222,7 +2222,7 @@ export default function ReportsScreen() {
                     }}
                     activeOpacity={0.75}
                   >
-                    <ExpoImage
+                    <ExpoImage cachePolicy="memory-disk"
                       source={{ uri: tab.icon3d }}
                       style={styles.reportTabIcon}
                       contentFit="contain"
@@ -2246,12 +2246,12 @@ export default function ReportsScreen() {
             <View style={styles.heroTopRow}>
               <View style={styles.heroNetLabelWrap}>
                 <Text style={styles.swissSectionNum}>01.</Text>
-                <ExpoImage source={{ uri: ICONS_3D.money_bag }} style={{ width: 16, height: 16, marginRight: 5 }} contentFit="contain" />
+                <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.money_bag }} style={{ width: 16, height: 16, marginRight: 5 }} contentFit="contain" />
                 <Text style={styles.heroNetLabel}>{t('net_savings')}</Text>
               </View>
 
               <View style={styles.heroSavingsBadge}>
-                <ExpoImage source={{ uri: ICONS_3D.chart_up }} style={{ width: 14, height: 14, marginRight: 4 }} contentFit="contain" />
+                <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.chart_up }} style={{ width: 14, height: 14, marginRight: 4 }} contentFit="contain" />
                 <Text style={styles.heroSavingsBadgeText}>{metrics.savingsRate}% {t('saved_pct')}</Text>
               </View>
             </View>
@@ -2267,7 +2267,7 @@ export default function ReportsScreen() {
             <View style={styles.heroCashflowRow}>
               <View style={styles.heroIncomeCard}>
                 <View style={styles.heroCardHeaderMini}>
-                  <ExpoImage source={{ uri: ICONS_3D.money_bag }} style={{ width: 13, height: 13, marginRight: 4 }} contentFit="contain" />
+                  <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.money_bag }} style={{ width: 13, height: 13, marginRight: 4 }} contentFit="contain" />
                   <Text style={styles.heroInnerCardLabel} numberOfLines={1}>{t('income')}</Text>
                 </View>
                 <Text style={styles.heroIncomeAmount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>
@@ -2277,7 +2277,7 @@ export default function ReportsScreen() {
 
               <View style={styles.heroExpenseCard}>
                 <View style={styles.heroCardHeaderMini}>
-                  <ExpoImage source={{ uri: ICONS_3D.money_wings }} style={{ width: 13, height: 13, marginRight: 4 }} contentFit="contain" />
+                  <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.money_wings }} style={{ width: 13, height: 13, marginRight: 4 }} contentFit="contain" />
                   <Text style={styles.heroInnerCardLabel} numberOfLines={1}>{t('expenses')}</Text>
                 </View>
                 <Text style={styles.heroExpenseAmount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>
@@ -2287,7 +2287,7 @@ export default function ReportsScreen() {
 
               <View style={styles.heroDailyCard}>
                 <View style={styles.heroCardHeaderMini}>
-                  <ExpoImage source={{ uri: ICONS_3D.target }} style={{ width: 13, height: 13, marginRight: 4 }} contentFit="contain" />
+                  <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.target }} style={{ width: 13, height: 13, marginRight: 4 }} contentFit="contain" />
                   <Text style={styles.heroInnerCardLabel} numberOfLines={1}>{t('daily_avg')}</Text>
                 </View>
                 <Text style={styles.heroDailyAmount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>
@@ -2312,7 +2312,7 @@ export default function ReportsScreen() {
               <View style={styles.categoryChartHeader}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <Text style={styles.swissSectionNum}>02.</Text>
-                  <ExpoImage source={{ uri: ICONS_3D.pie }} style={{ width: 20, height: 20 }} contentFit="contain" />
+                  <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.pie }} style={{ width: 20, height: 20 }} contentFit="contain" />
                   <Text style={styles.themeCardTitle}>
                     {categoryType === 'expense' ? t('expense_breakdown') : t('income_breakdown')}
                   </Text>
@@ -2346,7 +2346,7 @@ export default function ReportsScreen() {
               <View style={styles.sectionHeaderBetween}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
                   <Text style={styles.swissSectionNum}>03.</Text>
-                  <ExpoImage source={{ uri: ICONS_3D.pie }} style={{ width: 22, height: 22 }} contentFit="contain" />
+                  <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.pie }} style={{ width: 22, height: 22 }} contentFit="contain" />
                   <Text style={styles.cardHeading}>{t('top_categories')}</Text>
                 </View>
 
@@ -2463,7 +2463,7 @@ export default function ReportsScreen() {
             <View style={styles.sectionCard}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 12 }}>
                 <Text style={styles.swissSectionNum}>06.</Text>
-                <ExpoImage source={{ uri: ICONS_3D.card }} style={{ width: 22, height: 22 }} contentFit="contain" />
+                <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.card }} style={{ width: 22, height: 22 }} contentFit="contain" />
                 <Text style={styles.cardHeading}>{t('payment_split')}</Text>
               </View>
 
@@ -2509,7 +2509,7 @@ export default function ReportsScreen() {
             <View style={styles.sectionCard}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 12 }}>
                 <Text style={styles.swissSectionNum}>07.</Text>
-                <ExpoImage source={{ uri: ICONS_3D.money_wings }} style={{ width: 22, height: 22 }} contentFit="contain" />
+                <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.money_wings }} style={{ width: 22, height: 22 }} contentFit="contain" />
                 <Text style={styles.cardHeading}>{t('top_expenses_title')}</Text>
               </View>
 
@@ -2704,7 +2704,7 @@ export default function ReportsScreen() {
             {/* Top Crown Glowing Badge */}
             <View style={styles.proCrownBadgeWrap}>
               <View style={styles.proCrownBadgeCircle}>
-                <ExpoImage
+                <ExpoImage cachePolicy="memory-disk"
                   source={{ uri: ICONS_3D.trophy }}
                   style={{ width: 38, height: 38 }}
                   contentFit="contain"
@@ -2766,7 +2766,7 @@ export default function ReportsScreen() {
               }}
               activeOpacity={0.8}
             >
-              <ExpoImage
+              <ExpoImage cachePolicy="memory-disk"
                 source={{ uri: ICONS_3D.zap }}
                 style={{ width: 17, height: 17, marginRight: 6 }}
                 contentFit="contain"

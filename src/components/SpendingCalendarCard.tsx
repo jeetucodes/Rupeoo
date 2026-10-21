@@ -270,7 +270,7 @@ export default function SpendingCalendarCard({
       <View style={styles.headerContainer}>
         <View style={styles.headerTitleWrap}>
           <View style={styles.headerIconBadge}>
-            <ExpoImage source={{ uri: ICONS_3D.calendar }} style={{ width: 26, height: 26 }} contentFit="contain" />
+            <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.calendar }} style={{ width: 26, height: 26 }} contentFit="contain" />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.cardTitle} numberOfLines={1} adjustsFontSizeToFit>
@@ -336,7 +336,7 @@ export default function SpendingCalendarCard({
           </Text>
           {!isCurrentMonthView && (
             <View style={styles.todaySmallPill}>
-              <ExpoImage source={{ uri: ICONS_3D.sparkles }} style={{ width: 11, height: 11, marginRight: 3 }} contentFit="contain" />
+              <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.sparkles }} style={{ width: 11, height: 11, marginRight: 3 }} contentFit="contain" />
               <Text style={styles.todaySmallPillText}>{t('current_month')}</Text>
             </View>
           )}
@@ -351,7 +351,7 @@ export default function SpendingCalendarCard({
       <View style={styles.monthSnapshotCard}>
         <View style={styles.monthSnapshotLeft}>
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
-            <ExpoImage source={{ uri: ICONS_3D.money_bag }} style={{ width: 15, height: 15, marginRight: 4 }} contentFit="contain" />
+            <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.money_bag }} style={{ width: 15, height: 15, marginRight: 4 }} contentFit="contain" />
             <Text style={styles.monthSnapshotLabel}>{t('total_spent_cap')}</Text>
           </View>
           <Text style={styles.monthSnapshotAmount}>
@@ -366,14 +366,14 @@ export default function SpendingCalendarCard({
 
         <View style={styles.monthSnapshotRight}>
           <View style={styles.monthSnapshotMetricItem}>
-            <ExpoImage source={{ uri: ICONS_3D.chart_up }} style={{ width: 15, height: 15, marginRight: 5 }} contentFit="contain" />
+            <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.chart_up }} style={{ width: 15, height: 15, marginRight: 5 }} contentFit="contain" />
             <Text style={styles.monthSnapshotMetricText}>
               Avg <Text style={{ fontWeight: '800', color: '#0F172A' }}>{currency}{dailyAvgSpend.toLocaleString('en-IN')}</Text>/day
             </Text>
           </View>
 
           <View style={[styles.monthSnapshotMetricItem, { marginTop: 6 }]}>
-            <ExpoImage source={{ uri: ICONS_3D.shield }} style={{ width: 15, height: 15, marginRight: 5 }} contentFit="contain" />
+            <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.shield }} style={{ width: 15, height: 15, marginRight: 5 }} contentFit="contain" />
             <Text style={styles.monthSnapshotMetricText}>
               <Text style={{ fontWeight: '800', color: '#059669' }}>{zeroSpendDaysList.length} {t('zero_spend')}</Text>
             </Text>
@@ -460,7 +460,7 @@ export default function SpendingCalendarCard({
                     </Text>
                     {activeDay.isToday && (
                       <View style={styles.inspectorTodayBadge}>
-                        <ExpoImage source={{ uri: ICONS_3D.sparkles }} style={{ width: 12, height: 12, marginRight: 3 }} contentFit="contain" />
+                        <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.sparkles }} style={{ width: 12, height: 12, marginRight: 3 }} contentFit="contain" />
                         <Text style={styles.inspectorTodayBadgeText}>{t('today')}</Text>
                       </View>
                     )}
@@ -511,7 +511,7 @@ export default function SpendingCalendarCard({
               ) : (
                 <View style={styles.dayEmptyBox}>
                   <View style={styles.dayEmptyIconWrap}>
-                    <ExpoImage source={{ uri: ICONS_3D.trophy }} style={{ width: 24, height: 24 }} contentFit="contain" />
+                    <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.trophy }} style={{ width: 24, height: 24 }} contentFit="contain" />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.dayEmptyTitle}>{t('zero_outflow_day')}</Text>
@@ -535,7 +535,7 @@ export default function SpendingCalendarCard({
               activeOpacity={0.8}
             >
               <View style={styles.summaryPillHeader}>
-                <ExpoImage source={{ uri: ICONS_3D.fire }} style={{ width: 14, height: 14, marginRight: 4 }} contentFit="contain" />
+                <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.fire }} style={{ width: 14, height: 14, marginRight: 4 }} contentFit="contain" />
                 <Text style={[styles.summaryPillLabel, { color: '#FF5722' }]}>{t('peak_day_cap')}</Text>
               </View>
               <Text style={styles.summaryPillValue} numberOfLines={1}>
@@ -557,7 +557,7 @@ export default function SpendingCalendarCard({
               activeOpacity={0.8}
             >
               <View style={styles.summaryPillHeader}>
-                <ExpoImage source={{ uri: ICONS_3D.star }} style={{ width: 14, height: 14, marginRight: 4 }} contentFit="contain" />
+                <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.star }} style={{ width: 14, height: 14, marginRight: 4 }} contentFit="contain" />
                 <Text style={[styles.summaryPillLabel, { color: '#059669' }]}>{t('lowest_cap')}</Text>
               </View>
               <Text style={styles.summaryPillValue} numberOfLines={1}>
@@ -579,7 +579,7 @@ export default function SpendingCalendarCard({
               activeOpacity={0.8}
             >
               <View style={styles.summaryPillHeader}>
-                <ExpoImage source={{ uri: ICONS_3D.shield }} style={{ width: 14, height: 14, marginRight: 4 }} contentFit="contain" />
+                <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.shield }} style={{ width: 14, height: 14, marginRight: 4 }} contentFit="contain" />
                 <Text style={[styles.summaryPillLabel, { color: '#7C3AED' }]}>{t('zero_spend')}</Text>
               </View>
               <Text style={styles.summaryPillValue} numberOfLines={1}>
@@ -598,7 +598,7 @@ export default function SpendingCalendarCard({
           <View style={styles.rankingKpiRow}>
             <View style={[styles.rankingKpiCard, { borderColor: '#FED7AA', backgroundColor: '#FFF7ED' }]}>
               <View style={styles.rankingKpiIconWrap}>
-                <ExpoImage source={{ uri: ICONS_3D.fire }} style={{ width: 22, height: 22 }} contentFit="contain" />
+                <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.fire }} style={{ width: 22, height: 22 }} contentFit="contain" />
               </View>
               <Text style={styles.rankingKpiLabel}>{t('highest_spend')}</Text>
               <Text style={[styles.rankingKpiValue, { color: '#C2410C' }]}>
@@ -611,7 +611,7 @@ export default function SpendingCalendarCard({
 
             <View style={[styles.rankingKpiCard, { borderColor: '#BBF7D0', backgroundColor: '#F0FDF4' }]}>
               <View style={styles.rankingKpiIconWrap}>
-                <ExpoImage source={{ uri: ICONS_3D.star }} style={{ width: 22, height: 22 }} contentFit="contain" />
+                <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.star }} style={{ width: 22, height: 22 }} contentFit="contain" />
               </View>
               <Text style={styles.rankingKpiLabel}>{t('lowest_spend')}</Text>
               <Text style={[styles.rankingKpiValue, { color: '#15803D' }]}>
@@ -624,7 +624,7 @@ export default function SpendingCalendarCard({
 
             <View style={[styles.rankingKpiCard, { borderColor: '#E0E7FF', backgroundColor: '#EEF2FF' }]}>
               <View style={styles.rankingKpiIconWrap}>
-                <ExpoImage source={{ uri: ICONS_3D.shield }} style={{ width: 22, height: 22 }} contentFit="contain" />
+                <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.shield }} style={{ width: 22, height: 22 }} contentFit="contain" />
               </View>
               <Text style={styles.rankingKpiLabel}>{t('zero_spend')}</Text>
               <Text style={[styles.rankingKpiValue, { color: '#4338CA' }]}>
@@ -657,7 +657,7 @@ export default function SpendingCalendarCard({
               }}
               activeOpacity={0.7}
             >
-              <ExpoImage
+              <ExpoImage cachePolicy="memory-disk"
                 source={{ uri: ICONS_3D.fire }}
                 style={{ width: 13, height: 13, marginRight: 4 }}
                 contentFit="contain"
@@ -675,7 +675,7 @@ export default function SpendingCalendarCard({
               }}
               activeOpacity={0.7}
             >
-              <ExpoImage
+              <ExpoImage cachePolicy="memory-disk"
                 source={{ uri: ICONS_3D.star }}
                 style={{ width: 13, height: 13, marginRight: 4 }}
                 contentFit="contain"
@@ -693,7 +693,7 @@ export default function SpendingCalendarCard({
               }}
               activeOpacity={0.7}
             >
-              <ExpoImage
+              <ExpoImage cachePolicy="memory-disk"
                 source={{ uri: ICONS_3D.shield }}
                 style={{ width: 13, height: 13, marginRight: 4 }}
                 contentFit="contain"
@@ -710,7 +710,7 @@ export default function SpendingCalendarCard({
               <View style={styles.rankingHeaderRow}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <View style={[styles.rankSectionBadge, { backgroundColor: '#FEE2E2' }]}>
-                    <ExpoImage source={{ uri: ICONS_3D.fire }} style={{ width: 16, height: 16 }} contentFit="contain" />
+                    <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.fire }} style={{ width: 16, height: 16 }} contentFit="contain" />
                   </View>
                   <Text style={styles.rankingSectionTitle}>{t('highest_spends_filter')}</Text>
                 </View>
@@ -782,7 +782,7 @@ export default function SpendingCalendarCard({
               <View style={styles.rankingHeaderRow}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <View style={[styles.rankSectionBadge, { backgroundColor: '#DCFCE7' }]}>
-                    <ExpoImage source={{ uri: ICONS_3D.star }} style={{ width: 16, height: 16 }} contentFit="contain" />
+                    <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.star }} style={{ width: 16, height: 16 }} contentFit="contain" />
                   </View>
                   <Text style={styles.rankingSectionTitle}>{t('lowest_spends_filter')}</Text>
                 </View>
@@ -836,7 +836,7 @@ export default function SpendingCalendarCard({
               <View style={styles.rankingHeaderRow}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <View style={[styles.rankSectionBadge, { backgroundColor: '#F3E8FF' }]}>
-                    <ExpoImage source={{ uri: ICONS_3D.shield }} style={{ width: 16, height: 16 }} contentFit="contain" />
+                    <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.shield }} style={{ width: 16, height: 16 }} contentFit="contain" />
                   </View>
                   <Text style={styles.rankingSectionTitle}>{t('zero_spend_streak')}</Text>
                 </View>

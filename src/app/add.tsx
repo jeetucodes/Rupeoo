@@ -1703,7 +1703,7 @@ export default function AddExpenseScreen() {
           </View>
           <View style={styles.previewImgContainer}>
             {receiptImage && (
-              <ExpoImage source={{ uri: receiptImage }} style={styles.previewFullImg} contentFit="contain" />
+              <ExpoImage cachePolicy="memory-disk" source={{ uri: receiptImage }} style={styles.previewFullImg} contentFit="contain" />
             )}
           </View>
         </View>

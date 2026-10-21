@@ -6,7 +6,7 @@
     "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "rupeo",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "light",
     "ios": {
       "icon": "./assets/images/icon.png",
       "bundleIdentifier": "com.innovatexlabs.paisewaise",

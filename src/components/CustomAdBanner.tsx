@@ -55,6 +55,7 @@ export function CustomAdBanner({ ad, style, compact = false, onDismiss }: Custom
             source={{ uri: ad.imageUrl }}
             style={styles.heroImage}
             contentFit="cover"
+            cachePolicy="memory-disk"
             transition={200}
           />
           <LinearGradient
@@ -172,6 +173,7 @@ export function CustomAdBanner({ ad, style, compact = false, onDismiss }: Custom
                     source={{ uri: ad.imageUrl }}
                     style={styles.txImage}
                     contentFit="cover"
+                    cachePolicy="memory-disk"
                     transition={200}
                   />
                 </View>
@@ -304,6 +306,7 @@ export function CustomAdBanner({ ad, style, compact = false, onDismiss }: Custom
                   source={{ uri: ad.imageUrl }}
                   style={styles.thumbImage}
                   contentFit="cover"
+                  cachePolicy="memory-disk"
                   transition={200}
                 />
               </View>

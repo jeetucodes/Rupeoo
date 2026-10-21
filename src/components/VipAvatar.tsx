@@ -50,6 +50,7 @@ export function VipAvatar({
             source={{ uri: photoURL }}
             style={styles.fullImg}
             contentFit="cover"
+            cachePolicy="memory-disk"
             transition={200}
           />
         ) : (

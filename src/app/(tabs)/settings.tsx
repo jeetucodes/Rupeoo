@@ -1187,7 +1187,7 @@ export default function SettingsScreen() {
               <View style={[styles.udharPrefCard, syncUdharDashboard && styles.udharPrefCardActive]}>
                 <View style={styles.udharPrefHeader}>
                   <View style={[styles.udharIconCircle, syncUdharDashboard && styles.udharIconCircleActive]}>
-                    <ExpoImage
+                    <ExpoImage cachePolicy="memory-disk"
                       source={require('@/assets/images/3D_frinds-icon.png')}
                       style={styles.udhar3dImg}
                       contentFit="contain"

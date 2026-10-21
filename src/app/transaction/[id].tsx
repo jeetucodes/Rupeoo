@@ -763,7 +763,7 @@ export default function TransactionDetailScreen() {
                             { backgroundColor: '#EFF6FF' },
                           ]}
                         >
-                          <ExpoImage
+                          <ExpoImage cachePolicy="memory-disk"
                             source={{
                               uri: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Calendar.png',
                             }}
@@ -786,7 +786,7 @@ export default function TransactionDetailScreen() {
                             { backgroundColor: '#ECFDF5' },
                           ]}
                         >
-                          <ExpoImage
+                          <ExpoImage cachePolicy="memory-disk"
                             source={{
                               uri: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Travel%20and%20places/Sun.png',
                             }}

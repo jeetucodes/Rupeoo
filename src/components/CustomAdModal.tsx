@@ -66,6 +66,7 @@ export function CustomAdModal({ ad, visible, onClose }: CustomAdModalProps) {
                     source={{ uri: ad.imageUrl }}
                     style={styles.heroImage}
                     contentFit="cover"
+                    cachePolicy="memory-disk"
                   />
                 </View>
               )}

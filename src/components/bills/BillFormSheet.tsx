@@ -614,7 +614,7 @@ export function BillFormSheet({
                 </TouchableOpacity>
 
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <ExpoImage
+                  <ExpoImage cachePolicy="memory-disk"
                     source={{ uri: ICONS_3D.calendar }}
                     style={{ width: 22, height: 22, marginRight: 6 }}
                     contentFit="contain"
@@ -646,7 +646,7 @@ export function BillFormSheet({
                   style={[styles.calQuickPill, { flexDirection: 'row', alignItems: 'center' }]}
                   onPress={() => handleSelectDateFromCalendar(todayStr)}
                 >
-                  <ExpoImage source={{ uri: ICONS_3D.sparkles }} style={{ width: 12, height: 12, marginRight: 4 }} contentFit="contain" />
+                  <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.sparkles }} style={{ width: 12, height: 12, marginRight: 4 }} contentFit="contain" />
                   <Text style={styles.calQuickPillText}>Today</Text>
                 </TouchableOpacity>
                 <TouchableOpacity

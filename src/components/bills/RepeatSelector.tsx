@@ -206,7 +206,7 @@ export function RepeatSelector({
               accessibilityRole="button"
               accessibilityLabel="Select start date"
             >
-              <ExpoImage
+              <ExpoImage cachePolicy="memory-disk"
                 source={{ uri: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Spiral%20Calendar.png' }}
                 style={{ width: 17, height: 17, marginRight: 6 }}
                 contentFit="contain"
