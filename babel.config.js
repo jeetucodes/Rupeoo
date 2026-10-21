@@ -1,7 +1,7 @@
 module.exports = function (api) {
-  const isProd = api.env('production');
+  api.cache(true);
   const plugins = [];
-  if (isProd) {
+  if (process.env.NODE_ENV === 'production') {
     plugins.push(['babel-plugin-transform-remove-console', { exclude: ['error'] }]);
   }
   plugins.push('react-native-reanimated/plugin');
