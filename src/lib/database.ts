@@ -34,6 +34,7 @@ import {
 import { syncWidgetWithTransactions } from './widgetSync';
 import { flushUdharSyncQueue } from './udharStorage';
 import { formatCurrency } from './formatCurrency';
+import { recordIgnoredPayKey } from './smsDedupe';
 import { warn, error } from '@/lib/logger';
 
 export {
@@ -260,10 +261,10 @@ export function normalizeDate(dateStr: string): string {
 export async function insertTransaction(userId: string, tx: any, statementId?: number) {
   if (!userId) return null;
 
-  // 1. Generate client-side Firestore Document ID (permanent ID from creation)
+  // 1. Generate client-side Firestore Document ID (permanent ID from creation or deterministic ID)
   const txsRef = collection(db, `users/${userId}/transactions`);
   const newDocRef = doc(txsRef);
-  const txId = newDocRef.id;
+  const txId = (tx?.id && typeof tx.id === 'string' && tx.id.trim()) ? tx.id.trim() : newDocRef.id;
 
   const now = new Date();
   const currentTime12 = formatTime12Hour(now);
@@ -286,6 +287,10 @@ export async function insertTransaction(userId: string, tx: any, statementId?: n
     source_statement_id: statementId || null,
     is_manually_edited: tx.is_manually_edited ? 1 : 0,
     created_at: tx.created_at ? (getCreatedAtMillis(tx.created_at) || Date.now()) : Date.now(),
+    sourceHash: tx.sourceHash || null,
+    payKey: tx.payKey || null,
+    batchId: tx.batchId || null,
+    importedAt: tx.importedAt || null,
   };
 
   // 2. Gather existing transactions from memory cache AND local persistent storage
@@ -317,6 +322,11 @@ export async function insertTransaction(userId: string, tx: any, statementId?: n
     } catch {
       // Intentional: offline fallback to local persistent cache
     }
+  }
+
+  // If transaction with deterministic ID already exists, return existing ID without duplicate write
+  if (txMap.has(txId)) {
+    return txId;
   }
 
   // Add the newly created transaction
@@ -669,7 +679,16 @@ export async function deleteTransaction(userId: string, txId: string) {
     if (t?.id) txMap.set(t.id, t);
   }
 
+  const deletedItem = txMap.get(txId);
   txMap.delete(txId);
+
+  // Layer 4 Dedupe: If deleted transaction was imported from SMS/alerts, record in ignored set so it never re-imports
+  if (deletedItem) {
+    const payKey = deletedItem.payKey || (typeof txId === 'string' && txId.startsWith('sms_') ? txId.replace(/^sms_/, '') : null);
+    if (payKey) {
+      recordIgnoredPayKey(userId, payKey).catch(() => {});
+    }
+  }
 
   const updatedLocal = sortTransactionsRecentFirst(Array.from(txMap.values()));
   await saveOfflineTransactions(userId, updatedLocal);
