@@ -207,7 +207,7 @@ export async function runSmsImport(
     if (shouldAutoAdd) {
       // Auto-add via existing insertTransaction
       const formattedNote = formatTransactionNote(parsed.sender, parsed.rawText, settings);
-      const dateStr = normalizeDate(new Date(timestamp));
+      const dateStr = normalizeDate(new Date(timestamp).toISOString());
 
       const txPayload = {
         id: deterministicId,

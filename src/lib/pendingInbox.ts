@@ -103,7 +103,7 @@ export async function confirmPendingAlert(
   // Map to Rupeo Transaction Payload
   const dateStr = overrides?.date
     ? normalizeDate(overrides.date)
-    : normalizeDate(new Date(target.alert.timestamp || Date.now()));
+    : normalizeDate(new Date(target.alert.timestamp || Date.now()).toISOString());
 
   const txPayload = {
     id: deterministicId,
