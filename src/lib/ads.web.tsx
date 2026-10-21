@@ -18,6 +18,14 @@ export const ADMOB_CONFIG = {
   transactionSaveId: process.env.EXPO_PUBLIC_ADMOB_TX_SAVE_ID || 'ca-app-pub-2106211536803561/1459985503',
 };
 
+export function formatAdError(error: any): string {
+  return String(error?.message || error || 'Unknown error');
+}
+
+export function isMobileAdsInitialized(): boolean {
+  return false;
+}
+
 export async function initializeAds(_config?: AppConfig): Promise<void> {}
 
 export function preloadTransactionSaveAd(_forceTest: boolean = false, _customUnitId?: string): void {}

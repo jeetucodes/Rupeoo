@@ -261,15 +261,10 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     return () => sub.remove();
   }, [user]);
 
-  // Initialize Ads respecting Real-time Remote Admin Config (deferred after interaction)
+  // Initialize Ads respecting Real-time Remote Admin Config
   useEffect(() => {
-    if (!loading && appConfig) {
-      const task = InteractionManager.runAfterInteractions(() => {
-        initializeAds(appConfig).catch((e) => warn('Ads init warning:', e));
-      });
-      return () => {
-        task.cancel();
-      };
+    if (appConfig) {
+      initializeAds(appConfig).catch((e) => warn('Ads init warning:', e));
     }
   }, [loading, appConfig?.networkAdsEnabled, appConfig?.showAds, appConfig?.adMobTestMode]);
 

@@ -10,6 +10,8 @@ export { CustomAdBanner } from '@/components/CustomAdBanner';
 export { CustomAdModal } from '@/components/CustomAdModal';
 
 export const ADMOB_CONFIG = Platform.OS === 'web' ? webAds.ADMOB_CONFIG : nativeAds.ADMOB_CONFIG;
+export const formatAdError = Platform.OS === 'web' ? webAds.formatAdError : nativeAds.formatAdError;
+export const isMobileAdsInitialized = Platform.OS === 'web' ? webAds.isMobileAdsInitialized : nativeAds.isMobileAdsInitialized;
 
 export function initializeAds(config?: AppConfig) {
   if (Platform.OS === 'web') {

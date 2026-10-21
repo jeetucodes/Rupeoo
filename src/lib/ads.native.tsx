@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { useAuth, AppConfig } from '@/context/AuthContext';
 import {
@@ -41,14 +41,58 @@ let isInterstitialLoaded = false;
 let onInterstitialClosedCallback: (() => void) | null = null;
 let expenseEntryCount = 0;
 
+let isSdkInitialized = false;
+let initPromise: Promise<void> | null = null;
+const initListeners: Array<(initialized: boolean) => void> = [];
+
+let interstitialRetryCount = 0;
+let interstitialRetryTimeout: any = null;
+const MAX_INTERSTITIAL_RETRIES = 3;
+
 const TEST_INTERSTITIAL_ID = TestIds?.INTERSTITIAL || 'ca-app-pub-3940256099942544/1033173712';
 const TEST_BANNER_ID = TestIds?.BANNER || 'ca-app-pub-3940256099942544/6300978111';
+
+/**
+ * Diagnostic helper mapping AdMob error codes to readable explanations.
+ * Standard Android AdMob codes:
+ * - Code 0: ERROR_CODE_INTERNAL_ERROR (Internal server/response error)
+ * - Code 1: ERROR_CODE_INVALID_REQUEST (Invalid request; e.g. ad unit ID, app ID, or clock)
+ * - Code 2: ERROR_CODE_NETWORK_ERROR (Network connectivity problem)
+ * - Code 3: ERROR_CODE_NO_FILL (Inventory unavailable or newly created unit)
+ */
+export function formatAdError(error: any): string {
+  if (!error) return 'Unknown error';
+  const code = error.code ?? error.errorCode;
+  const rawMessage = error.message || (typeof error === 'string' ? error : JSON.stringify(error));
+
+  let explanation = '';
+  const strCode = String(code ?? '').toLowerCase();
+  const strMsg = String(rawMessage ?? '').toLowerCase();
+
+  if (code === 0 || strCode.includes('internal') || strMsg.includes('internal')) {
+    explanation = 'Code 0 (ERROR_CODE_INTERNAL_ERROR: Something happened internally; e.g. invalid response from ad server)';
+  } else if (code === 1 || strCode.includes('invalid') || strMsg.includes('invalid')) {
+    explanation = 'Code 1 (ERROR_CODE_INVALID_REQUEST: Invalid request; check ad unit ID, app ID, or device time)';
+  } else if (code === 2 || strCode.includes('network') || strMsg.includes('network')) {
+    explanation = 'Code 2 (ERROR_CODE_NETWORK_ERROR: Network connectivity issue)';
+  } else if (code === 3 || strCode.includes('no-fill') || strCode.includes('nofill') || strMsg.includes('no fill') || strMsg.includes('no-fill')) {
+    explanation = 'Code 3 (ERROR_CODE_NO_FILL: Ad request successful, but lack of ad inventory or newly created ad unit)';
+  } else if (code !== undefined) {
+    explanation = `Code ${code}`;
+  }
+
+  return explanation ? `${explanation} - ${rawMessage}` : rawMessage;
+}
+
+export function isMobileAdsInitialized(): boolean {
+  return isSdkInitialized;
+}
 
 /**
  * Initialize Google Mobile Ads SDK (Native)
  * Strictly respects networkAdsEnabled and showAds master switches.
  */
-export async function initializeAds(config?: AppConfig) {
+export async function initializeAds(config?: AppConfig): Promise<void> {
   // If ads are killed or network ads are disabled, completely bypass SDK initialization
   if (config && (config.showAds === false || config.networkAdsEnabled === false)) {
     log('AdMob disabled by config: Skipping Google Mobile Ads SDK initialization');
@@ -56,23 +100,82 @@ export async function initializeAds(config?: AppConfig) {
   }
 
   if (!mobileAds) return;
-  try {
-    await mobileAds().initialize();
+
+  if (isSdkInitialized) {
     preloadTransactionSaveAd(Boolean(config?.adMobTestMode), config?.adMobInterstitialUnitId);
-  } catch (e) {
-    warn('Google Mobile Ads initialization warning:', e);
+    return;
   }
+
+  if (initPromise) {
+    return initPromise;
+  }
+
+  initPromise = (async () => {
+    try {
+      log('Initializing Google Mobile Ads SDK...');
+      const adapterStatuses = await mobileAds().initialize();
+      isSdkInitialized = true;
+      log('✅ Google Mobile Ads SDK initialized successfully:', adapterStatuses);
+      initListeners.forEach((fn) => {
+        try {
+          fn(true);
+        } catch {
+          // ignore callback error
+        }
+      });
+      preloadTransactionSaveAd(Boolean(config?.adMobTestMode), config?.adMobInterstitialUnitId);
+    } catch (e) {
+      warn('Google Mobile Ads initialization warning:', e);
+      // Mark as initialized so callers do not hang indefinitely
+      isSdkInitialized = true;
+      initListeners.forEach((fn) => {
+        try {
+          fn(true);
+        } catch {
+          // ignore callback error
+        }
+      });
+    } finally {
+      initPromise = null;
+    }
+  })();
+
+  return initPromise;
 }
 
 /**
  * Preload the Transaction Save Interstitial Ad
+ * Release builds only use real ad unit IDs; __DEV__ or explicit testMode uses test IDs.
  */
 export function preloadTransactionSaveAd(forceTest: boolean = false, customUnitId?: string) {
   if (!InterstitialAd || !AdEventType) return;
 
-  const adUnitId = forceTest || __DEV__
+  // Clear any pending retry timer
+  if (interstitialRetryTimeout) {
+    clearTimeout(interstitialRetryTimeout);
+    interstitialRetryTimeout = null;
+  }
+
+  // If an interstitial is already loaded and ready, avoid redundant requests
+  if (isInterstitialLoaded) return;
+
+  // Ensure SDK initialization completes before requesting an ad
+  if (!isSdkInitialized) {
+    if (initPromise) {
+      initPromise.then(() => preloadTransactionSaveAd(forceTest, customUnitId));
+      return;
+    }
+  }
+
+  const isTest = __DEV__ || forceTest;
+  const adUnitId = isTest
     ? TEST_INTERSTITIAL_ID
     : customUnitId || ADMOB_CONFIG.transactionSaveId;
+
+  if (!adUnitId) {
+    log('AdMob Interstitial: No ad unit ID configured, skipping preload');
+    return;
+  }
 
   try {
     interstitial = InterstitialAd.createForAdRequest(adUnitId, {
@@ -82,11 +185,13 @@ export function preloadTransactionSaveAd(forceTest: boolean = false, customUnitI
     interstitial.addAdEventListener(AdEventType.LOADED, () => {
       log('✅ AdMob Interstitial loaded successfully with ID:', adUnitId);
       isInterstitialLoaded = true;
+      interstitialRetryCount = 0;
     });
 
     interstitial.addAdEventListener(AdEventType.CLOSED, () => {
       log('AdMob Interstitial closed by user');
       isInterstitialLoaded = false;
+      interstitialRetryCount = 0;
       const cb = onInterstitialClosedCallback;
       onInterstitialClosedCallback = null;
       if (cb) {
@@ -97,11 +202,20 @@ export function preloadTransactionSaveAd(forceTest: boolean = false, customUnitI
     });
 
     interstitial.addAdEventListener(AdEventType.ERROR, (error: any) => {
-      warn('AdMob Interstitial failed to load with unitId:', adUnitId, error);
+      const diagnostic = formatAdError(error);
+      warn(`[AdMob Interstitial Diagnostic] Failed to load (unitId: ${adUnitId}): ${diagnostic}`);
       isInterstitialLoaded = false;
-      if (!forceTest) {
-        // Fallback to Google's official test interstitial ID
-        preloadTransactionSaveAd(true, customUnitId);
+
+      // Capped exponential backoff (max 3 retries: 2s, 4s, 8s)
+      if (interstitialRetryCount < MAX_INTERSTITIAL_RETRIES) {
+        const delay = Math.pow(2, interstitialRetryCount + 1) * 1000;
+        interstitialRetryCount += 1;
+        log(`AdMob Interstitial: Scheduling retry #${interstitialRetryCount} in ${delay}ms`);
+        interstitialRetryTimeout = setTimeout(() => {
+          preloadTransactionSaveAd(forceTest, customUnitId);
+        }, delay);
+      } else {
+        log(`AdMob Interstitial: Reached maximum retry limit (${MAX_INTERSTITIAL_RETRIES}). Stopping retries until next transaction.`);
       }
     });
 
@@ -124,7 +238,7 @@ export async function showTransactionSaveAd(
     if (onDismiss) onDismiss();
   };
 
-  // 1. Pro Member VIP VIP check
+  // 1. Pro Member VIP check
   if (isUserPremium || (config && config.hideAdsForProUsers !== false && isUserPremium)) {
     dismiss();
     return;
@@ -150,7 +264,10 @@ export async function showTransactionSaveAd(
 
   if (expenseEntryCount % interval !== 0) {
     log(`Transaction entry #${expenseEntryCount}: skipping interstitial (interval is ${interval})`);
-    preloadTransactionSaveAd(Boolean(config?.adMobTestMode), config?.adMobInterstitialUnitId);
+    if (!isInterstitialLoaded) {
+      interstitialRetryCount = 0;
+      preloadTransactionSaveAd(Boolean(config?.adMobTestMode), config?.adMobInterstitialUnitId);
+    }
     dismiss();
     return;
   }
@@ -162,6 +279,7 @@ export async function showTransactionSaveAd(
       await interstitial.show();
     } else {
       log('Interstitial ad not ready yet, continuing flow');
+      interstitialRetryCount = 0;
       preloadTransactionSaveAd(Boolean(config?.adMobTestMode), config?.adMobInterstitialUnitId);
       dismiss();
     }
@@ -169,6 +287,7 @@ export async function showTransactionSaveAd(
     warn('Error displaying Transaction Save Ad:', e);
     onInterstitialClosedCallback = null;
     dismiss();
+    interstitialRetryCount = 0;
     preloadTransactionSaveAd(Boolean(config?.adMobTestMode), config?.adMobInterstitialUnitId);
   }
 }
@@ -190,10 +309,43 @@ export function RupeoAdBanner({
   const customAds = useCustomAds();
   const [admobLoaded, setAdmobLoaded] = useState(false);
   const [admobError, setAdmobError] = useState(false);
-  const [useTestAd, setUseTestAd] = useState(__DEV__ || Boolean(appConfig?.adMobTestMode));
+  const [sdkReady, setSdkReady] = useState(isSdkInitialized || !mobileAds);
+  const [retryKey, setRetryKey] = useState(0);
+  const retryCountRef = useRef(0);
+  const retryTimeoutRef = useRef<any>(null);
+
+  // Subscribe to SDK initialization
+  useEffect(() => {
+    if (isSdkInitialized || !mobileAds) {
+      setSdkReady(true);
+      return;
+    }
+    const listener = (ready: boolean) => setSdkReady(ready);
+    initListeners.push(listener);
+    return () => {
+      const idx = initListeners.indexOf(listener);
+      if (idx > -1) initListeners.splice(idx, 1);
+    };
+  }, []);
+
+  // Cleanup retry timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Run resolution algorithm
   const decision = shouldShowAd({ isPro: isPremium }, appConfig, placement, customAds);
+
+  // If AdMob is chosen but SDK isn't initialized yet, kick off initialization
+  useEffect(() => {
+    if (decision.type === 'admob' && !isSdkInitialized && mobileAds) {
+      initializeAds(appConfig).catch((err) => warn('Banner auto-init warning:', err));
+    }
+  }, [decision.type, appConfig]);
 
   // Fallback custom ad candidate
   const fallbackList = getActiveCustomAdsForPlacement(customAds, placement, isPremium);
@@ -210,8 +362,8 @@ export function RupeoAdBanner({
 
   // Case 2: Google AdMob Banner
   if (decision.type === 'admob') {
-    // If native module is missing (Expo Go) or AdMob failed to load
-    if (!BannerAd || !BannerAdSize || admobError) {
+    // If native module is missing (Expo Go) or AdMob failed to load after retries, or SDK not ready yet
+    if (!BannerAd || !BannerAdSize || admobError || !sdkReady) {
       // If custom ads are allowed and candidate exists, fallback to custom ad!
       if (fallbackAd && appConfig?.customAdsEnabled !== false && appConfig?.showAds !== false) {
         return <CustomAdBanner ad={fallbackAd} style={style} compact={compact} />;
@@ -219,31 +371,50 @@ export function RupeoAdBanner({
       return null;
     }
 
-    const isTestMode = useTestAd || Boolean(appConfig?.adMobTestMode);
+    const isTestMode = __DEV__ || Boolean(appConfig?.adMobTestMode);
     const configuredUnitId = appConfig?.adMobBannerUnitId || ADMOB_CONFIG.homeBannerId;
     const adUnitId = isTestMode ? TEST_BANNER_ID : configuredUnitId;
+
+    if (!adUnitId) {
+      if (fallbackAd && appConfig?.customAdsEnabled !== false && appConfig?.showAds !== false) {
+        return <CustomAdBanner ad={fallbackAd} style={style} compact={compact} />;
+      }
+      return null;
+    }
 
     return (
       <View style={[styles.outerWrapper, compact && styles.compactOuterWrapper, style]}>
         <View style={[styles.bannerContainer, !admobLoaded && styles.hiddenBanner]}>
           <BannerAd
-            key={adUnitId}
+            key={`${adUnitId}_${retryKey}`}
             unitId={adUnitId}
             size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
             requestOptions={{
               requestNonPersonalizedAdsOnly: false,
             }}
             onAdLoaded={() => {
+              log('✅ AdMob Banner loaded successfully with ID:', adUnitId);
               setAdmobLoaded(true);
               setAdmobError(false);
+              retryCountRef.current = 0;
             }}
             onAdFailedToLoad={(error: any) => {
-              warn('AdMob Banner failed to load with unitId:', adUnitId, error);
-              if (!isTestMode) {
-                setUseTestAd(true);
+              const diagnostic = formatAdError(error);
+              warn(`[AdMob Banner Diagnostic] Failed to load (unitId: ${adUnitId}): ${diagnostic}`);
+              setAdmobLoaded(false);
+
+              // Capped exponential backoff (max 3 retries: 2s, 4s, 8s)
+              if (retryCountRef.current < 3) {
+                const delay = Math.pow(2, retryCountRef.current + 1) * 1000;
+                retryCountRef.current += 1;
+                log(`AdMob Banner: Scheduling retry #${retryCountRef.current} in ${delay}ms`);
+                if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+                retryTimeoutRef.current = setTimeout(() => {
+                  setRetryKey((k) => k + 1);
+                }, delay);
               } else {
+                log('AdMob Banner: Reached maximum retry limit (3). Switching to fallback.');
                 setAdmobError(true);
-                setAdmobLoaded(false);
               }
             }}
           />
