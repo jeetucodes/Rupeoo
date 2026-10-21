@@ -604,7 +604,7 @@ export async function getAllTransactions(userId: string, forceRefresh = false): 
   // 2. If forceRefresh is requested, fetch and await fresh remote data from Firestore
   if (forceRefresh) {
     try {
-      const remoteData = await syncRemoteTransactions(userId, db);
+      const remoteData = await syncRemoteTransactions(userId, db, true);
       if (remoteData && remoteData.length > 0) {
         const sortedRemote = sortTransactionsRecentFirst(remoteData);
         memoryCache.transactions.set(userId, { data: sortedRemote, timestamp: Date.now() });
@@ -622,8 +622,8 @@ export async function getAllTransactions(userId: string, forceRefresh = false): 
     const sorted = sortTransactionsRecentFirst(offlineTxs);
     memoryCache.transactions.set(userId, { data: sorted, timestamp: now });
 
-    // In background, sync with Firebase Firestore if online
-    syncRemoteTransactions(userId, db).then((remoteData) => {
+    // In background, sync with Firebase Firestore if online (throttled to 5 mins)
+    syncRemoteTransactions(userId, db, false).then((remoteData) => {
       if (remoteData && remoteData.length > 0) {
         const sortedRemote = sortTransactionsRecentFirst(remoteData);
         memoryCache.transactions.set(userId, { data: sortedRemote, timestamp: Date.now() });
@@ -637,7 +637,7 @@ export async function getAllTransactions(userId: string, forceRefresh = false): 
 
   // 4. If local storage is empty (first app launch), sync from remote Firestore
   try {
-    const remoteData = await syncRemoteTransactions(userId, db);
+    const remoteData = await syncRemoteTransactions(userId, db, true);
     const sorted = sortTransactionsRecentFirst(remoteData);
     memoryCache.transactions.set(userId, { data: sorted, timestamp: now });
     notifyTransactionsListeners(sorted);
@@ -1383,11 +1383,13 @@ function mapNotification(id: string, data: Record<string, any>, fallback?: Recor
 }
 
 async function loadUserNotifications(userId: string): Promise<AppNotification[]> {
-  const historySnapshot = await getDocs(collection(db, `users/${userId}/notifications`));
+  const historySnapshot = await getDocs(
+    query(collection(db, `users/${userId}/notifications`), limit(100))
+  );
   const history = new Map(historySnapshot.docs.map(item => [item.id, item.data()]));
 
   const activeAdminSnapshot = await getDocs(
-    query(collection(db, 'admin_notifications'), where('active', '==', true))
+    query(collection(db, 'admin_notifications'), where('active', '==', true), limit(50))
   );
   const adminNotifications = activeAdminSnapshot.docs.map(item => {
     const adminData = item.data();
@@ -1504,7 +1506,16 @@ export async function markNotificationAsRead(userId: string, notificationId: str
 export async function markNotificationsAsRead(userId: string) {
   if (!userId) return;
   try {
-    const snap = await getDocs(collection(db, `users/${userId}/notifications`));
+    let snap;
+    try {
+      snap = await getDocs(
+        query(collection(db, `users/${userId}/notifications`), where('isRead', '==', false), limit(100))
+      );
+    } catch {
+      snap = await getDocs(
+        query(collection(db, `users/${userId}/notifications`), limit(100))
+      );
+    }
     const batch = writeBatch(db);
     let count = 0;
     snap.forEach(d => {
@@ -1516,7 +1527,9 @@ export async function markNotificationsAsRead(userId: string) {
 
     // Also mark active admin notifications as read for this user in their history
     try {
-      const adminSnap = await getDocs(query(collection(db, 'admin_notifications'), where('active', '==', true)));
+      const adminSnap = await getDocs(
+        query(collection(db, 'admin_notifications'), where('active', '==', true), limit(50))
+      );
       adminSnap.forEach(d => {
         batch.set(doc(db, `users/${userId}/notifications`, d.id), { isRead: true, source: 'admin_notification' }, { merge: true });
         count++;

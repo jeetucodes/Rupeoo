@@ -9,8 +9,10 @@ import {
   getDocs,
   query,
   orderBy,
+  limit,
   serverTimestamp,
 } from 'firebase/firestore';
+import { AppState } from 'react-native';
 import { warn } from '@/lib/logger';
 
 export interface SyncAction {
@@ -28,6 +30,46 @@ const getQueueKey = (userId: string) => `@rupeo_sync_queue_${userId}`;
 const getLastSyncKey = (userId: string) => `@rupeo_last_sync_${userId}`;
 
 let isSyncInProgress = false;
+
+// Pending saves cache & debounce
+const pendingSaveData = new Map<string, any[]>();
+const pendingSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+// Deduplicate in-flight sync promises and throttle remote syncs
+const lastRemoteSyncMap = new Map<string, number>();
+const inFlightSyncPromises = new Map<string, Promise<any[]>>();
+const REMOTE_SYNC_THROTTLE_MS = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Flush any debounced transaction saves immediately to persistent storage.
+ */
+export async function flushPendingOfflineTransactionSaves(userId?: string): Promise<void> {
+  const usersToFlush = userId ? [userId] : Array.from(pendingSaveData.keys());
+  for (const uid of usersToFlush) {
+    const timer = pendingSaveTimers.get(uid);
+    if (timer) {
+      clearTimeout(timer);
+      pendingSaveTimers.delete(uid);
+    }
+    const data = pendingSaveData.get(uid);
+    if (data) {
+      try {
+        await AsyncStorage.setItem(getTxsKey(uid), JSON.stringify(data));
+      } catch (err) {
+        warn('Failed to flush offline transactions:', err);
+      }
+    }
+  }
+}
+
+// Flush immediately when app goes to background or inactive
+if (typeof AppState !== 'undefined' && AppState.addEventListener) {
+  AppState.addEventListener('change', (nextState) => {
+    if (nextState === 'background' || nextState === 'inactive') {
+      flushPendingOfflineTransactionSaves();
+    }
+  });
+}
 
 /**
  * Check if the device has actual internet access by pinging Google's generate_204 endpoint.
@@ -55,14 +97,20 @@ export async function checkIsOnline(): Promise<boolean> {
 
 /**
  * Get all cached transactions from local storage for a user.
+ * Returns in-memory pending save data immediately if available (0ms latency).
  */
 export async function getOfflineTransactions(userId: string): Promise<any[]> {
   if (!userId) return [];
+  if (pendingSaveData.has(userId)) {
+    return pendingSaveData.get(userId) || [];
+  }
   try {
     const raw = await AsyncStorage.getItem(getTxsKey(userId));
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    const result = Array.isArray(parsed) ? parsed : [];
+    pendingSaveData.set(userId, result);
+    return result;
   } catch (err) {
     warn('Failed to load offline transactions:', err);
     return [];
@@ -71,26 +119,57 @@ export async function getOfflineTransactions(userId: string): Promise<any[]> {
 
 /**
  * Save all transactions to local storage cache for instant offline access.
+ * Writes to in-memory cache immediately and debounces AsyncStorage writes by 400ms
+ * to prevent heavy JSON serialization stalls on eMMC 5.1 storage.
  */
-export async function saveOfflineTransactions(userId: string, txs: any[]): Promise<void> {
+export async function saveOfflineTransactions(
+  userId: string,
+  txs: any[],
+  immediate = false
+): Promise<void> {
   if (!userId || !Array.isArray(txs)) return;
-  try {
-    // Sanitize any massive base64 images so AsyncStorage row limits are never exceeded
-    const sanitized = txs.map((tx) => {
-      if (
-        tx?.receipt_image &&
-        typeof tx.receipt_image === 'string' &&
-        tx.receipt_image.length > 50000 &&
-        tx.receipt_image.startsWith('data:')
-      ) {
-        return { ...tx, receipt_image: '[IMAGE_ATTACHED]' };
-      }
-      return tx;
-    });
-    await AsyncStorage.setItem(getTxsKey(userId), JSON.stringify(sanitized));
-  } catch (err) {
-    warn('Failed to save offline transactions:', err);
+
+  // Sanitize any massive base64 images so AsyncStorage row limits are never exceeded
+  const sanitized = txs.map((tx) => {
+    if (
+      tx?.receipt_image &&
+      typeof tx.receipt_image === 'string' &&
+      tx.receipt_image.length > 50000 &&
+      tx.receipt_image.startsWith('data:')
+    ) {
+      return { ...tx, receipt_image: '[IMAGE_ATTACHED]' };
+    }
+    return tx;
+  });
+
+  // Always update in-memory cache immediately for 0ms reads
+  pendingSaveData.set(userId, sanitized);
+
+  const existingTimer = pendingSaveTimers.get(userId);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+    pendingSaveTimers.delete(userId);
   }
+
+  if (immediate) {
+    try {
+      await AsyncStorage.setItem(getTxsKey(userId), JSON.stringify(sanitized));
+    } catch (err) {
+      warn('Failed to save offline transactions:', err);
+    }
+    return;
+  }
+
+  // Debounce writes by 400ms
+  const timer = setTimeout(async () => {
+    pendingSaveTimers.delete(userId);
+    try {
+      await AsyncStorage.setItem(getTxsKey(userId), JSON.stringify(sanitized));
+    } catch (err) {
+      warn('Failed to save offline transactions:', err);
+    }
+  }, 400);
+  pendingSaveTimers.set(userId, timer);
 }
 
 /**
@@ -122,6 +201,7 @@ export async function saveOfflineCategories(userId: string, categories: any[]): 
 
 /**
  * Enqueue a sync action into local queue.
+ * Always writes immediately to AsyncStorage to ensure offline actions are never lost on process death.
  */
 export async function enqueueSyncAction(
   userId: string,
@@ -265,79 +345,106 @@ export async function flushSyncQueue(
 
 /**
  * Fetch remote data from Firestore, reconcile with local pending items, and save locally.
+ * Throttled to once every 5 minutes unless force is true.
+ * In-flight requests are deduplicated to avoid duplicate Firestore queries.
  */
 export async function syncRemoteTransactions(
   userId: string,
-  db: Firestore
+  db: Firestore,
+  force = false
 ): Promise<any[]> {
   if (!userId) return [];
 
-  const isOnline = await checkIsOnline();
-  if (!isOnline) {
+  // Deduplicate in-flight sync requests for the same user
+  const inFlight = inFlightSyncPromises.get(userId);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const now = Date.now();
+  const lastSync = lastRemoteSyncMap.get(userId) || 0;
+  if (!force && now - lastSync < REMOTE_SYNC_THROTTLE_MS) {
     return await getOfflineTransactions(userId);
   }
 
-  try {
-    // 1. Flush any pending outgoing changes first
-    await flushSyncQueue(userId, db);
-
-    // 2. Fetch fresh data from Firestore
-    const txsRef = collection(db, `users/${userId}/transactions`);
-    const q = query(txsRef, orderBy('date', 'desc'));
-    let snapshot;
+  const syncPromise = (async () => {
     try {
-      snapshot = await getDocs(q);
-    } catch {
-      snapshot = await getDocs(txsRef);
-    }
-
-    const remoteList: any[] = snapshot.docs.map((d) => ({
-      id: d.id,
-      ...d.data({ serverTimestamps: 'estimate' }),
-    }));
-
-    // 3. Merge remote items with local items:
-    // Any existing local transactions NOT marked for deletion should NEVER be discarded!
-    // Remote items provide server truth for fields, while preserving any recently added local transactions.
-    const queue = await getSyncQueue(userId);
-    const pendingDeleteIds = new Set(
-      queue.filter((qItem) => qItem.type === 'DELETE_TRANSACTION').map((qItem) => qItem.targetId)
-    );
-
-    const localList = await getOfflineTransactions(userId);
-    const mergedMap = new Map<string, any>();
-
-    // 1. Add all local transactions (excluding items pending deletion)
-    for (const tx of localList) {
-      if (tx?.id && !pendingDeleteIds.has(tx.id)) {
-        mergedMap.set(tx.id, tx);
+      const isOnline = await checkIsOnline();
+      if (!isOnline) {
+        return await getOfflineTransactions(userId);
       }
-    }
 
-    // 2. Overlay / add remote transactions (excluding items pending deletion)
-    for (const tx of remoteList) {
-      if (tx?.id && !pendingDeleteIds.has(tx.id)) {
-        const existing = mergedMap.get(tx.id) || {};
-        const remoteCreated = tx.created_at;
-        const resolvedCreatedAt =
-          remoteCreated !== undefined && remoteCreated !== null
-            ? remoteCreated
-            : existing.created_at || Date.now();
-        mergedMap.set(tx.id, {
-          ...existing,
-          ...tx,
-          created_at: resolvedCreatedAt,
-        });
+      // 1. Flush any pending outgoing changes first
+      await flushSyncQueue(userId, db);
+
+      // 2. Fetch fresh data from Firestore (limited to 500 recent transactions)
+      const txsRef = collection(db, `users/${userId}/transactions`);
+      const q = query(txsRef, orderBy('date', 'desc'), limit(500));
+      let snapshot;
+      try {
+        snapshot = await getDocs(q);
+      } catch {
+        try {
+          snapshot = await getDocs(query(txsRef, limit(500)));
+        } catch {
+          snapshot = await getDocs(txsRef);
+        }
       }
+
+      const remoteList: any[] = snapshot.docs.map((d) => ({
+        id: d.id,
+        ...d.data({ serverTimestamps: 'estimate' }),
+      }));
+
+      // 3. Merge remote items with local items:
+      // Any existing local transactions NOT marked for deletion should NEVER be discarded!
+      // Remote items provide server truth for fields, while preserving any recently added local transactions.
+      const queue = await getSyncQueue(userId);
+      const pendingDeleteIds = new Set(
+        queue.filter((qItem) => qItem.type === 'DELETE_TRANSACTION').map((qItem) => qItem.targetId)
+      );
+
+      const localList = await getOfflineTransactions(userId);
+      const mergedMap = new Map<string, any>();
+
+      // 1. Add all local transactions (excluding items pending deletion)
+      for (const tx of localList) {
+        if (tx?.id && !pendingDeleteIds.has(tx.id)) {
+          mergedMap.set(tx.id, tx);
+        }
+      }
+
+      // 2. Overlay / add remote transactions (excluding items pending deletion)
+      for (const tx of remoteList) {
+        if (tx?.id && !pendingDeleteIds.has(tx.id)) {
+          const existing = mergedMap.get(tx.id) || {};
+          const remoteCreated = tx.created_at;
+          const resolvedCreatedAt =
+            remoteCreated !== undefined && remoteCreated !== null
+              ? remoteCreated
+              : existing.created_at || Date.now();
+          mergedMap.set(tx.id, {
+            ...existing,
+            ...tx,
+            created_at: resolvedCreatedAt,
+          });
+        }
+      }
+
+      const mergedResult = Array.from(mergedMap.values());
+
+      // 4. Save merged result to local storage (immediate save since this is remote sync result)
+      await saveOfflineTransactions(userId, mergedResult, true);
+      lastRemoteSyncMap.set(userId, Date.now());
+      return mergedResult;
+    } catch (err) {
+      warn('Sync remote transactions error:', err);
+      return await getOfflineTransactions(userId);
+    } finally {
+      inFlightSyncPromises.delete(userId);
     }
+  })();
 
-    const mergedResult = Array.from(mergedMap.values());
-
-    // 4. Save merged result to local storage
-    await saveOfflineTransactions(userId, mergedResult);
-    return mergedResult;
-  } catch (err) {
-    warn('Sync remote transactions error:', err);
-    return await getOfflineTransactions(userId);
-  }
+  inFlightSyncPromises.set(userId, syncPromise);
+  return syncPromise;
 }

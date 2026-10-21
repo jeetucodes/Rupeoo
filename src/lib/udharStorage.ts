@@ -9,6 +9,7 @@ import {
   writeBatch,
   query,
   where,
+  limit,
 } from 'firebase/firestore';
 import { checkIsOnline } from './offlineSync';
 import { syncWidgetWithTransactions } from './widgetSync';
@@ -179,6 +180,9 @@ const friendsMemoryCache = new Map<string, FriendContact[]>();
 const entriesMemoryCache = new Map<string, UdharEntry[]>();
 let lastFriendsCloudSync = 0;
 let lastEntriesCloudSync = 0;
+const inFlightFriendsSync = new Map<string, Promise<FriendContact[]>>();
+const inFlightEntriesSync = new Map<string, Promise<UdharEntry[]>>();
+const UDHAR_SYNC_THROTTLE_MS = 5 * 60 * 1000; // 5 minutes
 let isUdharSyncing = false;
 
 /**
@@ -419,6 +423,7 @@ export async function flushUdharSyncQueue(userId?: string): Promise<{ success: n
 /**
  * Background non-blocking sync of friends from Cloud Firestore.
  * Merges cloud data safely with local additions so offline changes are never overwritten.
+ * Throttled to once every 5 minutes with in-flight request deduplication.
  */
 export async function syncFriendsFromCloud(userId?: string): Promise<FriendContact[]> {
   const uid = userId || 'guest';
@@ -426,77 +431,91 @@ export async function syncFriendsFromCloud(userId?: string): Promise<FriendConta
     return friendsMemoryCache.get(uid) || [];
   }
 
-  // Throttle background sync to at most once every 10 seconds
+  // Deduplicate in-flight sync requests
+  const inFlight = inFlightFriendsSync.get(uid);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  // Throttle background sync to at most once every 5 minutes
   const now = Date.now();
-  if (now - lastFriendsCloudSync < 10000) {
+  if (now - lastFriendsCloudSync < UDHAR_SYNC_THROTTLE_MS) {
     return friendsMemoryCache.get(uid) || [];
   }
-  lastFriendsCloudSync = now;
 
-  try {
-    const isOnline = await checkIsOnline();
-    if (!isOnline) {
-      return friendsMemoryCache.get(uid) || [];
-    }
-
-    // Flush pending queue first so remote has our latest changes
-    await flushUdharSyncQueue(uid);
-
-    const snap = await getDocs(collection(db, `users/${uid}/friends`));
-    const cloudFriends: FriendContact[] = snap.docs.map((d) => {
-      const data = d.data();
-      return {
-        id: d.id,
-        userId: uid,
-        name: data.name || '',
-        phone: data.phone || undefined,
-        photoUri: data.photoUri || undefined,
-        createdAt: data.createdAt || new Date().toISOString(),
-        updatedAt: data.updatedAt || new Date().toISOString(),
-      };
-    });
-
-    const localList = friendsMemoryCache.get(uid) || [];
-    const queue = await getUdharSyncQueue(uid);
-    const pendingDeletedIds = new Set(
-      queue.filter((q) => q.type === 'DELETE_FRIEND').map((q) => q.payload?.friendId)
-    );
-
-    const mergedMap = new Map<string, FriendContact>();
-    // First add cloud friends that aren't pending deletion
-    cloudFriends.forEach((f) => {
-      if (!pendingDeletedIds.has(f.id)) {
-        mergedMap.set(f.id, f);
+  const syncPromise = (async () => {
+    try {
+      const isOnline = await checkIsOnline();
+      if (!isOnline) {
+        return friendsMemoryCache.get(uid) || [];
       }
-    });
 
-    // Merge local additions / newer changes
-    localList.forEach((localF) => {
-      if (pendingDeletedIds.has(localF.id)) return;
-      const remote = mergedMap.get(localF.id);
-      if (!remote) {
-        mergedMap.set(localF.id, localF);
-      } else {
-        const localTime = new Date(localF.updatedAt || 0).getTime();
-        const remoteTime = new Date(remote.updatedAt || 0).getTime();
-        if (localTime > remoteTime) {
-          mergedMap.set(localF.id, localF);
+      // Flush pending queue first so remote has our latest changes
+      await flushUdharSyncQueue(uid);
+
+      const snap = await getDocs(query(collection(db, `users/${uid}/friends`), limit(500)));
+      const cloudFriends: FriendContact[] = snap.docs.map((d) => {
+        const data = d.data();
+        return {
+          id: d.id,
+          userId: uid,
+          name: data.name || '',
+          phone: data.phone || undefined,
+          photoUri: data.photoUri || undefined,
+          createdAt: data.createdAt || new Date().toISOString(),
+          updatedAt: data.updatedAt || new Date().toISOString(),
+        };
+      });
+
+      const localList = friendsMemoryCache.get(uid) || [];
+      const queue = await getUdharSyncQueue(uid);
+      const pendingDeletedIds = new Set(
+        queue.filter((q) => q.type === 'DELETE_FRIEND').map((q) => q.payload?.friendId)
+      );
+
+      const mergedMap = new Map<string, FriendContact>();
+      // First add cloud friends that aren't pending deletion
+      cloudFriends.forEach((f) => {
+        if (!pendingDeletedIds.has(f.id)) {
+          mergedMap.set(f.id, f);
         }
-      }
-    });
+      });
 
-    const mergedList = Array.from(mergedMap.values());
-    friendsMemoryCache.set(uid, mergedList);
-    await AsyncStorage.setItem(getFriendsKey(uid), JSON.stringify(mergedList));
-    return mergedList;
-  } catch (err) {
-    warn('[UdharSync] Background friends sync failed, keeping local:', err);
-    return friendsMemoryCache.get(uid) || [];
-  }
+      // Merge local additions / newer changes
+      localList.forEach((localF) => {
+        if (pendingDeletedIds.has(localF.id)) return;
+        const remote = mergedMap.get(localF.id);
+        if (!remote) {
+          mergedMap.set(localF.id, localF);
+        } else {
+          const localTime = new Date(localF.updatedAt || 0).getTime();
+          const remoteTime = new Date(remote.updatedAt || 0).getTime();
+          if (localTime > remoteTime) {
+            mergedMap.set(localF.id, localF);
+          }
+        }
+      });
+
+      const mergedList = Array.from(mergedMap.values());
+      friendsMemoryCache.set(uid, mergedList);
+      await AsyncStorage.setItem(getFriendsKey(uid), JSON.stringify(mergedList));
+      lastFriendsCloudSync = Date.now();
+      return mergedList;
+    } catch (err) {
+      warn('[UdharSync] Background friends sync failed, keeping local:', err);
+      return friendsMemoryCache.get(uid) || [];
+    } finally {
+      inFlightFriendsSync.delete(uid);
+    }
+  })();
+
+  inFlightFriendsSync.set(uid, syncPromise);
+  return syncPromise;
 }
 
 /**
  * Background non-blocking sync of udhar entries from Cloud Firestore.
+ * Throttled to once every 5 minutes with in-flight request deduplication.
  */
 export async function syncEntriesFromCloud(userId?: string): Promise<UdharEntry[]> {
   const uid = userId || 'guest';
@@ -504,75 +523,88 @@ export async function syncEntriesFromCloud(userId?: string): Promise<UdharEntry[
     return entriesMemoryCache.get(uid) || [];
   }
 
+  // Deduplicate in-flight sync requests
+  const inFlight = inFlightEntriesSync.get(uid);
+  if (inFlight) {
+    return inFlight;
+  }
+
   const now = Date.now();
-  if (now - lastEntriesCloudSync < 10000) {
+  if (now - lastEntriesCloudSync < UDHAR_SYNC_THROTTLE_MS) {
     return entriesMemoryCache.get(uid) || [];
   }
-  lastEntriesCloudSync = now;
 
-  try {
-    const isOnline = await checkIsOnline();
-    if (!isOnline) {
+  const syncPromise = (async () => {
+    try {
+      const isOnline = await checkIsOnline();
+      if (!isOnline) {
+        return entriesMemoryCache.get(uid) || [];
+      }
+
+      await flushUdharSyncQueue(uid);
+
+      const snap = await getDocs(query(collection(db, `users/${uid}/udhar_entries`), limit(500)));
+      const cloudEntries: UdharEntry[] = snap.docs.map((d) => {
+        const data = d.data();
+        return {
+          id: d.id,
+          friendId: data.friendId,
+          userId: uid,
+          amount: Number(data.amount) || 0,
+          type: data.type as UdharEntryType,
+          date: data.date,
+          time: data.time || undefined,
+          note: data.note || undefined,
+          linkedTxId: data.linkedTxId || undefined,
+          parentEntryId: data.parentEntryId || undefined,
+          settlementType: data.settlementType || undefined,
+          isInterest: Boolean(data.isInterest),
+          interestPercent: data.interestPercent ? Number(data.interestPercent) : undefined,
+          interestPeriod: data.interestPeriod || undefined,
+          interestStartDate: data.interestStartDate || undefined,
+          interestCalcType: data.interestCalcType || undefined,
+          baseAmount: data.baseAmount ? Number(data.baseAmount) : undefined,
+          interestStatus: data.interestStatus || undefined,
+          paymentMode: data.paymentMode || undefined,
+          createdAt: data.createdAt || new Date().toISOString(),
+        };
+      });
+
+      const localEntries = entriesMemoryCache.get(uid) || [];
+      const queue = await getUdharSyncQueue(uid);
+      const pendingDeletedIds = new Set(
+        queue.filter((q) => q.type === 'DELETE_UDHAR_ENTRY').map((q) => q.payload?.entryId)
+      );
+
+      const mergedMap = new Map<string, UdharEntry>();
+      cloudEntries.forEach((e) => {
+        if (!pendingDeletedIds.has(e.id)) {
+          mergedMap.set(e.id, e);
+        }
+      });
+
+      localEntries.forEach((localE) => {
+        if (pendingDeletedIds.has(localE.id)) return;
+        if (!mergedMap.has(localE.id)) {
+          mergedMap.set(localE.id, localE);
+        }
+      });
+
+      const mergedList = Array.from(mergedMap.values());
+      entriesMemoryCache.set(uid, mergedList);
+      await AsyncStorage.setItem(getEntriesKey(uid), JSON.stringify(mergedList));
+      lastEntriesCloudSync = Date.now();
+      return mergedList;
+    } catch (err) {
+      warn('[UdharSync] Background entries sync failed, keeping local:', err);
       return entriesMemoryCache.get(uid) || [];
+    } finally {
+      inFlightEntriesSync.delete(uid);
     }
+  })();
 
-    await flushUdharSyncQueue(uid);
-
-    const snap = await getDocs(collection(db, `users/${uid}/udhar_entries`));
-    const cloudEntries: UdharEntry[] = snap.docs.map((d) => {
-      const data = d.data();
-      return {
-        id: d.id,
-        friendId: data.friendId,
-        userId: uid,
-        amount: Number(data.amount) || 0,
-        type: data.type as UdharEntryType,
-        date: data.date,
-        time: data.time || undefined,
-        note: data.note || undefined,
-        linkedTxId: data.linkedTxId || undefined,
-        parentEntryId: data.parentEntryId || undefined,
-        settlementType: data.settlementType || undefined,
-        isInterest: Boolean(data.isInterest),
-        interestPercent: data.interestPercent ? Number(data.interestPercent) : undefined,
-        interestPeriod: data.interestPeriod || undefined,
-        interestStartDate: data.interestStartDate || undefined,
-        interestCalcType: data.interestCalcType || undefined,
-        baseAmount: data.baseAmount ? Number(data.baseAmount) : undefined,
-        interestStatus: data.interestStatus || undefined,
-        paymentMode: data.paymentMode || undefined,
-        createdAt: data.createdAt || new Date().toISOString(),
-      };
-    });
-
-    const localEntries = entriesMemoryCache.get(uid) || [];
-    const queue = await getUdharSyncQueue(uid);
-    const pendingDeletedIds = new Set(
-      queue.filter((q) => q.type === 'DELETE_UDHAR_ENTRY').map((q) => q.payload?.entryId)
-    );
-
-    const mergedMap = new Map<string, UdharEntry>();
-    cloudEntries.forEach((e) => {
-      if (!pendingDeletedIds.has(e.id)) {
-        mergedMap.set(e.id, e);
-      }
-    });
-
-    localEntries.forEach((localE) => {
-      if (pendingDeletedIds.has(localE.id)) return;
-      if (!mergedMap.has(localE.id)) {
-        mergedMap.set(localE.id, localE);
-      }
-    });
-
-    const mergedList = Array.from(mergedMap.values());
-    entriesMemoryCache.set(uid, mergedList);
-    await AsyncStorage.setItem(getEntriesKey(uid), JSON.stringify(mergedList));
-    return mergedList;
-  } catch (err) {
-    warn('[UdharSync] Background entries sync failed, keeping local:', err);
-    return entriesMemoryCache.get(uid) || [];
-  }
+  inFlightEntriesSync.set(uid, syncPromise);
+  return syncPromise;
 }
 
 /**
