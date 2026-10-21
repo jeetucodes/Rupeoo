@@ -21,6 +21,7 @@ import {
   Easing,
   Dimensions,
   Alert,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -345,11 +346,175 @@ function formatDateDisplay(dateStr: string) {
   } catch { return dateStr; }
 }
 
+function formatOrdinalSuffix(dayInput?: string | number) {
+  if (dayInput === undefined || dayInput === null || dayInput === '') return '';
+  const day = typeof dayInput === 'number' ? dayInput : parseInt(String(dayInput), 10);
+  if (isNaN(day)) return String(dayInput);
+  const j = day % 10;
+  const k = day % 100;
+  if (j === 1 && k !== 11) return `${day}st`;
+  if (j === 2 && k !== 12) return `${day}nd`;
+  if (j === 3 && k !== 13) return `${day}rd`;
+  return `${day}th`;
+}
+
+interface BillCardProps {
+  bill: RecurringBill;
+  currencySymbol: string;
+  confirmPaidLabel: string;
+  onPay: (bill: RecurringBill) => void;
+  onEdit: (bill: RecurringBill) => void;
+  onDelete: (bill: RecurringBill) => void;
+}
+
+const BillCard = React.memo(function BillCard({
+  bill,
+  currencySymbol,
+  confirmPaidLabel,
+  onPay,
+  onEdit,
+  onDelete,
+}: BillCardProps) {
+  const status = getDueStatus(bill.nextDueDate);
+  const theme = resolveBrandTheme(bill.provider, bill.title, bill.category, bill.brandColor, bill.brandBadge);
+
+  const cycleTitle = bill.type === 'monthly_date'
+    ? (bill.dueDay ? `Monthly (${formatOrdinalSuffix(bill.dueDay)})` : 'Monthly Bill')
+    : `${bill.cycleDays || 28} Days Recharge`;
+
+  const cycleTag = bill.type === 'monthly_date' ? 'MONTHLY' : `${bill.cycleDays || 28}D CYCLE`;
+
+  return (
+    <View style={styles.billCard}>
+      {/* Soft Ambient Mesh Glow in Top-Left Corner */}
+      <LinearGradient
+        colors={['rgba(224, 242, 254, 0.55)', 'rgba(255, 255, 255, 0)']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0.45, y: 0.45 }}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
+
+      {/* Row 1 (header), two columns */}
+      <View style={styles.billCardTopRow}>
+        {/* Left: brand/icon tile (fixed size, flexShrink: 0) */}
+        <View style={styles.billIconCol}>
+          <BrandLogo id={theme.id} color={theme.accent} size={44} iconKey={bill.iconKey} badge={bill.brandBadge} />
+        </View>
+
+        {/* Middle (flex: 1, minWidth: 0) */}
+        <View style={styles.billMiddleCol}>
+          {/* Line 1: bill title, numberOfLines={1}, ellipsizeMode="tail" */}
+          <Text style={styles.billTitle} numberOfLines={1} ellipsizeMode="tail">
+            {bill.title}
+          </Text>
+
+          {/* Line 2: category chip and date (calendar icon + date) */}
+          <View style={styles.billMetaRow}>
+            <View style={styles.categoryBadge}>
+              <Text style={styles.categoryBadgeText} numberOfLines={1}>
+                {(bill.category || theme.category || 'BILLS').toUpperCase()}
+              </Text>
+            </View>
+            <View style={styles.billDateRow}>
+              <Ionicons name="calendar-outline" size={12} color="#64748B" style={styles.calendarIcon} />
+              <Text style={styles.metaDateText} numberOfLines={1}>
+                {formatDateDisplay(bill.nextDueDate)}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Right column (flexShrink: 0, alignItems: 'flex-end') */}
+        <View style={styles.billRightCol}>
+          <Text
+            style={styles.billAmountText}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.7}
+          >
+            {currencySymbol}{bill.amount.toLocaleString()}
+          </Text>
+          <View style={[styles.duePill, { backgroundColor: status.bg }]}>
+            <Ionicons name="time" size={12} color={status.color} style={styles.duePillIcon} />
+            <Text style={[styles.duePillText, { color: status.color }]} numberOfLines={1}>
+              {status.label}
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Row 2: Dedicated Cycle / Schedule Strip (100% visible, crystal clear) */}
+      <View style={styles.cycleStrip}>
+        <View style={styles.cycleStripLeft}>
+          <View style={styles.cycleIconCircle}>
+            <Ionicons name="refresh" size={13} color="#2563EB" />
+          </View>
+          <Text style={styles.cycleStripTitle} numberOfLines={1}>
+            {cycleTitle}
+          </Text>
+        </View>
+        <View style={styles.cycleStripTag}>
+          <Text style={styles.cycleStripTagText}>
+            {cycleTag}
+          </Text>
+        </View>
+      </View>
+
+      {/* Row 3: Action Group (Confirm Paid, Edit, Delete) */}
+      <View style={styles.billActionsRow}>
+        <TouchableOpacity
+          style={styles.confirmPaidBtn}
+          onPress={() => onPay(bill)}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel={`Confirm Paid ${bill.title}`}
+        >
+          <LinearGradient
+            colors={['#0066FF', '#0047E0']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.confirmPaidGradient}
+          >
+            <Ionicons name="checkmark-circle" size={16} color="#FFFFFF" style={styles.confirmPaidIcon} />
+            <Text style={styles.confirmPaidText} numberOfLines={1}>
+              {confirmPaidLabel}
+            </Text>
+          </LinearGradient>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.iconActionBtn}
+          onPress={() => onEdit(bill)}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel={`Edit ${bill.title}`}
+        >
+          <Ionicons name="create-outline" size={18} color="#2563EB" />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.iconActionBtn}
+          onPress={() => onDelete(bill)}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel={`Delete ${bill.title}`}
+        >
+          <Ionicons name="trash-outline" size={18} color="#EF4444" />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+});
+
 export default function RemindersScreen() {
   const router = useRouter();
   const { user, settings, isPremium, appConfig } = useAuth();
   const { t } = useTranslation();
   const curr = settings?.currency === 'INR' ? '₹' : (settings?.currency || '₹');
+  const currencyInfo = useMemo(() => resolveCurrency(settings?.currency), [settings?.currency]);
+  const currencySymbol = currencyInfo.symbol || '₹';
+  const confirmPaidLabel = t('confirm_paid') || 'Confirm Paid';
   const todayStr = useMemo(() => getLocalDateString(), []);
   const [bills, setBills] = useState<RecurringBill[]>([]);
   const [loading, setLoading] = useState(true);
@@ -437,10 +602,10 @@ export default function RemindersScreen() {
     setShowModal(true);
   }
 
-  function openEditModal(bill: RecurringBill) {
+  const openEditModal = useCallback((bill: RecurringBill) => {
     setEditingBill(bill);
     setShowModal(true);
-  }
+  }, []);
 
 
 
@@ -502,119 +667,7 @@ export default function RemindersScreen() {
   const urgentBills = bills.filter(b => { const d = getDueStatus(b.nextDueDate).daysLeft; return d >= 0 && d <= 3; });
   const upcomingBills = bills.filter(b => getDueStatus(b.nextDueDate).daysLeft > 3);
 
-  const BillCard = ({ bill }: { bill: RecurringBill }) => {
-    const status = getDueStatus(bill.nextDueDate);
-    const theme = resolveBrandTheme(bill.provider, bill.title, bill.category, bill.brandColor, bill.brandBadge);
-    const currencyInfo = resolveCurrency(settings?.currency);
-    const currencySymbol = currencyInfo.symbol || '₹';
 
-    const cycleText = bill.type === 'monthly_date'
-      ? (bill.dueDay ? `Monthly (${bill.dueDay}th)` : 'Monthly Bill')
-      : `${bill.cycleDays || 28} Days Recharge`;
-
-    return (
-      <View style={styles.billCard}>
-        {/* Soft Ambient Mesh Glow in Top-Left Corner */}
-        <LinearGradient
-          colors={['rgba(224, 242, 254, 0.55)', 'rgba(255, 255, 255, 0)']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 0.45, y: 0.45 }}
-          style={StyleSheet.absoluteFill}
-          pointerEvents="none"
-        />
-
-        {/* Top Section */}
-        <View style={styles.billCardTopRow}>
-          {/* Left: Brand Icon + Divider + Title & Meta */}
-          <View style={styles.billLeftSection}>
-            <BrandLogo id={theme.id} color={theme.accent} size={48} iconKey={bill.iconKey} badge={bill.brandBadge} />
-            <View style={styles.verticalDivider} />
-            <View style={styles.billTitleCol}>
-              <Text style={styles.billTitle} numberOfLines={1}>{bill.title}</Text>
-              <View style={styles.billMetaRow}>
-                <View style={styles.categoryBadge}>
-                  <Text style={styles.categoryBadgeText}>
-                    {(bill.category || theme.category || 'BILLS').toUpperCase()}
-                  </Text>
-                </View>
-                <Text style={styles.metaDot}>•</Text>
-                <Ionicons name="calendar-outline" size={13} color="#64748B" style={{ marginRight: 4 }} />
-                <Text style={styles.metaDateText}>
-                  {formatDateDisplay(bill.nextDueDate)}
-                </Text>
-              </View>
-            </View>
-          </View>
-
-          {/* Right: Amount + Due Pill */}
-          <View style={styles.billRightSection}>
-            <Text style={styles.billAmountText} numberOfLines={1}>
-              {currencySymbol}{bill.amount.toLocaleString()}
-            </Text>
-            <View style={[styles.duePill, { backgroundColor: status.bg }]}>
-              <Ionicons name="time" size={13} color={status.color} style={{ marginRight: 4 }} />
-              <Text style={[styles.duePillText, { color: status.color }]}>
-                {status.label}
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Bottom Section */}
-        <View style={styles.billCardBottomRow}>
-          {/* Left: Cycle info + Divider */}
-          <View style={styles.cycleInfoWrap}>
-            <View style={styles.cycleIconCircle}>
-              <Ionicons name="refresh" size={13} color="#2563EB" />
-            </View>
-            <Text style={styles.cycleInfoText} numberOfLines={1}>{cycleText}</Text>
-            <View style={styles.bottomDivider} />
-          </View>
-
-          {/* Right: Actions (Confirm Paid + Edit + Delete) */}
-          <View style={styles.billActionsRow}>
-            <TouchableOpacity
-              style={styles.confirmPaidBtn}
-              onPress={() => setPayingBill(bill)}
-              activeOpacity={0.85}
-              accessibilityRole="button"
-              accessibilityLabel={`Confirm Paid ${bill.title}`}
-            >
-              <LinearGradient
-                colors={['#0066FF', '#0047E0']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.confirmPaidGradient}
-              >
-                <Ionicons name="checkmark-circle" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
-                <Text style={styles.confirmPaidText}>{t('confirm_paid') || 'Confirm Paid'}</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.iconActionBtn}
-              onPress={() => openEditModal(bill)}
-              activeOpacity={0.7}
-              accessibilityRole="button"
-              accessibilityLabel={`Edit ${bill.title}`}
-            >
-              <Ionicons name="create-outline" size={18} color="#2563EB" />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.iconActionBtn}
-              onPress={() => setDeleteBill(bill)}
-              activeOpacity={0.7}
-              accessibilityRole="button"
-              accessibilityLabel={`Delete ${bill.title}`}
-            >
-              <Ionicons name="trash-outline" size={18} color="#EF4444" />
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    );
-  };
 
   const SectionHead = ({ title, count, icon, color }: { title: string; count: number; icon: keyof typeof Ionicons.glyphMap; color: string }) =>
     count > 0 ? (
@@ -722,11 +775,41 @@ export default function RemindersScreen() {
           }
         >
           <SectionHead title={t('overdue')} count={overdueBills.length} icon="alert-circle-outline" color="#EF4444" />
-          {overdueBills.map(b => <BillCard key={b.id} bill={b} />)}
+          {overdueBills.map(b => (
+            <BillCard
+              key={b.id}
+              bill={b}
+              currencySymbol={currencySymbol}
+              confirmPaidLabel={confirmPaidLabel}
+              onPay={setPayingBill}
+              onEdit={openEditModal}
+              onDelete={setDeleteBill}
+            />
+          ))}
           <SectionHead title={t('due_soon')} count={urgentBills.length} icon="alarm-outline" color="#F59E0B" />
-          {urgentBills.map(b => <BillCard key={b.id} bill={b} />)}
+          {urgentBills.map(b => (
+            <BillCard
+              key={b.id}
+              bill={b}
+              currencySymbol={currencySymbol}
+              confirmPaidLabel={confirmPaidLabel}
+              onPay={setPayingBill}
+              onEdit={openEditModal}
+              onDelete={setDeleteBill}
+            />
+          ))}
           <SectionHead title={t('upcoming')} count={upcomingBills.length} icon="calendar-outline" color="#3B82F6" />
-          {upcomingBills.map(b => <BillCard key={b.id} bill={b} />)}
+          {upcomingBills.map(b => (
+            <BillCard
+              key={b.id}
+              bill={b}
+              currencySymbol={currencySymbol}
+              confirmPaidLabel={confirmPaidLabel}
+              onPay={setPayingBill}
+              onEdit={openEditModal}
+              onDelete={setDeleteBill}
+            />
+          ))}
           <View style={{ height: 100 }} />
         </ScrollView>
       )}
@@ -815,8 +898,7 @@ const styles = StyleSheet.create({
   billCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 24,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    padding: 16,
     marginBottom: 14,
     borderWidth: 1,
     borderColor: '#E8EEF8',
@@ -830,23 +912,17 @@ const styles = StyleSheet.create({
   },
   billCardTopRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'flex-start',
+    gap: 10,
   },
-  billLeftSection: {
-    flexDirection: 'row',
+  billIconCol: {
+    flexShrink: 0,
+    justifyContent: 'flex-start',
     alignItems: 'center',
-    flex: 1,
-    marginRight: 8,
   },
-  verticalDivider: {
-    width: 1,
-    height: 32,
-    backgroundColor: '#E2E8F0',
-    marginHorizontal: 12,
-  },
-  billTitleCol: {
+  billMiddleCol: {
     flex: 1,
+    minWidth: 0,
     justifyContent: 'center',
   },
   billTitle: {
@@ -858,13 +934,17 @@ const styles = StyleSheet.create({
   },
   billMetaRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
+    rowGap: 4,
+    columnGap: 8,
   },
   categoryBadge: {
     backgroundColor: '#EFF6FF',
     paddingHorizontal: 7,
     paddingVertical: 2,
     borderRadius: 6,
+    alignSelf: 'flex-start',
   },
   categoryBadgeText: {
     fontSize: 11,
@@ -872,21 +952,25 @@ const styles = StyleSheet.create({
     color: '#2563EB',
     letterSpacing: 0.5,
   },
-  metaDot: {
-    color: '#94A3B8',
-    fontSize: 12,
-    marginHorizontal: 6,
+  billDateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  calendarIcon: {
+    marginRight: 4,
   },
   metaDateText: {
     fontSize: 12,
     fontWeight: '500',
     color: '#64748B',
   },
-  billRightSection: {
+  billRightCol: {
+    flexShrink: 0,
     alignItems: 'flex-end',
+    justifyContent: 'flex-start',
   },
   billAmountText: {
-    fontSize: 26,
+    fontSize: 22,
     fontWeight: '800',
     color: '#0F172A',
     letterSpacing: -0.5,
@@ -895,53 +979,77 @@ const styles = StyleSheet.create({
   duePill: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginTop: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    marginTop: 6,
+    alignSelf: 'flex-end',
+  },
+  duePillIcon: {
+    marginRight: 4,
   },
   duePillText: {
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 11,
+    fontWeight: '700',
   },
-  billCardBottomRow: {
+  cycleStrip: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 14,
+    justifyContent: 'space-between',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#EDF2F7',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    marginTop: 12,
   },
-  cycleInfoWrap: {
+  cycleStripLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
-    marginRight: 6,
+    minWidth: 0,
+    marginRight: 8,
   },
   cycleIconCircle: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     backgroundColor: '#EFF6FF',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 6,
+    marginRight: 8,
+    flexShrink: 0,
   },
-  cycleInfoText: {
+  cycleStripTitle: {
     fontSize: 12,
-    fontWeight: '500',
-    color: '#64748B',
+    fontWeight: '700',
+    color: '#0F172A',
+    flex: 1,
   },
-  bottomDivider: {
-    width: 1,
-    height: 18,
-    backgroundColor: '#E2E8F0',
-    marginLeft: 10,
+  cycleStripTag: {
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+    borderRadius: 6,
+    flexShrink: 0,
+  },
+  cycleStripTagText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#2563EB',
+    letterSpacing: 0.4,
   },
   billActionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
+    marginTop: 10,
   },
   confirmPaidBtn: {
-    borderRadius: 20,
+    flex: 1,
+    height: 44,
+    borderRadius: 14,
     overflow: 'hidden',
     shadowColor: '#0055FE',
     shadowOpacity: 0.25,
@@ -950,31 +1058,35 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   confirmPaidGradient: {
+    height: 44,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 9,
+  },
+  confirmPaidIcon: {
+    marginRight: 6,
   },
   confirmPaidText: {
     color: '#FFFFFF',
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '700',
   },
   iconActionBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+    width: 44,
+    height: 44,
+    borderRadius: 12,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#E2E8F0',
     alignItems: 'center',
     justifyContent: 'center',
-    marginLeft: 8,
     shadowColor: '#000',
     shadowOpacity: 0.03,
     shadowOffset: { width: 0, height: 1 },
     shadowRadius: 2,
     elevation: 1,
+    flexShrink: 0,
   },
 
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40, gap: 14 },
