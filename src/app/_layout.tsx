@@ -10,7 +10,8 @@ import {
   Platform,
   StyleSheet,
   TouchableOpacity,
-  AppState
+  AppState,
+  InteractionManager,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
@@ -116,18 +117,22 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   }, [loading]);
 
   useEffect(() => {
-    const unsub = startRealtimeNotificationWatcher(user?.uid);
+    let unsub: (() => void) | undefined;
+    const task = InteractionManager.runAfterInteractions(() => {
+      unsub = startRealtimeNotificationWatcher(user?.uid);
 
-    if (user?.uid) {
-      requestNotificationPermissions()
-        .then(granted => {
-          if (granted) return registerDeviceForPushNotifications(user.uid);
-          return null;
-        })
-        .catch(error => warn('Push registration error:', error));
-    }
+      if (user?.uid) {
+        requestNotificationPermissions()
+          .then(granted => {
+            if (granted) return registerDeviceForPushNotifications(user.uid);
+            return null;
+          })
+          .catch(error => warn('Push registration error:', error));
+      }
+    });
 
     return () => {
+      task.cancel();
       if (unsub) unsub();
     };
   }, [user?.uid]);
@@ -139,8 +144,10 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     // Preload friends and udhar into memory cache instantly (<1ms)
     preloadFriendsAndUdhar(user.uid).catch(() => {});
 
-    // 1. Initial sync on startup / login
-    syncUserOfflineData(user.uid).catch(() => { });
+    // 1. Initial sync on startup / login (deferred until interactions finish)
+    const task = InteractionManager.runAfterInteractions(() => {
+      syncUserOfflineData(user.uid).catch(() => { });
+    });
 
     // 2. Sync whenever app resumes / comes to foreground
     const appStateSub = AppState.addEventListener('change', (nextState) => {
@@ -150,6 +157,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     });
 
     return () => {
+      task.cancel();
       appStateSub.remove();
     };
   }, [user?.uid]);
@@ -198,8 +206,10 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // Sync widget with user's latest transaction summary
-      syncWidgetWithTransactions(user.uid).catch(() => {});
+      // Sync widget with user's latest transaction summary (deferred after interactions)
+      InteractionManager.runAfterInteractions(() => {
+        syncWidgetWithTransactions(user.uid).catch(() => {});
+      });
 
       if (currentSegment === 'login') {
         AsyncStorage.getItem('@rupeo_pending_redirect').then((pending) => {
@@ -251,10 +261,15 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     return () => sub.remove();
   }, [user]);
 
-  // Initialize Ads respecting Real-time Remote Admin Config
+  // Initialize Ads respecting Real-time Remote Admin Config (deferred after interaction)
   useEffect(() => {
     if (!loading && appConfig) {
-      initializeAds(appConfig).catch((e) => warn('Ads init warning:', e));
+      const task = InteractionManager.runAfterInteractions(() => {
+        initializeAds(appConfig).catch((e) => warn('Ads init warning:', e));
+      });
+      return () => {
+        task.cancel();
+      };
     }
   }, [loading, appConfig?.networkAdsEnabled, appConfig?.showAds, appConfig?.adMobTestMode]);
 
@@ -302,14 +317,19 @@ export default function RootLayout() {
 
   useEffect(() => {
     initDatabase().catch((e) => logError('Database init error:', e));
-    requestNotificationPermissions()
-      .then((granted) => {
-        if (granted) {
-          sendWelcomeNotification().catch(() => { });
-          setupPeriodicSmartNotifications().catch(() => { });
-        }
-      })
-      .catch((e) => logError('Notification permission error:', e));
+    const task = InteractionManager.runAfterInteractions(() => {
+      requestNotificationPermissions()
+        .then((granted) => {
+          if (granted) {
+            sendWelcomeNotification().catch(() => { });
+            setupPeriodicSmartNotifications().catch(() => { });
+          }
+        })
+        .catch((e) => logError('Notification permission error:', e));
+    });
+    return () => {
+      task.cancel();
+    };
   }, []);
 
   return (
