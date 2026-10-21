@@ -6,6 +6,8 @@ import {
   TouchableOpacity,
   Dimensions,
   Platform,
+  StyleProp,
+  ViewStyle,
 } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -16,7 +18,7 @@ import { useAuth } from '@/context/AuthContext';
 
 interface CustomAdBannerProps {
   ad: InAppCustomAd;
-  style?: any;
+  style?: StyleProp<ViewStyle>;
   compact?: boolean;
   onDismiss?: () => void;
 }

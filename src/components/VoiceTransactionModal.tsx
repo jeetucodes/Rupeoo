@@ -29,6 +29,7 @@ import { getLocalDateString, getRelativeDateString, formatTime12Hour } from '@/l
 import { triggerTransactionVibration } from '@/lib/sound';
 import { useAuth } from '@/context/AuthContext';
 import CategoryIcon from '@/components/CategoryIcon';
+import { warn } from '@/lib/logger';
 
 export interface VoiceTransactionModalProps {
   visible: boolean;
@@ -350,7 +351,9 @@ export const VoiceTransactionModal: React.FC<VoiceTransactionModalProps> = ({
 
           try {
             webSpeechRef.current?.abort();
-          } catch (_) {}
+          } catch (_) {
+            // Intentional: abort throws InvalidStateError if instance is inactive
+          }
 
           const recognition = new SpeechRecognitionClass();
           webSpeechRef.current = recognition;
@@ -393,7 +396,9 @@ export const VoiceTransactionModal: React.FC<VoiceTransactionModalProps> = ({
                   isCleaningUpRef.current = true;
                   try {
                     recognition.stop();
-                  } catch (_) {}
+                  } catch (_) {
+                    // Intentional: stop throws if instance is already stopped
+                  }
                   processTranscriptRef.current(captured);
                 }
               }, 1500);
@@ -439,7 +444,7 @@ export const VoiceTransactionModal: React.FC<VoiceTransactionModalProps> = ({
           try {
             recognition.start();
           } catch (err: any) {
-            console.warn('[WebSpeech] start error:', err);
+            warn('[WebSpeech] start error:', err);
           }
         };
 
@@ -450,8 +455,10 @@ export const VoiceTransactionModal: React.FC<VoiceTransactionModalProps> = ({
           if (modalStepRef.current === 'listening' && transcriptRef.current.trim().length === 0) {
             isCleaningUpRef.current = true;
             try {
-              webSpeechRef.current?.abort();
-            } catch (_) {}
+            webSpeechRef.current?.abort();
+          } catch (_) {
+            // Intentional: abort throws InvalidStateError if instance is inactive
+          }
             setIsListening(false);
             setErrorMessage(t('voice_no_speech'));
             setModalStep('error');
@@ -487,7 +494,9 @@ export const VoiceTransactionModal: React.FC<VoiceTransactionModalProps> = ({
         if (modalStepRef.current === 'listening' && transcriptRef.current.trim().length === 0) {
           try {
             ExpoSpeechRecognitionModule?.abort?.();
-          } catch (_) {}
+          } catch (_) {
+            // Intentional: abort throws if recognizer is inactive
+          }
           setIsListening(false);
           setErrorMessage(t('voice_no_speech'));
           setModalStep('error');
@@ -508,13 +517,17 @@ export const VoiceTransactionModal: React.FC<VoiceTransactionModalProps> = ({
     if (Platform.OS === 'web') {
       try {
         webSpeechRef.current?.stop();
-      } catch (_) {}
+      } catch (_) {
+        // Intentional: stop throws if instance is already stopped
+      }
     } else {
       try {
         if (ExpoSpeechRecognitionModule && typeof ExpoSpeechRecognitionModule.stop === 'function') {
           await ExpoSpeechRecognitionModule.stop();
         }
-      } catch (_) {}
+      } catch (_) {
+        // Intentional: native stop throws if already stopping
+      }
     }
     setIsListening(false);
 
@@ -538,12 +551,16 @@ export const VoiceTransactionModal: React.FC<VoiceTransactionModalProps> = ({
       clearSilenceTimers();
       if (Platform.OS === 'web') {
         try {
-          webSpeechRef.current?.abort();
-        } catch (_) {}
+            webSpeechRef.current?.abort();
+          } catch (_) {
+            // Intentional: abort throws InvalidStateError if instance is inactive
+          }
       } else {
         try {
-          ExpoSpeechRecognitionModule?.abort?.();
-        } catch (_) {}
+            ExpoSpeechRecognitionModule?.abort?.();
+          } catch (_) {
+            // Intentional: abort throws if recognizer is inactive
+          }
       }
       setIsListening(false);
       transcriptRef.current = '';
@@ -636,7 +653,7 @@ export const VoiceTransactionModal: React.FC<VoiceTransactionModalProps> = ({
             });
           }
         } catch (udharErr) {
-          console.warn('Could not record linked udhar entry:', udharErr);
+          warn('Could not record linked udhar entry:', udharErr);
         }
       }
 

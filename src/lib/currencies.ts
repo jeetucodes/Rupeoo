@@ -167,3 +167,40 @@ export const ALL_CURRENCIES: Currency[] = [
   { code: 'ZMW', name: 'Zambian Kwacha', symbol: 'ZK' },
   { code: 'ZWL', name: 'Zimbabwean Dollar', symbol: 'Z$' },
 ];
+
+/**
+ * Resolves any currency code or symbol (e.g. 'INR', 'USD', '₹', '$') to a Currency object.
+ * Prefers code match first, then symbol match. Ambiguous '$' defaults to USD.
+ */
+export function resolveCurrency(value?: string | null): Currency {
+  if (!value) {
+    return POPULAR_CURRENCIES[0]; // INR
+  }
+
+  const trimmed = value.trim();
+  const upper = trimmed.toUpperCase();
+
+  // 1. Prefer direct code match
+  const byCode = ALL_CURRENCIES.find((c) => c.code.toUpperCase() === upper) ||
+                 POPULAR_CURRENCIES.find((c) => c.code.toUpperCase() === upper);
+  if (byCode) {
+    return byCode;
+  }
+
+  // 2. Ambiguous symbol check: '$' defaults to USD
+  if (trimmed === '$') {
+    const usd = ALL_CURRENCIES.find((c) => c.code === 'USD') || POPULAR_CURRENCIES.find((c) => c.code === 'USD');
+    if (usd) return usd;
+  }
+
+  // 3. Symbol match (popular first, then all)
+  const bySymbol = POPULAR_CURRENCIES.find((c) => c.symbol === trimmed) ||
+                   ALL_CURRENCIES.find((c) => c.symbol === trimmed);
+  if (bySymbol) {
+    return bySymbol;
+  }
+
+  // 4. Default fallback: INR
+  return POPULAR_CURRENCIES[0];
+}
+

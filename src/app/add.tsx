@@ -47,7 +47,8 @@ import VoiceTransactionModal from '@/components/VoiceTransactionModal';
 import { ParsedVoiceTransaction } from '@/lib/voiceParser';
 import { safeGoBack } from '@/lib/navigation';
 import { formatTime12Hour, getLocalDateString, getRelativeDateString, parseLocalDate } from '@/lib/dateUtils';
-import { triggerTransactionVibration } from '@/lib/sound';
+import { triggerTransactionVibration, triggerCalculatorKeyVibration } from '@/lib/sound';
+import { warn, error } from '@/lib/logger';
 
 const QUICK_AMOUNTS = [50, 100, 200, 500, 1000, 2000];
 
@@ -138,6 +139,29 @@ const CATEGORY_STYLES: Record<string, { bg: string; activeBorder: string; active
   savings: { bg: '#ECFDF5', activeBorder: '#A7F3D0', activeText: '#059669' },
   income: { bg: '#ECFDF5', activeBorder: '#A7F3D0', activeText: '#059669' },
   'pocket money': { bg: '#FFF1F2', activeBorder: '#FECDD3', activeText: '#E11D48' },
+};
+
+// Smart default merchant/source suggestions per category
+const DEFAULT_CATEGORY_MERCHANTS: Record<string, string[]> = {
+  food: ['Swiggy', 'Zomato', 'Tea / Coffee', 'Dinner', 'Lunch', 'Snacks'],
+  transport: ['Petrol / Fuel', 'Uber', 'Ola', 'Metro', 'Auto', 'Rapido'],
+  shopping: ['Amazon', 'Flipkart', 'Myntra', 'Clothes', 'Market'],
+  groceries: ['Blinkit', 'Zepto', 'Instamart', 'Supermarket', 'Vegetables', 'Milk & Dairy'],
+  bills: ['Electricity', 'Mobile Recharge', 'WiFi / Broadband', 'Rent', 'DTH', 'Water Bill'],
+  health: ['Pharmacy / Meds', 'Doctor Consultation', 'Lab Tests', 'Gym / Fitness'],
+  healthcare: ['Pharmacy / Meds', 'Doctor Consultation', 'Hospital', 'Medicine'],
+  education: ['Course / Tuition', 'Books', 'Exam Fee', 'School / College'],
+  entertainment: ['Movie', 'Netflix', 'Hotstar', 'Gaming', 'Outing'],
+  dining: ['Restaurant', 'Cafe', 'Street Food', 'Bakery'],
+  coffee: ['Starbucks', 'Cafe Coffee Day', 'Chai Point', 'Tea Stall'],
+  salary: ['Monthly Salary', 'Company Payroll', 'Stipend'],
+  job: ['Monthly Salary', 'Bonus', 'Overtime'],
+  business: ['Customer Sale', 'Invoice Payment', 'Business Revenue'],
+  freelance: ['Client Payment', 'Freelance Project', 'Consulting'],
+  investments: ['Dividend', 'Stock Profit', 'Mutual Fund Return', 'Interest'],
+  savings: ['Bank Interest', 'Savings Deposit'],
+  income: ['Salary', 'Client Payment', 'Bonus'],
+  'pocket money': ['Parents', 'Pocket Money', 'Cash Gift'],
 };
 
 export default function AddExpenseScreen() {
@@ -275,7 +299,7 @@ export default function AddExpenseScreen() {
             setTransactions(txs);
           }
         })
-        .catch(console.error);
+        .catch(error);
     }
   }, [user?.uid]);
 
@@ -377,6 +401,86 @@ export default function AddExpenseScreen() {
     }
   }, [isExpense, sortedDisplayCategories]);
 
+  // Top repeated merchants/sources for the currently selected category & type
+  const frequentMerchantsForCategory = React.useMemo(() => {
+    const currentCatKey = (category || '').toLowerCase().trim();
+    const isCurrentExpense = type === 'debit';
+
+    // 1. Calculate count of each merchant in past transactions
+    const countMap: Record<string, { count: number; originalName: string }> = {};
+
+    (transactions || []).forEach((tx) => {
+      const txType = (tx.type || 'debit').toLowerCase();
+      if ((isCurrentExpense && txType === 'credit') || (!isCurrentExpense && txType === 'debit')) {
+        return;
+      }
+
+      const txCat = (tx.category || '').toLowerCase().trim();
+      const rawMerchant = (tx.merchant_name || '').trim();
+      if (!rawMerchant) return;
+
+      const lower = rawMerchant.toLowerCase();
+      // Skip generic fallback words
+      if (
+        lower === 'expense' ||
+        lower === 'income' ||
+        lower === 'transaction' ||
+        lower === txCat
+      ) {
+        return;
+      }
+
+      // Weight transactions in the current category higher
+      const weight = txCat === currentCatKey ? 5 : 1;
+      if (!countMap[lower]) {
+        countMap[lower] = { count: weight, originalName: rawMerchant };
+      } else {
+        countMap[lower].count += weight;
+      }
+    });
+
+    // 2. Sort by highest frequency
+    const sortedHistory = Object.values(countMap)
+      .sort((a, b) => b.count - a.count)
+      .map((item) => item.originalName);
+
+    // 3. Fallback defaults for this category
+    const defaults = DEFAULT_CATEGORY_MERCHANTS[currentCatKey] || [
+      'Store',
+      'Market',
+      'Online',
+      'Daily Expense',
+    ];
+
+    const combined: string[] = [];
+    const seen = new Set<string>();
+
+    for (const name of sortedHistory) {
+      const key = name.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        combined.push(name);
+      }
+    }
+
+    for (const name of defaults) {
+      const key = name.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        combined.push(name);
+      }
+    }
+
+    // 4. If user has typed anything in merchant, filter matching suggestions
+    const query = (merchant || '').trim().toLowerCase();
+    if (query) {
+      const filtered = combined.filter((m) => m.toLowerCase().includes(query));
+      return filtered.slice(0, 5);
+    }
+
+    return combined.slice(0, 5);
+  }, [category, type, transactions, merchant]);
+
   const handleAmountChange = (val: string) => {
     const filtered = val.replace(/[^0-9.]/g, '');
     const parts = filtered.split('.');
@@ -390,7 +494,9 @@ export default function AddExpenseScreen() {
   const addQuickAmount = (val: number) => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } catch {}
+    } catch {
+      // Haptics may be unsupported or restricted on web / certain devices
+    }
     const current = parseFloat(amount) || 0;
     setAmount((current + val).toString());
   };
@@ -441,7 +547,7 @@ export default function AddExpenseScreen() {
         text2: `"${trimmed}" is selected`,
       });
     } catch (err: any) {
-      console.error('Error saving custom category:', err);
+      error('Error saving custom category:', err);
       Toast.show({ type: 'error', text1: 'Error', text2: 'Could not save category' });
     } finally {
       setIsSavingCategory(false);
@@ -466,7 +572,7 @@ export default function AddExpenseScreen() {
         Toast.show({ type: 'success', text1: 'Photo Attached! 📸' });
       }
     } catch (err) {
-      console.warn('Error picking image:', err);
+      warn('Error picking image:', err);
       Toast.show({ type: 'error', text1: 'Photo Error', text2: 'Could not access photo library' });
     }
   };
@@ -493,7 +599,7 @@ export default function AddExpenseScreen() {
         Toast.show({ type: 'success', text1: 'Photo Attached! 📸' });
       }
     } catch (err) {
-      console.warn('Error taking photo:', err);
+      warn('Error taking photo:', err);
       Toast.show({ type: 'error', text1: 'Camera Error', text2: 'Could not open camera' });
     }
   };
@@ -539,7 +645,9 @@ export default function AddExpenseScreen() {
         }
         return `${dayStr} ${month} ${year}`;
       }
-    } catch {}
+    } catch {
+      // Fallback to raw dateStr if formatting fails
+    }
     return dateStr;
   };
 
@@ -563,7 +671,9 @@ export default function AddExpenseScreen() {
           const existingTxs = await getAllTransactions(user.uid);
           isFirstTransaction = !existingTxs || existingTxs.length === 0;
         }
-      } catch {}
+      } catch (reviewErr) {
+        warn('Failed to check review prompt status on transaction save:', reviewErr);
+      }
 
       const now = new Date();
       const timeStr = formatTime12Hour(now);
@@ -621,9 +731,9 @@ export default function AddExpenseScreen() {
           });
         }
       }, 950);
-    } catch (error: any) {
-      console.error('Failed to add transaction', error);
-      Toast.show({ type: 'error', text1: 'Error', text2: error.message || 'Failed to save transaction' });
+    } catch (err: any) {
+      error('Failed to add transaction', err);
+      Toast.show({ type: 'error', text1: 'Error', text2: err.message || 'Failed to save transaction' });
       setIsSaving(false);
     }
   };
@@ -771,7 +881,7 @@ export default function AddExpenseScreen() {
               <TouchableOpacity
                 style={[styles.calculatorIconBtn, { backgroundColor: isExpense ? '#FEE2E2' : '#DCFCE7' }]}
                 onPress={() => {
-                  try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+                  triggerCalculatorKeyVibration();
                   setCalculatorOpen(true);
                 }}
                 activeOpacity={0.75}
@@ -902,6 +1012,60 @@ export default function AddExpenseScreen() {
               <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
             )}
           </View>
+
+          {/* FREQUENT REPEATED SUGGESTIONS FOR CATEGORY */}
+          {frequentMerchantsForCategory.length > 0 && (
+            <View style={styles.merchantSuggestionsContainer}>
+              <View style={styles.merchantSuggestionsHeader}>
+                <Ionicons name="sparkles" size={11} color="#2563EB" style={{ marginRight: 4 }} />
+                <Text style={styles.merchantSuggestionsTitle}>
+                  {isExpense ? `Top for ${category}` : `Frequent for ${category}`}
+                </Text>
+              </View>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.merchantSuggestionsRow}
+                keyboardShouldPersistTaps="handled"
+              >
+                {frequentMerchantsForCategory.map((item) => {
+                  const isSelected = merchant.trim().toLowerCase() === item.toLowerCase();
+                  return (
+                    <TouchableOpacity
+                      key={item}
+                      style={[
+                        styles.merchantSuggestionChip,
+                        isSelected && styles.merchantSuggestionChipActive,
+                      ]}
+                      onPress={() => {
+                        try {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        } catch {}
+                        setMerchant(item);
+                      }}
+                      activeOpacity={0.75}
+                    >
+                      <Ionicons
+                        name={isSelected ? 'checkmark-circle' : 'flash-outline'}
+                        size={12}
+                        color={isSelected ? '#FFFFFF' : '#2563EB'}
+                        style={{ marginRight: 4 }}
+                      />
+                      <Text
+                        style={[
+                          styles.merchantSuggestionText,
+                          isSelected && styles.merchantSuggestionTextActive,
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {item}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          )}
 
           {/* PAYMENT VIA SECTION */}
           <View style={styles.paymentSectionHeader}>
@@ -1832,6 +1996,59 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#0F172A',
     paddingVertical: 4,
+  },
+
+  // Merchant Frequent Suggestions
+  merchantSuggestionsContainer: {
+    marginTop: -4,
+    marginBottom: 12,
+    paddingHorizontal: 2,
+  },
+  merchantSuggestionsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  merchantSuggestionsTitle: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#64748B',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+  merchantSuggestionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    paddingVertical: 2,
+  },
+  merchantSuggestionChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
+    borderRadius: 14,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+  },
+  merchantSuggestionChipActive: {
+    backgroundColor: '#2563EB',
+    borderColor: '#1D4ED8',
+    shadowColor: '#2563EB',
+    shadowOpacity: 0.25,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  merchantSuggestionText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#1E40AF',
+  },
+  merchantSuggestionTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '800',
   },
 
   // Payment Section

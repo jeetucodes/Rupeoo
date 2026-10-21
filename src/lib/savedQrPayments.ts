@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { insertTransaction } from './database';
 import { getLocalDateString, formatTime12Hour } from './dateUtils';
 import { triggerTransactionVibration } from './sound';
+import { warn, error } from '@/lib/logger';
 
 export interface SavedQrPart {
   id: string;
@@ -41,7 +42,7 @@ export async function getSavedQrPayments(userId?: string): Promise<SavedQrPaymen
     const list: SavedQrPaymentCard[] = JSON.parse(raw);
     return Array.isArray(list) ? list : [];
   } catch (err) {
-    console.warn('Error fetching saved QR payments:', err);
+    warn('Error fetching saved QR payments:', err);
     return [];
   }
 }
@@ -133,8 +134,8 @@ export async function addSavedQrToTransactions(
 
     await AsyncStorage.setItem(getStorageKey(userId), JSON.stringify(updatedCards));
     return { success: true, txId };
-  } catch (err: any) {
-    console.error('Error adding saved QR to transactions:', err);
-    return { success: false, error: err?.message || 'Failed to add payment to transactions' };
+  } catch (err: unknown) {
+    error('Error adding saved QR to transactions:', err);
+    return { success: false, error: err instanceof Error ? err.message : 'Failed to add payment to transactions' };
   }
 }

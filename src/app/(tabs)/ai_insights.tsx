@@ -35,14 +35,17 @@ import Svg, {
   Stop,
 } from 'react-native-svg';
 import { useAuth } from '@/context/AuthContext';
-import { getAllTransactions, getUserCategories, CategoryItem, defaultCategories } from '@/lib/database';
+import { getAllTransactions, getUserCategories, CategoryItem, defaultCategories, subscribeTransactions, normalizeDate } from '@/lib/database';
+import { parseLocalDate } from '@/lib/dateUtils';
 import CategoryIcon from '@/components/CategoryIcon';
 import PaymentModeIcon from '@/components/PaymentModeIcon';
 import Toast from 'react-native-toast-message';
 import { generateAndShareFinancialReportPDF } from '@/lib/pdfReport';
 import { checkPdfExportLimit, incrementPdfExportCount, getPdfExportCount, FREE_PDF_EXPORT_LIMIT } from '@/lib/limits';
 import { useTranslation } from '@/lib/i18n';
-import BudgetArcGauge from '@/components/BudgetArcGauge';
+import * as Haptics from 'expo-haptics';
+import SpendingCalendarCard from '@/components/SpendingCalendarCard';
+import { warn, error } from '@/lib/logger';
 
 const { width } = Dimensions.get('window');
 const CHART_WIDTH = width - 40;
@@ -103,12 +106,12 @@ const ICONS_3D = {
   zap: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Travel%20and%20places/High%20Voltage.png',
   card: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Credit%20Card.png',
   pie: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Food/Pie.png',
+  calendar: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Spiral%20Calendar.png',
 };
 
 const PALETTE = [
-  '#F59E0B', '#6366F1', '#10B981', '#EC4899', '#3B82F6',
-  '#8B5CF6', '#14B8A6', '#F97316', '#EF4444', '#06B6D4',
-  '#64748B', '#84CC16',
+  '#1E293B', '#FF5722', '#7C3AED', '#10B981', '#3B82F6',
+  '#F59E0B', '#64748B', '#EC4899', '#06B6D4', '#8B5CF6',
 ];
 
 // Helper to generate ultra-smooth Bezier curve path
@@ -133,6 +136,8 @@ function buildSmoothPath(points: { x: number; y: number }[]): string {
   return d;
 }
 
+export type ReportTabType = 'all' | 'donut' | 'calendar' | 'wave' | 'trends';
+
 export default function ReportsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -147,6 +152,7 @@ export default function ReportsScreen() {
   const [transactions, setTransactions] = useState<TransactionItem[]>([]);
   const [categories, setCategories] = useState<CategoryItem[]>([]);
   const [period, setPeriod] = useState<PeriodType>('this_month');
+  const [activeReportTab, setActiveReportTab] = useState<ReportTabType>('all');
   const [chartView, setChartView] = useState<ChartViewType>('donut');
   const [categoryType, setCategoryType] = useState<'expense' | 'income'>('expense');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -154,9 +160,18 @@ export default function ReportsScreen() {
   const [selectedTrendIndex, setSelectedTrendIndex] = useState<number | null>(null);
   const [waveDaysRange, setWaveDaysRange] = useState<7 | 14 | 30>(7);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [showProLimitModal, setShowProLimitModal] = useState(false);
   const [selectedCategoryDetail, setSelectedCategoryDetail] = useState<CategorySpend | null>(null);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [pdfExportCount, setPdfExportCount] = useState<number>(0);
+
+  const REPORT_TABS: { key: ReportTabType; label: string; icon3d: string }[] = useMemo(() => [
+    { key: 'all', label: t('tab_all_reports'), icon3d: ICONS_3D.sparkles },
+    { key: 'donut', label: t('tab_donut_chart'), icon3d: ICONS_3D.pie },
+    { key: 'calendar', label: t('tab_spend_calendar'), icon3d: ICONS_3D.calendar },
+    { key: 'wave', label: t('tab_daily_wave'), icon3d: ICONS_3D.fire },
+    { key: 'trends', label: t('tab_trends_habits'), icon3d: ICONS_3D.bar_chart },
+  ], [t]);
 
   const refreshPdfCount = useCallback(async () => {
     if (!isPremium) {
@@ -165,13 +180,18 @@ export default function ReportsScreen() {
     }
   }, [isPremium, user?.uid]);
 
-  useFocusEffect(
-    useCallback(() => {
-      refreshPdfCount();
-    }, [refreshPdfCount])
-  );
-
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const donutAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    donutAnim.setValue(0);
+    Animated.spring(donutAnim, {
+      toValue: 1,
+      tension: 45,
+      friction: 7,
+      useNativeDriver: true,
+    }).start();
+  }, [categoryType, period]);
 
   // High-performance insights: clean static rendering without 60fps JS thread thrashing
 
@@ -201,16 +221,45 @@ export default function ReportsScreen() {
         useNativeDriver: true,
       }).start();
     } catch (e) {
-      console.warn('Failed to load report data:', e);
+      warn('Failed to load report data:', e);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   }, [user?.uid, fadeAnim]);
 
+  useFocusEffect(
+    useCallback(() => {
+      refreshPdfCount();
+      if (transactions.length === 0) {
+        loadData(false);
+      }
+    }, [refreshPdfCount, loadData, transactions.length])
+  );
+
   useEffect(() => {
     loadData(false);
   }, [loadData]);
+
+  // Real-time listener: automatically refreshes report immediately whenever a transaction is added, updated, or deleted
+  useEffect(() => {
+    const unsub = subscribeTransactions((freshTxs) => {
+      if (Array.isArray(freshTxs)) {
+        const normalizedTx: TransactionItem[] = freshTxs.map((t: any) => ({
+          id: t.id,
+          date: t.date,
+          amount: Number(t.amount) || 0,
+          type: (t.type === 'credit' || t.type === 'income') ? 'income' : 'expense',
+          category: t.category || 'Others',
+          description: t.description || t.merchant_name || '',
+          title: t.title || t.merchant_name || t.description || t.category || 'Expense',
+          payment_mode: t.payment_mode || t.paymentMode || 'UPI',
+        }));
+        setTransactions(normalizedTx);
+      }
+    });
+    return () => unsub();
+  }, []);
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -224,7 +273,8 @@ export default function ReportsScreen() {
     const currentMonth = now.getMonth();
 
     return transactions.filter(tx => {
-      const d = new Date(tx.date);
+      if (!tx.date) return false;
+      const d = parseLocalDate(normalizeDate(tx.date));
       if (isNaN(d.getTime())) return false;
 
       if (period === 'this_month') {
@@ -557,7 +607,8 @@ export default function ReportsScreen() {
     const currentMonth = now.getMonth();
 
     const prevTxs = transactions.filter(tx => {
-      const d = new Date(tx.date);
+      if (!tx.date) return false;
+      const d = parseLocalDate(normalizeDate(tx.date));
       if (isNaN(d.getTime())) return false;
 
       if (period === 'this_month') {
@@ -810,9 +861,9 @@ export default function ReportsScreen() {
 
       const periodTitle =
         period === 'this_month' ? 'This Month' :
-        period === 'last_month' ? 'Last Month' :
-        period === '3_months' ? 'Last 3 Months' :
-        period === 'this_year' ? 'This Year' : 'All Time';
+          period === 'last_month' ? 'Last Month' :
+            period === '3_months' ? 'Last 3 Months' :
+              period === 'this_year' ? 'This Year' : 'All Time';
 
       const userName = user?.displayName || 'Rupeo Member';
       const formattedDate = new Date().toLocaleDateString('en-IN', {
@@ -824,8 +875,8 @@ export default function ReportsScreen() {
       // Health rating emoji
       const healthEmoji =
         financialHealth.score >= 85 ? '🟢' :
-        financialHealth.score >= 70 ? '🔵' :
-        financialHealth.score >= 50 ? '🟡' : '🔴';
+          financialHealth.score >= 70 ? '🔵' :
+            financialHealth.score >= 50 ? '🟡' : '🔴';
 
       const netSign = metrics.net >= 0 ? '+' : '';
 
@@ -927,7 +978,7 @@ export default function ReportsScreen() {
         message: text,
       });
     } catch (e) {
-      console.error('Share Report Error:', e);
+      error('Share Report Error:', e);
       Toast.show({ type: 'error', text1: 'Could not share report' });
     }
   };
@@ -942,9 +993,9 @@ export default function ReportsScreen() {
 
       const periodLabel =
         period === 'this_month' ? 'This_Month' :
-        period === 'last_month' ? 'Last_Month' :
-        period === '3_months' ? 'Last_3_Months' :
-        period === 'this_year' ? 'This_Year' : 'All_Time';
+          period === 'last_month' ? 'Last_Month' :
+            period === '3_months' ? 'Last_3_Months' :
+              period === 'this_year' ? 'This_Year' : 'All_Time';
 
       let csv = 'Date,Description,Category,Type,Amount,PaymentMode\n';
       filteredTransactions.forEach(tx => {
@@ -991,7 +1042,7 @@ export default function ReportsScreen() {
       }
       setShowExportModal(false);
     } catch (e) {
-      console.error(e);
+      error(e);
       Toast.show({ type: 'error', text1: 'Export Failed', text2: 'Could not export CSV file' });
     }
   };
@@ -1009,19 +1060,8 @@ export default function ReportsScreen() {
       const { allowed } = await checkPdfExportLimit(isPremium, user?.uid, isProOff);
       if (!allowed) {
         setShowExportModal(false);
-        const canUpgrade = appConfig?.showSubscriptions !== false && appConfig?.showProFeatures !== false;
-        Alert.alert(
-          canUpgrade ? 'Rupeo Pro Feature 👑' : 'Export Limit Reached ⚠️',
-          canUpgrade
-            ? `Free version mein maximum ${FREE_PDF_EXPORT_LIMIT} PDF statements export/share karne ki limit hai jo aap poori kar chuke hain.\n\nUnlimited official multi-page reports aur statement share karne ke liye Rupeo Pro upgrade karein.`
-            : `Free version mein maximum ${FREE_PDF_EXPORT_LIMIT} PDF statements export karne ki limit poori ho chuki hai.`,
-          canUpgrade
-            ? [
-                { text: 'Cancel', style: 'cancel' },
-                { text: 'Upgrade to Pro 🚀', onPress: () => router.push('/premium') },
-              ]
-            : [{ text: 'OK', style: 'default' }]
-        );
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        setShowProLimitModal(true);
         return;
       }
 
@@ -1030,9 +1070,9 @@ export default function ReportsScreen() {
 
       const periodTitle =
         period === 'this_month' ? 'This Month' :
-        period === 'last_month' ? 'Last Month' :
-        period === '3_months' ? 'Last 3 Months' :
-        period === 'this_year' ? 'This Year' : 'All Time';
+          period === 'last_month' ? 'Last Month' :
+            period === '3_months' ? 'Last 3 Months' :
+              period === 'this_year' ? 'This Year' : 'All Time';
 
       // Calculate dedicated expense category breakdown for PDF export
       const expenseTx = filteredTransactions.filter(t => t.type === 'expense');
@@ -1092,7 +1132,7 @@ export default function ReportsScreen() {
         Toast.show({ type: 'success', text1: 'PDF Exported', text2: 'Multi-page financial statement ready' });
       }
     } catch (e: any) {
-      console.error('PDF Export Error:', e);
+      error('PDF Export Error:', e);
       Toast.show({ type: 'error', text1: 'PDF Error', text2: e?.message || 'Could not generate PDF' });
     } finally {
       setIsGeneratingPDF(false);
@@ -1150,15 +1190,16 @@ export default function ReportsScreen() {
         <View style={styles.chartHeaderRow}>
           <View style={{ flex: 1, marginRight: 10 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={styles.swissSectionNum}>04.</Text>
               <ExpoImage source={{ uri: ICONS_3D.sparkles }} style={{ width: 20, height: 20 }} contentFit="contain" />
               <Text style={styles.themeCardTitle}>{t('spending_wave') || 'Daily Spend & Average'}</Text>
             </View>
             <Text style={styles.themeCardSub}>
               {activePoint
                 ? (t('inspecting_day_spend') || 'Inspecting {date} daily spend').replace(
-                    '{date}',
-                    `${activePoint.dayName ? `${activePoint.dayName}, ` : ''}${activePoint.label}`
-                  )
+                  '{date}',
+                  `${activePoint.dayName ? `${activePoint.dayName}, ` : ''}${activePoint.label}`
+                )
                 : (t('spending_wave_sub') || 'Daily spending & daily average benchmark')}
             </Text>
           </View>
@@ -1261,7 +1302,7 @@ export default function ReportsScreen() {
           /* ACTIVE DAY INSPECTOR CARD */
           <View style={styles.waveInspectorCard}>
             <View style={styles.waveInspectorHeader}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
                 <View style={styles.waveInspectorIcon}>
                   <Ionicons name="pulse" size={13} color="#D97706" />
                 </View>
@@ -1275,61 +1316,84 @@ export default function ReportsScreen() {
                 isPeakPoint
                   ? { backgroundColor: '#FEE2E2', borderColor: '#FECDD3' }
                   : isAboveAvg
-                  ? { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }
-                  : isZeroSpend
-                  ? { backgroundColor: '#DCFCE7', borderColor: '#BBF7D0' }
-                  : { backgroundColor: '#E0F2FE', borderColor: '#BAE6FD' }
+                    ? { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }
+                    : isZeroSpend
+                      ? { backgroundColor: '#DCFCE7', borderColor: '#BBF7D0' }
+                      : { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' }
               ]}>
                 <Ionicons
                   name={isPeakPoint ? 'flame' : isAboveAvg ? 'trending-up' : isZeroSpend ? 'checkmark-circle' : 'trending-down'}
                   size={12}
-                  color={isPeakPoint ? '#DC2626' : isAboveAvg ? '#D97706' : isZeroSpend ? '#16A34A' : '#0284C7'}
+                  color={isPeakPoint ? '#DC2626' : isAboveAvg ? '#D97706' : isZeroSpend ? '#16A34A' : '#2563EB'}
                   style={{ marginRight: 3 }}
                 />
                 <Text style={[
                   styles.waveBadgeText,
-                  { color: isPeakPoint ? '#B91C1C' : isAboveAvg ? '#92400E' : isZeroSpend ? '#15803D' : '#0369A1' }
+                  { color: isPeakPoint ? '#B91C1C' : isAboveAvg ? '#92400E' : isZeroSpend ? '#15803D' : '#1D4ED8' }
                 ]}>
                   {isPeakPoint
                     ? (t('peak_spend_day') || 'Peak Spending Day')
                     : isAboveAvg
-                    ? (t('above_daily_avg') || 'Above Daily Avg ⚠️')
-                    : isZeroSpend
-                    ? (t('zero_outflow') || 'Zero Outflow 👏')
-                    : (t('below_daily_avg') || 'Below Daily Avg 🎯')}
+                      ? (t('above_daily_avg') || 'Above Daily Avg ⚠️')
+                      : isZeroSpend
+                        ? (t('zero_outflow') || 'Zero Outflow 👏')
+                        : (t('below_daily_avg') || 'Below Daily Avg 🎯')}
                 </Text>
               </View>
             </View>
 
             <View style={styles.waveInspectorPillsRow}>
-              <View style={styles.waveInspectorPillItem}>
-                <Text style={styles.waveInspectorPillLabel}>{t('outflow_label') || 'OUTFLOW'}</Text>
+              {/* Outflow Pill */}
+              <View style={[styles.waveInspectorPillItem, { backgroundColor: '#FEF2F2', borderColor: '#FECDD3' }]}>
+                <Text style={[styles.waveInspectorPillLabel, { color: '#991B1B' }]}>{t('outflow_label') || 'OUTFLOW'}</Text>
                 <Text style={[styles.waveInspectorPillValue, { color: '#DC2626' }]}>
                   {`${curr}${activePoint.expense.toLocaleString('en-IN')}`}
                 </Text>
               </View>
-              <View style={styles.waveInspectorPillItem}>
-                <Text style={styles.waveInspectorPillLabel}>{t('vs_daily_avg') || 'VS DAILY AVG'}</Text>
+
+              {/* Vs Daily Avg Pill */}
+              <View style={[
+                styles.waveInspectorPillItem,
+                activePoint.expense > avgSpend
+                  ? { backgroundColor: '#FFFBEB', borderColor: '#FDE68A' }
+                  : activePoint.expense < avgSpend
+                    ? { backgroundColor: '#F0FDF4', borderColor: '#BBF7D0' }
+                    : { backgroundColor: '#F8FAFC', borderColor: '#E2E8F0' }
+              ]}>
+                <Text style={[
+                  styles.waveInspectorPillLabel,
+                  {
+                    color: activePoint.expense > avgSpend
+                      ? '#92400E'
+                      : activePoint.expense < avgSpend
+                        ? '#166534'
+                        : '#64748B'
+                  }
+                ]}>
+                  {t('vs_daily_avg') || 'VS DAILY AVG'}
+                </Text>
                 <Text style={[
                   styles.waveInspectorPillValue,
                   {
                     color: activePoint.expense > avgSpend
-                      ? '#DC2626'
+                      ? '#D97706'
                       : activePoint.expense < avgSpend
-                      ? '#059669'
-                      : '#64748B'
+                        ? '#16A34A'
+                        : '#64748B'
                   }
                 ]}>
                   {activePoint.expense > avgSpend
                     ? `+${curr}${(activePoint.expense - avgSpend).toLocaleString('en-IN')}`
                     : activePoint.expense < avgSpend
-                    ? `-${curr}${(avgSpend - activePoint.expense).toLocaleString('en-IN')}`
-                    : (t('equal_label') || 'Equal')}
+                      ? `-${curr}${(avgSpend - activePoint.expense).toLocaleString('en-IN')}`
+                      : (t('equal_label') || 'Equal')}
                 </Text>
               </View>
-              <View style={styles.waveInspectorPillItem}>
-                <Text style={styles.waveInspectorPillLabel}>{t('inflow_label') || 'INFLOW'}</Text>
-                <Text style={[styles.waveInspectorPillValue, { color: '#059669' }]}>
+
+              {/* Inflow Pill */}
+              <View style={[styles.waveInspectorPillItem, { backgroundColor: '#F0FDF4', borderColor: '#BBF7D0' }]}>
+                <Text style={[styles.waveInspectorPillLabel, { color: '#166534' }]}>{t('inflow_label') || 'INFLOW'}</Text>
+                <Text style={[styles.waveInspectorPillValue, { color: '#16A34A' }]}>
                   {`+${curr}${activePoint.income.toLocaleString('en-IN')}`}
                 </Text>
               </View>
@@ -1358,11 +1422,16 @@ export default function ReportsScreen() {
           </Defs>
 
           {/* Reference guidelines with Y-axis markers */}
-          <Line x1={paddingX} y1={chartHeight * 0.22} x2={chartWidth - paddingX} y2={chartHeight * 0.22} stroke="#F1F5F9" strokeWidth="1" strokeDasharray="4 4" />
-          <SvgText x={paddingX} y={chartHeight * 0.22 - 3} fontSize="8.5" fontWeight="700" fill="#94A3B8">{`${curr}${formatY(maxVal * 0.78)}`}</SvgText>
+          <Line x1={paddingX + 26} y1={chartHeight * 0.22} x2={chartWidth - paddingX} y2={chartHeight * 0.22} stroke="#F1F5F9" strokeWidth="1" strokeDasharray="4 4" />
+          <SvgText x={paddingX} y={chartHeight * 0.22 + 3} fontSize="8.5" fontWeight="700" fill="#94A3B8">{`${curr}${formatY(maxVal * 0.78)}`}</SvgText>
 
-          <Line x1={paddingX} y1={chartHeight * 0.58} x2={chartWidth - paddingX} y2={chartHeight * 0.58} stroke="#F1F5F9" strokeWidth="1" strokeDasharray="4 4" />
-          <SvgText x={paddingX} y={chartHeight * 0.58 - 3} fontSize="8.5" fontWeight="700" fill="#94A3B8">{`${curr}${formatY(maxVal * 0.42)}`}</SvgText>
+          {/* Only draw lower guideline if it does not clash with the average line */}
+          {Math.abs(avgY - chartHeight * 0.58) >= 16 && (
+            <>
+              <Line x1={paddingX + 26} y1={chartHeight * 0.58} x2={chartWidth - paddingX} y2={chartHeight * 0.58} stroke="#F1F5F9" strokeWidth="1" strokeDasharray="4 4" />
+              <SvgText x={paddingX} y={chartHeight * 0.58 + 3} fontSize="8.5" fontWeight="700" fill="#94A3B8">{`${curr}${formatY(maxVal * 0.42)}`}</SvgText>
+            </>
+          )}
 
           {/* Baseline */}
           <Line x1={paddingX} y1={chartHeight} x2={chartWidth - paddingX} y2={chartHeight} stroke="#E2E8F0" strokeWidth="1.2" />
@@ -1374,10 +1443,11 @@ export default function ReportsScreen() {
               y={6}
               width={step}
               height={chartHeight - 4}
-              rx={10}
+              rx={8}
               fill="url(#activeWaveColGrad)"
-              stroke="#FDE68A"
+              stroke="#FEF3C7"
               strokeWidth="1"
+              strokeDasharray="4 3"
             />
           )}
 
@@ -1393,35 +1463,50 @@ export default function ReportsScreen() {
             const avgTagPrefix = t('avg_benchmark_tag') || 'Avg';
             const avgTagSuffix = t('per_d_tag') || '/d';
             const avgPillText = `${avgTagPrefix} ${curr}${avgFormatted}${avgTagSuffix}`;
-            const pillWidth = 98;
-            const pillHeight = 16;
-            const pillX = chartWidth - paddingX - pillWidth;
-            const pillY = Math.max(avgY - 18, 2);
+            const pillWidth = Math.max(76, Math.round(avgPillText.length * 6.8));
+            const pillHeight = 18;
+
+            // Smart position: flip to left if active point is on the right half or collides
+            const isPillOnLeft = activeCoord
+              ? activeCoord.x > chartWidth * 0.5 || (activeCoord.x > chartWidth * 0.4 && Math.abs(activeCoord.y - avgY) < 32)
+              : false;
+
+            const pillX = isPillOnLeft
+              ? paddingX + 2
+              : chartWidth - paddingX - pillWidth - 2;
+
+            const pillY = avgY < 22 ? avgY + 5 : avgY - 20;
+
+            // Line bounds: ensure the line stops before the pill and starts after left labels
+            const lineStartX = isPillOnLeft ? pillX + pillWidth + 6 : paddingX + 26;
+            const lineEndX = isPillOnLeft ? chartWidth - paddingX : pillX - 6;
 
             return (
               <G>
-                <Line
-                  x1={paddingX}
-                  y1={avgY}
-                  x2={chartWidth - paddingX}
-                  y2={avgY}
-                  stroke="#6366F1"
-                  strokeWidth="1.8"
-                  strokeDasharray="5 4"
-                />
+                {lineEndX > lineStartX && (
+                  <Line
+                    x1={lineStartX}
+                    y1={avgY}
+                    x2={lineEndX}
+                    y2={avgY}
+                    stroke="#6366F1"
+                    strokeWidth="1.6"
+                    strokeDasharray="4 3"
+                  />
+                )}
                 <Rect
                   x={pillX}
                   y={pillY}
                   width={pillWidth}
                   height={pillHeight}
-                  rx={4}
+                  rx={9}
                   fill="#EEF2FF"
-                  stroke="#818CF8"
+                  stroke="#C7D2FE"
                   strokeWidth="1"
                 />
                 <SvgText
                   x={pillX + pillWidth / 2}
-                  y={pillY + 11.5}
+                  y={pillY + 12.5}
                   fontSize="8.5"
                   fontWeight="800"
                   fill="#4338CA"
@@ -1472,14 +1557,34 @@ export default function ReportsScreen() {
                   {...getSvgTouchProps(() => setSelectedPointIndex(selectedPointIndex === idx ? null : idx))}
                 />
 
-                {/* Selected Point Halo Ring */}
+                {/* Selected Point Double Halo Glow */}
                 {isSelected && (
+                  <>
+                    <Circle
+                      cx={c.x}
+                      cy={c.y}
+                      r={13}
+                      fill="#F59E0B"
+                      opacity={0.16}
+                    />
+                    <Circle
+                      cx={c.x}
+                      cy={c.y}
+                      r={8}
+                      fill="#F59E0B"
+                      opacity={0.28}
+                    />
+                  </>
+                )}
+
+                {/* Peak Day Subtle Halo */}
+                {isPeak && !isSelected && (
                   <Circle
                     cx={c.x}
                     cy={c.y}
-                    r={10}
-                    fill="#F59E0B"
-                    opacity={0.22}
+                    r={8}
+                    fill="#EF4444"
+                    opacity={0.18}
                   />
                 )}
 
@@ -1487,32 +1592,22 @@ export default function ReportsScreen() {
                 <Circle
                   cx={c.x}
                   cy={c.y}
-                  r={isSelected ? 6 : isPeak ? 4.8 : 3.5}
+                  r={isSelected ? 5.5 : isPeak ? 4.5 : 3.5}
                   fill={
                     isSelected
-                      ? '#4338CA'
+                      ? '#D97706'
                       : isPeak
-                      ? '#EF4444'
-                      : isPointAboveAvg
-                      ? '#F59E0B'
-                      : isPointZero
-                      ? '#E2E8F0'
-                      : '#10B981'
+                        ? '#EF4444'
+                        : isPointAboveAvg
+                          ? '#F59E0B'
+                          : isPointZero
+                            ? '#CBD5E1'
+                            : '#10B981'
                   }
-                  stroke={isSelected ? '#FFFFFF' : '#FFFFFF'}
+                  stroke="#FFFFFF"
                   strokeWidth={isSelected ? 2.5 : 1.8}
                   {...getSvgTouchProps(() => setSelectedPointIndex(selectedPointIndex === idx ? null : idx))}
                 />
-
-                {/* Peak Day Beacon */}
-                {isPeak && !isSelected && (
-                  <Circle
-                    cx={c.x}
-                    cy={c.y - 8}
-                    r={2.5}
-                    fill="#EF4444"
-                  />
-                )}
 
                 {/* X Axis Day & Date Label */}
                 {showLabel && (
@@ -1591,16 +1686,17 @@ export default function ReportsScreen() {
         <View style={styles.chartHeaderRow}>
           <View style={{ flex: 1, marginRight: 10 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={styles.swissSectionNum}>05.</Text>
               <ExpoImage source={{ uri: ICONS_3D.bar_chart }} style={{ width: 20, height: 20 }} contentFit="contain" />
               <Text style={styles.themeCardTitle}>{t('cash_flow_trends') || 'Cash Flow Trends'}</Text>
               <View style={styles.trendLiveBadge}>
-                <Text style={styles.trendLiveBadgeText}>6-Month</Text>
+                <Text style={styles.trendLiveBadgeText}>{t('six_month_badge')}</Text>
               </View>
             </View>
             <Text style={styles.themeCardSub}>
               {activeItem
-                ? `Inspecting ${activeItem.label} cash flow`
-                : 'Tap any column to inspect income, expense & savings'}
+                ? t('inspecting_cash_flow').replace('{month}', activeItem.label)
+                : t('tap_month_inspect')}
             </Text>
           </View>
 
@@ -1612,17 +1708,17 @@ export default function ReportsScreen() {
               activeOpacity={0.7}
             >
               <Ionicons name="close-circle" size={13} color="#64748B" style={{ marginRight: 3 }} />
-              <Text style={styles.resetCatText}>Reset</Text>
+              <Text style={styles.resetCatText}>{t('reset')}</Text>
             </TouchableOpacity>
           ) : (
             <View style={styles.barLegendRow}>
               <View style={styles.legendDotItem}>
                 <View style={[styles.legendDot, { backgroundColor: '#10B981' }]} />
-                <Text style={styles.legendText}>In</Text>
+                <Text style={styles.legendText}>{t('legend_in')}</Text>
               </View>
               <View style={styles.legendDotItem}>
                 <View style={[styles.legendDot, { backgroundColor: '#EF4444' }]} />
-                <Text style={styles.legendText}>Out</Text>
+                <Text style={styles.legendText}>{t('legend_out')}</Text>
               </View>
             </View>
           )}
@@ -1632,21 +1728,21 @@ export default function ReportsScreen() {
         {!activeItem ? (
           <View style={styles.trendSummaryRow}>
             <View style={styles.trendSummaryCol}>
-              <Text style={styles.trendSummaryLabel}>TOTAL INFLOW</Text>
+              <Text style={styles.trendSummaryLabel}>{t('total_inflow')}</Text>
               <Text style={[styles.trendSummaryValue, { color: '#059669' }]}>
                 +{curr}{cashFlowSummary.totalIn.toLocaleString('en-IN')}
               </Text>
             </View>
             <View style={styles.trendSummaryDivider} />
             <View style={styles.trendSummaryCol}>
-              <Text style={styles.trendSummaryLabel}>TOTAL OUTFLOW</Text>
+              <Text style={styles.trendSummaryLabel}>{t('total_outflow')}</Text>
               <Text style={[styles.trendSummaryValue, { color: '#DC2626' }]}>
                 -{curr}{cashFlowSummary.totalOut.toLocaleString('en-IN')}
               </Text>
             </View>
             <View style={styles.trendSummaryDivider} />
             <View style={styles.trendSummaryCol}>
-              <Text style={styles.trendSummaryLabel}>NET SURPLUS</Text>
+              <Text style={styles.trendSummaryLabel}>{t('net_surplus')}</Text>
               <Text style={[styles.trendSummaryValue, { color: cashFlowSummary.totalNet >= 0 ? '#059669' : '#DC2626' }]}>
                 {cashFlowSummary.totalNet >= 0 ? '+' : '-'}{curr}{Math.abs(cashFlowSummary.totalNet).toLocaleString('en-IN')}
               </Text>
@@ -1660,7 +1756,9 @@ export default function ReportsScreen() {
                 <View style={styles.trendInspectorIcon}>
                   <Ionicons name="calendar" size={13} color="#2563EB" />
                 </View>
-                <Text style={styles.trendInspectorTitle}>{activeItem.label} Cash Flow</Text>
+                <Text style={styles.trendInspectorTitle}>
+                  {t('month_cash_flow_title').replace('{month}', activeItem.label)}
+                </Text>
               </View>
               <View style={[
                 styles.trendNetBadge,
@@ -1677,23 +1775,23 @@ export default function ReportsScreen() {
                   { color: activeItem.net >= 0 ? '#15803D' : '#B91C1C' }
                 ]}>
                   {activeItem.net >= 0
-                    ? `+${curr}${activeItem.net.toLocaleString('en-IN')} Net Saved`
-                    : `-${curr}${Math.abs(activeItem.net).toLocaleString('en-IN')} Deficit`}
+                    ? `+${curr}${activeItem.net.toLocaleString('en-IN')} ${t('net_saved')}`
+                    : `-${curr}${Math.abs(activeItem.net).toLocaleString('en-IN')} ${t('deficit')}`}
                 </Text>
               </View>
             </View>
 
             <View style={styles.trendInspectorPillsRow}>
               <View style={styles.trendInspectorPillIn}>
-                <Text style={styles.trendInspectorPillLabel}>INFLOW</Text>
+                <Text style={styles.trendInspectorPillLabel}>{t('inflow_label')}</Text>
                 <Text style={styles.trendInspectorPillValue}>+{curr}{activeItem.income.toLocaleString('en-IN')}</Text>
               </View>
               <View style={styles.trendInspectorPillOut}>
-                <Text style={styles.trendInspectorPillLabel}>OUTFLOW</Text>
+                <Text style={styles.trendInspectorPillLabel}>{t('outflow_label')}</Text>
                 <Text style={styles.trendInspectorPillValue}>-{curr}{activeItem.expense.toLocaleString('en-IN')}</Text>
               </View>
               <View style={styles.trendInspectorPillRate}>
-                <Text style={styles.trendInspectorPillLabel}>SAVINGS RATE</Text>
+                <Text style={styles.trendInspectorPillLabel}>{t('savings_rate')}</Text>
                 <Text style={styles.trendInspectorPillValue}>
                   {activeItem.income > 0 ? `${Math.max(0, Math.round((activeItem.net / activeItem.income) * 100))}%` : '0%'}
                 </Text>
@@ -1829,55 +1927,109 @@ export default function ReportsScreen() {
     );
   };
 
-  // Render SVG Donut Chart for Categories
+  // Clean, Simple & Modern Donut Chart (Segmented with radial cut gaps)
   const renderCategoryDonut = () => {
     if (categoryBreakdown.length === 0) return null;
 
-    const size = 190;
-    const strokeWidth = 22;
-    const radius = (size - strokeWidth) / 2;
+    const svgWidth = Math.min(chartWidth, 340);
+    const svgHeight = 230;
+    const cx = svgWidth / 2;
+    const cy = svgHeight / 2;
+    const radius = 80;
+    const strokeWidth = 34;
     const circumference = 2 * Math.PI * radius;
-    let accumulatedOffset = 0;
 
     const activeCat = selectedCategory ? categoryBreakdown.find(c => c.name === selectedCategory) : null;
     const totalAmount = categoryType === 'expense' ? metrics.expense : metrics.income;
 
+    const handleSlicePress = (catName: string) => {
+      try {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      } catch { }
+      setSelectedCategory(selectedCategory === catName ? null : catName);
+    };
+
+    let accumulatedOffset = 0;
+    const gapPx = categoryBreakdown.length > 1 ? 5.5 : 0;
+    const sliceData = categoryBreakdown.map((cat) => {
+      const strokeLength = Math.max((circumference * cat.percentage) / 100 - gapPx, 0.1);
+      const currentOffset = accumulatedOffset + gapPx / 2;
+      accumulatedOffset += (circumference * cat.percentage) / 100;
+
+      return {
+        cat,
+        strokeLength,
+        currentOffset,
+      };
+    });
+
     return (
       <View style={styles.donutCardInner}>
-        <View style={styles.donutContainer}>
-          <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-            <G transform={`rotate(-90 ${size / 2} ${size / 2})`}>
-              {categoryBreakdown.map((cat) => {
-                const isSelected = selectedCategory === cat.name;
-                const strokeLength = (circumference * cat.percentage) / 100;
-                const currentOffset = accumulatedOffset;
-                accumulatedOffset += strokeLength;
+        <Animated.View
+          style={[
+            styles.donutContainer,
+            {
+              transform: [{ scale: donutAnim }],
+              opacity: donutAnim,
+            },
+          ]}
+        >
+          <Svg width={svgWidth} height={svgHeight}>
+            {/* Subtle Base Track */}
+            <Circle
+              cx={cx}
+              cy={cy}
+              r={radius}
+              stroke="#F1F5F9"
+              strokeWidth={strokeWidth}
+              fill="transparent"
+            />
 
+            {/* Segmented Slices with Flat Butt Radial Cuts */}
+            <G transform={`rotate(-90 ${cx} ${cy})`}>
+              {sliceData.map((s) => {
+                const isSelected = selectedCategory === s.cat.name;
+                const isDimmed = selectedCategory && !isSelected;
                 return (
                   <Circle
-                    key={cat.name}
-                    cx={size / 2}
-                    cy={size / 2}
+                    key={s.cat.name}
+                    cx={cx}
+                    cy={cy}
                     r={radius}
-                    stroke={cat.color}
+                    stroke={s.cat.color}
                     strokeWidth={isSelected ? strokeWidth + 4 : strokeWidth}
-                    strokeDasharray={`${Math.max(strokeLength, 0.1)} ${circumference}`}
-                    strokeDashoffset={-currentOffset}
-                    strokeLinecap="round"
+                    strokeDasharray={`${s.strokeLength} ${circumference - s.strokeLength}`}
+                    strokeDashoffset={-s.currentOffset}
+                    strokeLinecap="butt"
                     fill="transparent"
-                    opacity={selectedCategory && !isSelected ? 0.3 : 1}
+                    opacity={isDimmed ? 0.35 : 1}
                     {...(Platform.OS === 'web'
-                      ? { onClick: () => setSelectedCategory(isSelected ? null : cat.name) }
-                      : { onPress: () => setSelectedCategory(isSelected ? null : cat.name) })}
+                      ? { onClick: () => handleSlicePress(s.cat.name) }
+                      : { onPress: () => handleSlicePress(s.cat.name) })}
                   />
                 );
               })}
             </G>
           </Svg>
 
+          {/* Clean Center Content Hole */}
           <TouchableOpacity
-            style={styles.donutCenterContent}
-            onPress={() => setSelectedCategory(null)}
+            style={[
+              styles.donutCenterContent,
+              {
+                left: cx - 55,
+                top: cy - 55,
+                width: 110,
+                height: 110,
+                borderRadius: 55,
+                borderWidth: 1.5,
+                borderColor: activeCat ? activeCat.color : '#F1F5F9',
+              },
+            ]}
+            onPress={() => {
+              try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch { }
+              setSelectedCategory(null);
+            }}
             activeOpacity={0.7}
           >
             {activeCat ? (
@@ -1891,9 +2043,11 @@ export default function ReportsScreen() {
                 <Text style={styles.donutActiveCatAmount} numberOfLines={1}>
                   {curr}{activeCat.amount.toLocaleString('en-IN')}
                 </Text>
-                <Text style={styles.donutActiveCatPercent}>
-                  {activeCat.percentage}% of total
-                </Text>
+                <View style={[styles.donutPercentBadge, { backgroundColor: activeCat.color + '20' }]}>
+                  <Text style={[styles.donutPercentBadgeText, { color: activeCat.color }]}>
+                    {activeCat.percentage}%
+                  </Text>
+                </View>
               </>
             ) : (
               <>
@@ -1903,29 +2057,37 @@ export default function ReportsScreen() {
                 <Text style={styles.donutCenterAmount} numberOfLines={1}>
                   {curr}{totalAmount > 99999 ? (totalAmount / 1000).toFixed(1) + 'k' : totalAmount.toLocaleString('en-IN')}
                 </Text>
-                <Text style={styles.donutTapHint}>{t('tap_slice')}</Text>
+                <Text style={styles.donutTapHint}>
+                  {t('categories_count').replace('{count}', String(categoryBreakdown.length))}
+                </Text>
               </>
             )}
           </TouchableOpacity>
-        </View>
+        </Animated.View>
 
-        {/* Quick Category Chips */}
-        <View style={styles.donutChipsWrap}>
-          {categoryBreakdown.slice(0, 6).map(c => {
+        {/* Clean, Simple Legend Grid */}
+        <View style={styles.donutLegendGrid}>
+          {categoryBreakdown.map(c => {
             const isSel = selectedCategory === c.name;
             return (
               <TouchableOpacity
                 key={c.name}
                 style={[
-                  styles.donutChip,
-                  isSel && { borderColor: c.color, backgroundColor: c.color + '18' },
+                  styles.donutLegendItem,
+                  isSel && styles.donutLegendItemSelected,
                 ]}
-                onPress={() => setSelectedCategory(isSel ? null : c.name)}
+                onPress={() => handleSlicePress(c.name)}
                 activeOpacity={0.7}
               >
-                <View style={[styles.donutChipDot, { backgroundColor: c.color }]} />
-                <Text style={[styles.donutChipText, isSel && { fontWeight: '800', color: '#0F172A' }]}>
-                  {c.name} ({c.percentage}%)
+                <View style={[styles.donutLegendDot, { backgroundColor: c.color }]} />
+                <Text style={[styles.donutLegendName, isSel && styles.donutLegendNameActive]} numberOfLines={1}>
+                  {c.name}
+                </Text>
+                <Text style={styles.donutLegendPercent}>
+                  {c.percentage}%
+                </Text>
+                <Text style={[styles.donutLegendAmount, isSel && { color: c.color }]}>
+                  {curr}{c.amount > 99999 ? (c.amount / 1000).toFixed(1) + 'k' : c.amount.toLocaleString('en-IN')}
                 </Text>
               </TouchableOpacity>
             );
@@ -1948,13 +2110,20 @@ export default function ReportsScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F8FAFC" />
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
-      {/* HEADER WITH THEMED BRAND ACCENT */}
+      {/* HEADER WITH SWISS INTERNATIONAL TYPOGRAPHIC ACCENT */}
       <View style={styles.headerRow}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.screenTitle}>{t('financial_reports')}</Text>
-          <Text style={styles.screenSubtitle}>{t('income_expense_analytics')}</Text>
+        <View style={{ flex: 1, marginRight: 8 }}>
+          <Text
+            style={styles.screenTitle}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.75}
+          >
+            {t('financial_reports')}
+          </Text>
+          <Text style={styles.screenSubtitle} numberOfLines={1}>{t('financial_intel_system')}</Text>
         </View>
 
         <View style={styles.headerActionRow}>
@@ -1966,11 +2135,11 @@ export default function ReportsScreen() {
             disabled={isGeneratingPDF}
           >
             {isGeneratingPDF ? (
-              <ActivityIndicator size="small" color="#DC2626" />
+              <ActivityIndicator size="small" color="#FFFFFF" />
             ) : (
               <>
-                <Ionicons name="document-text" size={14} color="#DC2626" style={{ marginRight: 4 }} />
-                <Text style={styles.quickPdfBtnText}>PDF</Text>
+                <Ionicons name="document-text" size={13} color="#FFFFFF" style={{ marginRight: 4 }} />
+                <Text style={styles.quickPdfBtnText}>{t('export_pdf_btn')}</Text>
               </>
             )}
           </TouchableOpacity>
@@ -1981,7 +2150,7 @@ export default function ReportsScreen() {
             activeOpacity={0.75}
             disabled={isGeneratingPDF}
           >
-            <Ionicons name="share-social-outline" size={17} color="#1C1C1E" />
+            <Ionicons name="share-social-outline" size={17} color="#000000" />
           </TouchableOpacity>
         </View>
       </View>
@@ -2031,33 +2200,52 @@ export default function ReportsScreen() {
             </ScrollView>
           </View>
 
-          {/* ACTIVE STATEMENT EXECUTIVE RIBBON */}
-          <View style={styles.statementRibbon}>
-            <View style={styles.statementRibbonLeft}>
-              <View style={styles.statementPulseDot} />
-              <Text style={styles.statementRibbonTitle}>
-                {filteredTransactions.length} Transactions
-              </Text>
-              <Text style={styles.statementRibbonSub}>
-                • Net {metrics.net >= 0 ? '+' : ''}{curr}{metrics.net.toLocaleString('en-IN')}
-              </Text>
-            </View>
-
-            <TouchableOpacity
-              style={styles.statementExportChip}
-              onPress={() => setShowExportModal(true)}
-              activeOpacity={0.7}
+          {/* TOP ANALYTICS NAVIGATION TAB BAR */}
+          <View style={styles.reportTabBarWrapper}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.reportTabScrollContent}
             >
-              <Ionicons name="download-outline" size={12} color="#2563EB" style={{ marginRight: 3 }} />
-              <Text style={styles.statementExportChipText}>Statement</Text>
-            </TouchableOpacity>
+              {REPORT_TABS.map(tab => {
+                const isActive = activeReportTab === tab.key;
+                return (
+                  <TouchableOpacity
+                    key={tab.key}
+                    style={[styles.reportTabBtn, isActive && styles.reportTabBtnActive]}
+                    onPress={() => {
+                      if (activeReportTab !== tab.key) {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setActiveReportTab(tab.key);
+                        setSelectedPointIndex(null);
+                      }
+                    }}
+                    activeOpacity={0.75}
+                  >
+                    <ExpoImage
+                      source={{ uri: tab.icon3d }}
+                      style={styles.reportTabIcon}
+                      contentFit="contain"
+                    />
+                    <Text
+                      style={[styles.reportTabText, isActive && styles.reportTabTextActive]}
+                      numberOfLines={1}
+                    >
+                      {tab.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
           </View>
+
 
           {/* HERO NET SAVINGS CARD */}
           <View style={styles.heroOverviewCard}>
             {/* Header Row: Label Pill (✦ NET SAVINGS) & Savings Rate Badge */}
             <View style={styles.heroTopRow}>
               <View style={styles.heroNetLabelWrap}>
+                <Text style={styles.swissSectionNum}>01.</Text>
                 <ExpoImage source={{ uri: ICONS_3D.money_bag }} style={{ width: 16, height: 16, marginRight: 5 }} contentFit="contain" />
                 <Text style={styles.heroNetLabel}>{t('net_savings')}</Text>
               </View>
@@ -2107,338 +2295,174 @@ export default function ReportsScreen() {
                 </Text>
               </View>
             </View>
-
-            {/* Executive KPI Micro-Strip */}
-            <View style={styles.heroMicroKpiRow}>
-              <View style={styles.microKpiItem}>
-                <Text style={styles.microKpiLabel}>Cash Flow</Text>
-                <Text style={[styles.microKpiVal, { color: metrics.net >= 0 ? '#10B981' : '#EF4444' }]}>
-                  {metrics.net >= 0 ? 'Surplus' : 'Deficit'}
-                </Text>
-              </View>
-              <View style={styles.microKpiDivider} />
-              <View style={styles.microKpiItem}>
-                <Text style={styles.microKpiLabel}>Avg / Outflow</Text>
-                <Text style={styles.microKpiVal}>
-                  {curr}{metrics.avgTxn.toLocaleString('en-IN')}
-                </Text>
-              </View>
-              <View style={styles.microKpiDivider} />
-              <View style={styles.microKpiItem}>
-                <Text style={styles.microKpiLabel}>Savings Health</Text>
-                <Text style={[styles.microKpiVal, { color: metrics.savingsRate >= 20 ? '#10B981' : '#F59E0B' }]}>
-                  {metrics.savingsRate >= 20 ? 'Optimal 🎯' : 'Grow Fund 📈'}
-                </Text>
-              </View>
-            </View>
           </View>
 
-          {/* 1. 3D BUDGET ARC GAUGE (WHITE THEME SPEEDOMETER) */}
-          <BudgetArcGauge
-            spent={metrics.expense}
-            limit={periodBudgetInfo.scaledLimit}
-            currency={curr}
-            remainingDays={periodBudgetInfo.remainingDays}
-            onEditLimit={() => router.push('/budget')}
-            title={periodBudgetInfo.title}
-            limitLabel={periodBudgetInfo.limitLabel}
-            theme="light"
-            style={{ marginBottom: 14 }}
-          />
+          {/* 1. SPENDING CALENDAR & HIGH/LOW SPEND ANALYSIS */}
+          {(activeReportTab === 'all' || activeReportTab === 'calendar') && (
+            <SpendingCalendarCard
+              transactions={transactions}
+              currency={curr}
+              style={{ marginBottom: 14 }}
+            />
+          )}
 
           {/* 2. 3D EXPENSE & INCOME BREAKDOWN (DONUT) */}
-          <View style={styles.chartWrapperCard}>
-            <View style={styles.categoryChartHeader}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <ExpoImage source={{ uri: ICONS_3D.pie }} style={{ width: 20, height: 20 }} contentFit="contain" />
-                <Text style={styles.themeCardTitle}>
-                  {categoryType === 'expense' ? t('expense_breakdown') : t('income_breakdown')}
-                </Text>
+          {(activeReportTab === 'all' || activeReportTab === 'donut') && (
+            <View style={styles.chartWrapperCard}>
+              <View style={styles.categoryChartHeader}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={styles.swissSectionNum}>02.</Text>
+                  <ExpoImage source={{ uri: ICONS_3D.pie }} style={{ width: 20, height: 20 }} contentFit="contain" />
+                  <Text style={styles.themeCardTitle}>
+                    {categoryType === 'expense' ? t('expense_breakdown') : t('income_breakdown')}
+                  </Text>
+                </View>
+                {selectedCategory && (
+                  <TouchableOpacity
+                    style={styles.resetCatBtn}
+                    onPress={() => setSelectedCategory(null)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="close-circle" size={13} color="#64748B" style={{ marginRight: 3 }} />
+                    <Text style={styles.resetCatText}>Reset</Text>
+                  </TouchableOpacity>
+                )}
               </View>
-              {selectedCategory && (
-                <TouchableOpacity
-                  style={styles.resetCatBtn}
-                  onPress={() => setSelectedCategory(null)}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="close-circle" size={13} color="#64748B" style={{ marginRight: 3 }} />
-                  <Text style={styles.resetCatText}>Reset</Text>
-                </TouchableOpacity>
+
+              {categoryBreakdown.length > 0 ? (
+                renderCategoryDonut()
+              ) : (
+                <View style={styles.emptyCardBox}>
+                  <Ionicons name="pie-chart-outline" size={36} color="#CBD5E1" />
+                  <Text style={styles.emptyCardText}>{t('no_tx_period')}</Text>
+                </View>
               )}
             </View>
+          )}
 
-            {categoryBreakdown.length > 0 ? (
-              renderCategoryDonut()
-            ) : (
-              <View style={styles.emptyCardBox}>
-                <Ionicons name="pie-chart-outline" size={36} color="#CBD5E1" />
-                <Text style={styles.emptyCardText}>No transactions recorded for this period</Text>
-              </View>
-            )}
-          </View>
-
-          {/* 3. 3D SPENDING WAVE (SMOOTH CURVE) */}
-          {renderSmoothLineGraph()}
-
-          {/* 4. 3D CASH FLOW TRENDS (MONTHLY BARS) */}
-          {renderMonthlyBarChart()}
-
-          {/* 3D FINANCIAL VITALITY & HEALTH SCORE (CLEAN VISUAL GAUGES - ZERO TEXT BULLETS) */}
-          <View style={styles.aiHealthCard}>
-            <View style={styles.aiHealthHeader}>
-              <View style={styles.aiHealthTitleWrap}>
-                <ExpoImage source={{ uri: ICONS_3D.trophy }} style={{ width: 24, height: 24, marginRight: 8 }} contentFit="contain" />
-                <View>
-                  <Text style={styles.aiHealthTitle}>{t('financial_vitality') || 'Financial Vitality'}</Text>
-                  <Text style={styles.aiHealthSub}>AI Health Score</Text>
+          {/* 3. CATEGORY BREAKDOWN LIST WITH EXPENSE / INCOME TOGGLE */}
+          {(activeReportTab === 'all' || activeReportTab === 'donut') && (
+            <View style={styles.sectionCard}>
+              <View style={styles.sectionHeaderBetween}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+                  <Text style={styles.swissSectionNum}>03.</Text>
+                  <ExpoImage source={{ uri: ICONS_3D.pie }} style={{ width: 22, height: 22 }} contentFit="contain" />
+                  <Text style={styles.cardHeading}>{t('top_categories')}</Text>
                 </View>
-              </View>
-              <View style={[styles.healthScoreBadge, { backgroundColor: financialHealth.color + '15', borderColor: financialHealth.color + '40' }]}>
-                <Text style={[styles.healthScoreText, { color: financialHealth.color }]}>
-                  {financialHealth.score}/100 • {financialHealth.rating}
-                </Text>
-              </View>
-            </View>
 
-            {/* Health Score Gauge Bar */}
-            <View style={styles.healthScoreTrack}>
-              <View style={[styles.healthScoreFill, { width: `${financialHealth.score}%`, backgroundColor: financialHealth.color }]} />
-            </View>
+                {/* Expense vs Income Switcher Pills */}
+                <View style={styles.catTypeToggleRow}>
+                  <TouchableOpacity
+                    style={[styles.catTypeBtn, categoryType === 'expense' && styles.catTypeBtnActiveExpense]}
+                    onPress={() => {
+                      setCategoryType('expense');
+                      setSelectedCategory(null);
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.catTypeText, categoryType === 'expense' && styles.catTypeTextActiveExpense]}>
+                      {t('type_expense')}
+                    </Text>
+                  </TouchableOpacity>
 
-            {/* Financial Vitality Tri-Metric KPIs */}
-            <View style={styles.vitalityPillRow}>
-              <View style={styles.vitalityItem}>
-                <Text style={styles.vitalityItemLabel}>Savings</Text>
-                <Text style={[styles.vitalityItemVal, { color: metrics.savingsRate >= 20 ? '#10B981' : metrics.savingsRate >= 10 ? '#F59E0B' : '#EF4444' }]}>
-                  {metrics.savingsRate}%
-                </Text>
-              </View>
-              <View style={styles.vitalityDivider} />
-              <View style={styles.vitalityItem}>
-                <Text style={styles.vitalityItemLabel}>Burn Rate</Text>
-                <Text style={[styles.vitalityItemVal, { color: metrics.income > 0 && metrics.expense / metrics.income <= 0.75 ? '#10B981' : '#EF4444' }]}>
-                  {metrics.income > 0 ? `${Math.round((metrics.expense / metrics.income) * 100)}%` : '100%'}
-                </Text>
-              </View>
-              <View style={styles.vitalityDivider} />
-              <View style={styles.vitalityItem}>
-                <Text style={styles.vitalityItemLabel}>Needs Share</Text>
-                <Text style={styles.vitalityItemVal}>
-                  {rule503020.needsPct}%
-                </Text>
-              </View>
-            </View>
-
-            {/* Crisp 1-Line Key Takeaway Pill */}
-            {financialHealth.insights.length > 0 && (
-              <View style={styles.compactTakeawayPill}>
-                <Ionicons name="sparkles" size={13} color={financialHealth.color} style={{ marginRight: 6 }} />
-                <Text style={styles.compactTakeawayText} numberOfLines={1}>
-                  {financialHealth.insights[0]}
-                </Text>
-              </View>
-            )}
-          </View>
-
-          {/* 3D BUDGET PACE & SAFE DAILY ALLOWANCE (CLEAN VISUALS - MINIMAL TEXT) */}
-          <View style={styles.velocityCard}>
-            <View style={styles.velocityHeaderRow}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 6 }}>
-                <ExpoImage source={{ uri: ICONS_3D.target }} style={{ width: 22, height: 22, marginRight: 8 }} contentFit="contain" />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.velocityCardTitle} numberOfLines={1}>Safe Daily Budget</Text>
-                  <Text style={styles.velocityCardSub} numberOfLines={1}>{safeToSpend.remainingDays} days remaining</Text>
+                  <TouchableOpacity
+                    style={[styles.catTypeBtn, categoryType === 'income' && styles.catTypeBtnActiveIncome]}
+                    onPress={() => {
+                      setCategoryType('income');
+                      setSelectedCategory(null);
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.catTypeText, categoryType === 'income' && styles.catTypeTextActiveIncome]}>
+                      {t('type_income')}
+                    </Text>
+                  </TouchableOpacity>
                 </View>
               </View>
 
-              <View style={[styles.safeToSpendPill, safeToSpend.isProjectedDeficit ? styles.safeToSpendPillWarning : styles.safeToSpendPillSafe]}>
-                <Text style={[styles.safeToSpendPillText, safeToSpend.isProjectedDeficit ? styles.safeToSpendTextWarning : styles.safeToSpendTextSafe]}>
-                  {safeToSpend.isProjectedDeficit ? 'Pace Warning' : 'Safe Pace'}
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.velocityStatsGrid}>
-              <View style={styles.velocityStatBox}>
-                <Text style={styles.velocityStatLabel}>Safe Daily Spend</Text>
-                <Text style={styles.velocityStatValue}>
-                  {safeToSpend.dailySafeLimit > 0 ? `${curr}${safeToSpend.dailySafeLimit.toLocaleString('en-IN')}` : `${curr}${metrics.dailyAvg.toLocaleString('en-IN')}`}
-                  <Text style={{ fontSize: 12, fontWeight: '600', color: '#64748B' }}>/day</Text>
-                </Text>
-                <Text style={styles.velocityStatHint}>{safeToSpend.remainingDays} days left in cycle</Text>
-              </View>
-
-              <View style={styles.velocityStatDivider} />
-
-              <View style={styles.velocityStatBox}>
-                <Text style={styles.velocityStatLabel}>Projected Outflow</Text>
-                <Text style={styles.velocityStatValue}>
-                  {curr}{prevPeriodMetrics.projectedSpend.toLocaleString('en-IN')}
-                </Text>
-                <Text style={styles.velocityStatHint}>
-                  {prevPeriodMetrics.hasPrevData
-                    ? `${prevPeriodMetrics.isHigher ? '▲ +' : '▼ -'}${prevPeriodMetrics.diffPct}% vs last mo`
-                    : 'Current Month'}
-                </Text>
-              </View>
-            </View>
-          </View>
-
-          {/* 3D 50/30/20 BUDGET HEALTH RULE */}
-          <View style={styles.ruleCard}>
-            <View style={styles.ruleHeaderRow}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 6 }}>
-                <ExpoImage source={{ uri: ICONS_3D.shield }} style={{ width: 22, height: 22, marginRight: 8 }} contentFit="contain" />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.ruleCardTitle} numberOfLines={1}>{t('budget_rule') || '50/30/20 Allocation'}</Text>
-                  <Text style={styles.ruleCardSub} numberOfLines={1}>Needs • Wants • Savings</Text>
-                </View>
-              </View>
-
-              <View style={styles.ruleBadge}>
-                <Text style={styles.ruleBadgeText} numberOfLines={1}>
-                  {rule503020.needsPct <= 55 && rule503020.savingsPct >= 15 ? t('budget_balanced') : t('budget_needs_review')}
-                </Text>
-              </View>
-            </View>
-
-            {/* Tripartite Segmented Bar */}
-            <View style={styles.ruleBarTrack}>
-              <View style={[styles.ruleBarSegment, { flex: Math.max(rule503020.needsPct, 2), backgroundColor: '#3B82F6' }]} />
-              <View style={[styles.ruleBarSegment, { flex: Math.max(rule503020.wantsPct, 2), backgroundColor: '#F59E0B' }]} />
-              <View style={[styles.ruleBarSegment, { flex: Math.max(rule503020.savingsPct, 2), backgroundColor: '#10B981' }]} />
-            </View>
-
-            {/* 3 Pillars */}
-            <View style={styles.rulePillarsRow}>
-              <View style={styles.rulePillarCol}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
-                  <View style={[styles.ruleDot, { backgroundColor: '#3B82F6' }]} />
-                  <Text style={styles.rulePillarName} numberOfLines={1}>{t('needs_label')}</Text>
-                </View>
-                <Text style={styles.rulePillarValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
-                  {curr}{rule503020.needsAmt.toLocaleString('en-IN')}
-                </Text>
-                <Text style={styles.rulePillarPct} numberOfLines={1}>{rule503020.needsPct}%</Text>
-              </View>
-
-              <View style={styles.rulePillarCol}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
-                  <View style={[styles.ruleDot, { backgroundColor: '#F59E0B' }]} />
-                  <Text style={styles.rulePillarName} numberOfLines={1}>{t('wants_label')}</Text>
-                </View>
-                <Text style={styles.rulePillarValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
-                  {curr}{rule503020.wantsAmt.toLocaleString('en-IN')}
-                </Text>
-                <Text style={styles.rulePillarPct} numberOfLines={1}>{rule503020.wantsPct}%</Text>
-              </View>
-
-              <View style={styles.rulePillarCol}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
-                  <View style={[styles.ruleDot, { backgroundColor: '#10B981' }]} />
-                  <Text style={styles.rulePillarName} numberOfLines={1}>{t('savings_label')}</Text>
-                </View>
-                <Text style={styles.rulePillarValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
-                  {curr}{rule503020.savingsAmt.toLocaleString('en-IN')}
-                </Text>
-                <Text style={styles.rulePillarPct} numberOfLines={1}>{rule503020.savingsPct}%</Text>
-              </View>
-            </View>
-          </View>
-
-          {/* CATEGORY BREAKDOWN LIST WITH EXPENSE / INCOME TOGGLE */}
-          <View style={styles.sectionCard}>
-            <View style={styles.sectionHeaderBetween}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
-                <ExpoImage source={{ uri: ICONS_3D.pie }} style={{ width: 22, height: 22 }} contentFit="contain" />
-                <Text style={styles.cardHeading}>{t('top_categories')}</Text>
-              </View>
-
-              {/* Expense vs Income Switcher Pills */}
-              <View style={styles.catTypeToggleRow}>
-                <TouchableOpacity
-                  style={[styles.catTypeBtn, categoryType === 'expense' && styles.catTypeBtnActiveExpense]}
-                  onPress={() => {
-                    setCategoryType('expense');
-                    setSelectedCategory(null);
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <Text style={[styles.catTypeText, categoryType === 'expense' && styles.catTypeTextActiveExpense]}>
-                    {t('type_expense')}
+              {categoryBreakdown.length === 0 ? (
+                <View style={styles.emptyCardBox}>
+                  <Ionicons name="receipt-outline" size={36} color="#CBD5E1" />
+                  <Text style={styles.emptyCardText}>
+                    {t('no_type_tx_period').replace('{type}', categoryType === 'income' ? t('type_income') : t('type_expense'))}
                   </Text>
-                </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={styles.categoryListWrap}>
+                  {(activeReportTab === 'all' ? categoryBreakdown.slice(0, 5) : categoryBreakdown).map(cat => {
+                    const isSel = selectedCategory === cat.name;
+                    return (
+                      <TouchableOpacity
+                        key={cat.name}
+                        style={[styles.categoryRow, isSel && styles.categoryRowSelected]}
+                        onPress={() => {
+                          setSelectedCategoryDetail(cat);
+                          setSelectedCategory(isSel ? null : cat.name);
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <View style={[styles.categoryIconCircle, { backgroundColor: cat.color + '18' }]}>
+                          <CategoryIcon categoryName={cat.name} iconName={cat.icon} color={cat.color} size={20} />
+                        </View>
+                        <View style={styles.categoryDetailsCol}>
+                          <View style={styles.categoryTopRow}>
+                            <Text style={[styles.categoryName, isSel && { fontWeight: '900', color: '#0F172A' }]} numberOfLines={1}>
+                              {cat.name}
+                            </Text>
+                            <Text style={styles.categoryAmount}>{curr}{cat.amount.toLocaleString('en-IN')}</Text>
+                          </View>
+                          <View style={styles.progressBarTrack}>
+                            <View
+                              style={[
+                                styles.progressBarFill,
+                                { width: `${Math.min(cat.percentage, 100)}%`, backgroundColor: cat.color },
+                              ]}
+                            />
+                          </View>
+                          <View style={styles.categoryBottomRow}>
+                            <Text style={styles.categoryPercentText}>
+                              {cat.percentage}% {t('of_total')} {categoryType === 'income' ? t('type_income') : t('type_expense')}
+                            </Text>
+                            <Text style={styles.categoryTxnCount}>
+                              {cat.count} {t('txns_label')} • {t('avg_label')} {curr}{Math.round(cat.amount / Math.max(cat.count, 1)).toLocaleString('en-IN')}
+                            </Text>
+                          </View>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
 
-                <TouchableOpacity
-                  style={[styles.catTypeBtn, categoryType === 'income' && styles.catTypeBtnActiveIncome]}
-                  onPress={() => {
-                    setCategoryType('income');
-                    setSelectedCategory(null);
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <Text style={[styles.catTypeText, categoryType === 'income' && styles.catTypeTextActiveIncome]}>
-                    {t('type_income')}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {categoryBreakdown.length === 0 ? (
-              <View style={styles.emptyCardBox}>
-                <Ionicons name="receipt-outline" size={36} color="#CBD5E1" />
-                <Text style={styles.emptyCardText}>No {categoryType} transactions in this period</Text>
-              </View>
-            ) : (
-              <View style={styles.categoryListWrap}>
-                {categoryBreakdown.map(cat => {
-                  const isSel = selectedCategory === cat.name;
-                  return (
+                  {activeReportTab === 'all' && categoryBreakdown.length > 5 && (
                     <TouchableOpacity
-                      key={cat.name}
-                      style={[styles.categoryRow, isSel && styles.categoryRowSelected]}
+                      style={styles.viewAllCatBtn}
                       onPress={() => {
-                        setSelectedCategoryDetail(cat);
-                        setSelectedCategory(isSel ? null : cat.name);
+                        try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch { }
+                        setActiveReportTab('donut');
                       }}
                       activeOpacity={0.7}
                     >
-                      <View style={[styles.categoryIconCircle, { backgroundColor: cat.color + '18' }]}>
-                        <CategoryIcon categoryName={cat.name} iconName={cat.icon} color={cat.color} size={20} />
-                      </View>
-                      <View style={styles.categoryDetailsCol}>
-                        <View style={styles.categoryTopRow}>
-                          <Text style={[styles.categoryName, isSel && { fontWeight: '900', color: '#0F172A' }]} numberOfLines={1}>
-                            {cat.name}
-                          </Text>
-                          <Text style={styles.categoryAmount}>{curr}{cat.amount.toLocaleString('en-IN')}</Text>
-                        </View>
-                        <View style={styles.progressBarTrack}>
-                          <View
-                            style={[
-                              styles.progressBarFill,
-                              { width: `${Math.min(cat.percentage, 100)}%`, backgroundColor: cat.color },
-                            ]}
-                          />
-                        </View>
-                        <View style={styles.categoryBottomRow}>
-                          <Text style={styles.categoryPercentText}>{cat.percentage}% of total {categoryType}</Text>
-                          <Text style={styles.categoryTxnCount}>
-                            {cat.count} txns • Avg {curr}{Math.round(cat.amount / Math.max(cat.count, 1)).toLocaleString('en-IN')}
-                          </Text>
-                        </View>
-                      </View>
+                      <Text style={styles.viewAllCatBtnText}>
+                        {t('view_all_cat').replace('{count}', String(categoryBreakdown.length))}
+                      </Text>
+                      <Ionicons name="arrow-forward" size={13} color="#7C3AED" style={{ marginLeft: 4 }} />
                     </TouchableOpacity>
-                  );
-                })}
-              </View>
-            )}
-          </View>
+                  )}
+                </View>
+              )}
+            </View>
+          )}
 
-          {/* PAYMENT MODES SPLIT */}
-          {paymentModesSplit.length > 0 && (
+          {/* 4. 3D SPENDING WAVE (SMOOTH CURVE) */}
+          {(activeReportTab === 'all' || activeReportTab === 'wave') && renderSmoothLineGraph()}
+
+          {/* 5. 3D CASH FLOW TRENDS (MONTHLY BARS) */}
+          {(activeReportTab === 'all' || activeReportTab === 'trends') && renderMonthlyBarChart()}
+
+          {/* 6. PAYMENT MODES SPLIT */}
+          {(activeReportTab === 'all' || activeReportTab === 'trends') && paymentModesSplit.length > 0 && (
             <View style={styles.sectionCard}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 12 }}>
+                <Text style={styles.swissSectionNum}>06.</Text>
                 <ExpoImage source={{ uri: ICONS_3D.card }} style={{ width: 22, height: 22 }} contentFit="contain" />
                 <Text style={styles.cardHeading}>{t('payment_split')}</Text>
               </View>
@@ -2446,7 +2470,7 @@ export default function ReportsScreen() {
               {/* Segmented Bar */}
               <View style={styles.paymentBarContainer}>
                 {paymentModesSplit.map((pm, idx) => {
-                  const colors = ['#1C1C1E', '#FFD740', '#10B981', '#6366F1'];
+                  const colors = ['#000000', '#FF3000', '#71717A', '#A1A1AA'];
                   const c = colors[idx % colors.length];
                   return (
                     <View
@@ -2455,8 +2479,8 @@ export default function ReportsScreen() {
                         flex: pm.percentage || 1,
                         height: 12,
                         backgroundColor: c,
-                        marginHorizontal: 1.5,
-                        borderRadius: 4,
+                        marginHorizontal: 1,
+                        borderRadius: 0,
                       }}
                     />
                   );
@@ -2465,7 +2489,7 @@ export default function ReportsScreen() {
 
               <View style={styles.paymentPillsRow}>
                 {paymentModesSplit.map((pm, idx) => {
-                  const colors = ['#1C1C1E', '#FFD740', '#10B981', '#6366F1'];
+                  const colors = ['#000000', '#FF3000', '#71717A', '#A1A1AA'];
                   const c = colors[idx % colors.length];
                   return (
                     <View key={pm.mode} style={styles.paymentPillBadge}>
@@ -2480,76 +2504,11 @@ export default function ReportsScreen() {
             </View>
           )}
 
-          {/* WEEKEND VS WEEKDAY SPENDING PATTERN */}
-          <View style={styles.sectionCard}>
-            <View style={styles.sectionHeaderBetween}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
-                <ExpoImage source={{ uri: ICONS_3D.beach }} style={{ width: 22, height: 22 }} contentFit="contain" />
-                <Text style={styles.cardHeading}>{t('weekday_vs_weekend')}</Text>
-              </View>
-              <View style={[styles.weekendRatioPill, weekendVsWeekday.weekendPct >= 50 && styles.weekendRatioPillHeavy]}>
-                <Text style={[styles.weekendRatioText, weekendVsWeekday.weekendPct >= 50 && styles.weekendRatioTextHeavy]}>
-                  {weekendVsWeekday.weekendPct >= 50 ? 'Weekend Heavy' : 'Weekday Heavy'}
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.weekendVsWeekdayRow}>
-              <View style={styles.weekSplitCard}>
-                <View style={styles.weekSplitIconCircle}>
-                  <ExpoImage source={{ uri: ICONS_3D.briefcase }} style={{ width: 18, height: 18 }} contentFit="contain" />
-                </View>
-                <Text style={styles.weekSplitLabel}>Weekdays (Mon–Fri)</Text>
-                <Text style={styles.weekSplitAmount}>{curr}{weekendVsWeekday.weekdayTotal.toLocaleString('en-IN')}</Text>
-                <Text style={styles.weekSplitSub}>
-                  {weekendVsWeekday.weekdayPct}% • {weekendVsWeekday.weekdayCount} txns
-                </Text>
-              </View>
-
-              <View style={styles.weekSplitCard}>
-                <View style={[styles.weekSplitIconCircle, { backgroundColor: '#FEF3C7' }]}>
-                  <ExpoImage source={{ uri: ICONS_3D.beach }} style={{ width: 18, height: 18 }} contentFit="contain" />
-                </View>
-                <Text style={styles.weekSplitLabel}>Weekends (Sat–Sun)</Text>
-                <Text style={styles.weekSplitAmount}>{curr}{weekendVsWeekday.weekendTotal.toLocaleString('en-IN')}</Text>
-                <Text style={styles.weekSplitSub}>
-                  {weekendVsWeekday.weekendPct}% • {weekendVsWeekday.weekendCount} txns
-                </Text>
-              </View>
-            </View>
-          </View>
-
-          {/* DAY-OF-WEEK SPENDING WAVE */}
-          <View style={styles.sectionCard}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 10 }}>
-              <ExpoImage source={{ uri: ICONS_3D.fire }} style={{ width: 22, height: 22 }} contentFit="contain" />
-              <Text style={styles.cardHeading}>{t('day_pattern')}</Text>
-            </View>
-
-            <View style={styles.dayOfWeekRow}>
-              {dayOfWeekSpend.map(d => (
-                <View key={d.day} style={styles.dayCol}>
-                  <View style={styles.dayBarTrack}>
-                    <View
-                      style={[
-                        styles.dayBarFill,
-                        { height: `${Math.max(d.percentOfMax, 8)}%` },
-                        d.percentOfMax >= 80 && styles.dayBarFillHigh,
-                      ]}
-                    />
-                  </View>
-                  <Text style={[styles.dayNameText, d.percentOfMax >= 80 && { color: '#1C1C1E', fontWeight: '900' }]}>
-                    {d.day}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          </View>
-
-          {/* LARGEST EXPENSES */}
-          {topExpenses.length > 0 && (
+          {/* 7. LARGEST EXPENSES */}
+          {(activeReportTab === 'all' || activeReportTab === 'trends') && topExpenses.length > 0 && (
             <View style={styles.sectionCard}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 12 }}>
+                <Text style={styles.swissSectionNum}>07.</Text>
                 <ExpoImage source={{ uri: ICONS_3D.money_wings }} style={{ width: 22, height: 22 }} contentFit="contain" />
                 <Text style={styles.cardHeading}>{t('top_expenses_title')}</Text>
               </View>
@@ -2601,8 +2560,12 @@ export default function ReportsScreen() {
                   />
                 </View>
                 <View>
-                  <Text style={styles.drillModalTitle}>{selectedCategoryDetail?.name} Breakdown</Text>
-                  <Text style={styles.drillModalSubTitle}>{curr}{selectedCategoryDetail?.amount.toLocaleString('en-IN')} total • {selectedCategoryDetail?.count} txns</Text>
+                  <Text style={styles.drillModalTitle}>
+                    {selectedCategoryDetail?.name} {t('category_breakdown_title')}
+                  </Text>
+                  <Text style={styles.drillModalSubTitle}>
+                    {curr}{selectedCategoryDetail?.amount.toLocaleString('en-IN')} {t('total_label')} • {selectedCategoryDetail?.count} {t('txns_label')}
+                  </Text>
                 </View>
               </View>
               <TouchableOpacity onPress={() => setSelectedCategoryDetail(null)} style={styles.modalCloseBtn}>
@@ -2644,10 +2607,10 @@ export default function ReportsScreen() {
           <View style={styles.exportModalContent}>
             <View style={styles.exportModalHeader}>
               <Ionicons name="share-social" size={22} color="#0F172A" style={{ marginRight: 8 }} />
-              <Text style={styles.exportModalTitle}>Share & Export Report</Text>
+              <Text style={styles.exportModalTitle}>{t('share_export_title')}</Text>
             </View>
             <Text style={styles.exportModalSub}>
-              Download your complete financial statement or share an executive summary.
+              {t('share_export_sub')}
             </Text>
 
             <TouchableOpacity
@@ -2665,16 +2628,18 @@ export default function ReportsScreen() {
               </View>
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={styles.exportOptionTitle}>Multi-Page PDF Statement</Text>
+                  <Text style={styles.exportOptionTitle}>{t('multi_page_pdf')}</Text>
                   {!isPremium && appConfig?.showSubscriptions !== false && (
                     <View style={[styles.pdfLimitPill, pdfExportCount >= FREE_PDF_EXPORT_LIMIT && styles.pdfLimitPillMax]}>
                       <Text style={[styles.pdfLimitPillText, pdfExportCount >= FREE_PDF_EXPORT_LIMIT && styles.pdfLimitPillTextMax]}>
-                        {pdfExportCount >= FREE_PDF_EXPORT_LIMIT ? 'Pro Only (3/3 Used)' : `${pdfExportCount}/${FREE_PDF_EXPORT_LIMIT} Free`}
+                        {pdfExportCount >= FREE_PDF_EXPORT_LIMIT
+                          ? t('pro_only_limit').replace('{used}', String(FREE_PDF_EXPORT_LIMIT)).replace('{limit}', String(FREE_PDF_EXPORT_LIMIT))
+                          : `${pdfExportCount}/${FREE_PDF_EXPORT_LIMIT} ${t('free_tag')}`}
                       </Text>
                     </View>
                   )}
                 </View>
-                <Text style={styles.exportOptionSub}>Official 3-page HD statement with KPIs, charts & ledger</Text>
+                <Text style={styles.exportOptionSub}>{t('multi_page_pdf_sub')}</Text>
               </View>
               <Ionicons name="download-outline" size={18} color="#64748B" />
             </TouchableOpacity>
@@ -2688,8 +2653,8 @@ export default function ReportsScreen() {
                 <Ionicons name="document-text" size={20} color="#4F46E5" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.exportOptionTitle}>Export CSV Spreadsheet</Text>
-                <Text style={styles.exportOptionSub}>Excel & Google Sheets compatible ledger</Text>
+                <Text style={styles.exportOptionTitle}>{t('export_csv')}</Text>
+                <Text style={styles.exportOptionSub}>{t('export_csv_sub')}</Text>
               </View>
               <Ionicons name="download-outline" size={18} color="#64748B" />
             </TouchableOpacity>
@@ -2706,8 +2671,8 @@ export default function ReportsScreen() {
                 <Ionicons name="chatbubbles" size={20} color="#16A34A" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.exportOptionTitle}>Share Executive Summary</Text>
-                <Text style={styles.exportOptionSub}>Send formatted text report via WhatsApp, Email, etc.</Text>
+                <Text style={styles.exportOptionTitle}>{t('share_summary')}</Text>
+                <Text style={styles.exportOptionSub}>{t('share_summary_sub')}</Text>
               </View>
               <Ionicons name="paper-plane-outline" size={18} color="#64748B" />
             </TouchableOpacity>
@@ -2717,7 +2682,104 @@ export default function ReportsScreen() {
               onPress={() => setShowExportModal(false)}
               activeOpacity={0.7}
             >
-              <Text style={styles.exportCancelText}>Cancel</Text>
+              <Text style={styles.exportCancelText}>{t('cancel')}</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* RUPEO PRO LIMIT UPGRADE MODAL */}
+      <Modal
+        visible={showProLimitModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowProLimitModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowProLimitModal(false)}
+        >
+          <View style={styles.proLimitModalCard} onStartShouldSetResponder={() => true}>
+            {/* Top Crown Glowing Badge */}
+            <View style={styles.proCrownBadgeWrap}>
+              <View style={styles.proCrownBadgeCircle}>
+                <ExpoImage
+                  source={{ uri: ICONS_3D.trophy }}
+                  style={{ width: 38, height: 38 }}
+                  contentFit="contain"
+                />
+              </View>
+            </View>
+
+            {/* Title & Status */}
+            <Text style={styles.proLimitTitle}>{t('pro_limit_title')}</Text>
+
+            <View style={styles.proLimitBadgeRow}>
+              <View style={styles.proLimitCountBadge}>
+                <Ionicons name="alert-circle" size={13} color="#DC2626" style={{ marginRight: 4 }} />
+                <Text style={styles.proLimitCountText}>
+                  {t('free_limit_reached').replace('{used}', String(FREE_PDF_EXPORT_LIMIT)).replace('{limit}', String(FREE_PDF_EXPORT_LIMIT))}
+                </Text>
+              </View>
+            </View>
+
+            {/* Body Explanation */}
+            <Text style={styles.proLimitBodyText}>
+              {t('pro_limit_body').replace('{limit}', String(FREE_PDF_EXPORT_LIMIT))}
+            </Text>
+
+            {/* Feature Highlights Checklist */}
+            <View style={styles.proPerksBox}>
+              <View style={styles.proPerkRow}>
+                <View style={styles.proPerkCheckCircle}>
+                  <Ionicons name="checkmark" size={12} color="#FFFFFF" />
+                </View>
+                <Text style={styles.proPerkText}>{t('pro_perk_pdf')}</Text>
+              </View>
+              <View style={styles.proPerkRow}>
+                <View style={styles.proPerkCheckCircle}>
+                  <Ionicons name="checkmark" size={12} color="#FFFFFF" />
+                </View>
+                <Text style={styles.proPerkText}>{t('pro_perk_csv')}</Text>
+              </View>
+              <View style={styles.proPerkRow}>
+                <View style={styles.proPerkCheckCircle}>
+                  <Ionicons name="checkmark" size={12} color="#FFFFFF" />
+                </View>
+                <Text style={styles.proPerkText}>{t('pro_perk_cloud')}</Text>
+              </View>
+              <View style={styles.proPerkRow}>
+                <View style={styles.proPerkCheckCircle}>
+                  <Ionicons name="checkmark" size={12} color="#FFFFFF" />
+                </View>
+                <Text style={styles.proPerkText}>{t('pro_perk_adfree')}</Text>
+              </View>
+            </View>
+
+            {/* Action Buttons */}
+            <TouchableOpacity
+              style={styles.proUpgradePrimaryBtn}
+              onPress={() => {
+                setShowProLimitModal(false);
+                router.push('/premium');
+              }}
+              activeOpacity={0.8}
+            >
+              <ExpoImage
+                source={{ uri: ICONS_3D.zap }}
+                style={{ width: 17, height: 17, marginRight: 6 }}
+                contentFit="contain"
+              />
+              <Text style={styles.proUpgradePrimaryText}>{t('upgrade_to_pro_btn')}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.proCancelBtn}
+              onPress={() => setShowProLimitModal(false)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.proCancelText}>{t('cancel')}</Text>
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
@@ -2731,6 +2793,13 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F8FAFC',
   },
+  swissSectionNum: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#3B82F6',
+    letterSpacing: 0.3,
+    marginRight: 4,
+  },
   centerBox: {
     flex: 1,
     alignItems: 'center',
@@ -2738,93 +2807,97 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   loadingText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
     color: '#64748B',
+    letterSpacing: 0.3,
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingTop: 14,
     paddingBottom: 10,
+    backgroundColor: '#F8FAFC',
   },
   screenTitle: {
-    fontSize: 22,
+    fontSize: 21,
     fontWeight: '900',
-    color: '#1C1C1E',
+    color: '#0F172A',
     letterSpacing: -0.4,
   },
   screenSubtitle: {
-    fontSize: 12,
+    fontSize: 10.5,
     color: '#64748B',
     marginTop: 2,
-    fontWeight: '500',
+    fontWeight: '600',
+    letterSpacing: 0.3,
   },
   headerActionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
   quickPdfBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FEF2F2',
-    borderWidth: 1,
-    borderColor: '#FECACA',
-    paddingHorizontal: 10,
+    backgroundColor: '#0F172A',
+    paddingHorizontal: 11,
     paddingVertical: 7,
-    borderRadius: 14,
+    borderRadius: 18,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.15,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
+    elevation: 2,
   },
   quickPdfBtnText: {
     fontSize: 11,
     fontWeight: '800',
-    color: '#DC2626',
+    color: '#FFFFFF',
     letterSpacing: 0.3,
   },
   shareBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
     shadowColor: '#000',
-    shadowOpacity: 0.04,
+    shadowOpacity: 0.05,
     shadowOffset: { width: 0, height: 1 },
     shadowRadius: 3,
     elevation: 1,
   },
   scrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 6,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 130,
   },
   periodSegmentWrapper: {
     backgroundColor: '#F1F5F9',
-    borderRadius: 14,
+    borderRadius: 16,
     padding: 4,
-    marginBottom: 10,
+    marginBottom: 12,
   },
   periodScrollContent: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    paddingHorizontal: 2,
   },
   periodSegmentBtn: {
     paddingHorizontal: 14,
     paddingVertical: 7,
-    borderRadius: 10,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   periodSegmentBtnActive: {
-    backgroundColor: '#1C1C1E',
+    backgroundColor: '#0F172A',
     shadowColor: '#0F172A',
-    shadowOpacity: 0.12,
+    shadowOpacity: 0.15,
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 4,
     elevation: 2,
@@ -2839,6 +2912,52 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
 
+  // TOP REPORT NAVIGATION TAB BAR
+  reportTabBarWrapper: {
+    marginBottom: 12,
+  },
+  reportTabScrollContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 2,
+  },
+  reportTabBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowOffset: { width: 0, height: 1 },
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  reportTabBtnActive: {
+    backgroundColor: '#0F172A',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.2,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 5,
+    elevation: 3,
+  },
+  reportTabIcon: {
+    width: 16,
+    height: 16,
+    marginRight: 6,
+  },
+  reportTabText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  reportTabTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+  },
+
   // STATEMENT EXECUTIVE RIBBON
   statementRibbon: {
     flexDirection: 'row',
@@ -2846,15 +2965,13 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     backgroundColor: '#FFFFFF',
     paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
+    paddingVertical: 10,
+    borderRadius: 18,
     marginBottom: 14,
-    shadowColor: '#000',
-    shadowOpacity: 0.02,
-    shadowOffset: { width: 0, height: 1 },
-    shadowRadius: 3,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.03,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
     elevation: 1,
   },
   statementRibbonLeft: {
@@ -2864,9 +2981,9 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   statementPulseDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     backgroundColor: '#10B981',
     marginRight: 7,
   },
@@ -2876,7 +2993,7 @@ const styles = StyleSheet.create({
     color: '#0F172A',
   },
   statementRibbonSub: {
-    fontSize: 11.5,
+    fontSize: 11,
     fontWeight: '600',
     color: '#64748B',
     marginLeft: 3,
@@ -2885,11 +3002,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#EFF6FF',
-    paddingHorizontal: 9,
-    paddingVertical: 4.5,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#DBEAFE',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 10,
   },
   statementExportChipText: {
     fontSize: 11,
@@ -2897,28 +3012,22 @@ const styles = StyleSheet.create({
     color: '#2563EB',
   },
 
-  // HERO NET SAVINGS CARD - PERFORMANCE OPTIMIZED
+  // HERO NET SAVINGS CARD - SMOOTH ROUNDED
   heroOverviewCard: {
-    backgroundColor: '#EEF2FF',
+    backgroundColor: '#FFFFFF',
     borderRadius: 24,
     padding: 18,
     marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#E0E7FF',
-    shadowColor: '#4F46E5',
-    shadowOpacity: 0.06,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.04,
     shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 10,
-    elevation: 3,
+    shadowRadius: 12,
+    elevation: 2,
     position: 'relative',
     overflow: 'hidden',
   },
   shimmerBeam: {
-    position: 'absolute',
-    top: -70,
-    bottom: -70,
-    width: 100,
-    backgroundColor: 'rgba(255, 255, 255, 0.45)',
+    display: 'none',
   },
   heroTopRow: {
     flexDirection: 'row',
@@ -2929,56 +3038,42 @@ const styles = StyleSheet.create({
   heroNetLabelWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 11,
+    backgroundColor: '#F8FAFC',
+    paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(15, 23, 42, 0.08)',
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowOffset: { width: 0, height: 1 },
-    shadowRadius: 3,
-    elevation: 1,
+    borderRadius: 12,
   },
   heroNetLabel: {
     fontSize: 11,
-    fontWeight: '900',
+    fontWeight: '800',
     color: '#0F172A',
-    letterSpacing: 0.5,
+    letterSpacing: 0.3,
   },
   heroSavingsBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: 'rgba(15, 23, 42, 0.08)',
+    backgroundColor: '#F0FDF4',
     paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 14,
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowOffset: { width: 0, height: 1 },
-    shadowRadius: 3,
-    elevation: 1,
+    borderRadius: 12,
   },
   heroSavingsBadgeText: {
     fontSize: 11,
     fontWeight: '800',
-    color: '#0F172A',
+    color: '#16A34A',
   },
   heroAmountWrap: {
     marginBottom: 14,
   },
   heroNetValue: {
-    fontSize: 30,
+    fontSize: 32,
     fontWeight: '900',
     color: '#0F172A',
     letterSpacing: -0.8,
   },
   heroCashflowRow: {
     flexDirection: 'row',
-    gap: 6,
+    gap: 8,
   },
   heroCardHeaderMini: {
     flexDirection: 'row',
@@ -2988,66 +3083,45 @@ const styles = StyleSheet.create({
   },
   heroIncomeCard: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    paddingVertical: 8,
-    paddingHorizontal: 7,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#000000',
-    shadowOpacity: 0.03,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
-    elevation: 1,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 9,
   },
   heroIncomeIconCircle: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     backgroundColor: '#DCFCE7',
     alignItems: 'center',
     justifyContent: 'center',
   },
   heroExpenseCard: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    paddingVertical: 8,
-    paddingHorizontal: 7,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#000000',
-    shadowOpacity: 0.03,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
-    elevation: 1,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 9,
   },
   heroExpenseIconCircle: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     backgroundColor: '#FEE2E2',
     alignItems: 'center',
     justifyContent: 'center',
   },
   heroDailyCard: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    paddingVertical: 8,
-    paddingHorizontal: 7,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#000000',
-    shadowOpacity: 0.03,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
-    elevation: 1,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 9,
   },
   heroDailyIconCircle: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     backgroundColor: '#EEF2FF',
     alignItems: 'center',
     justifyContent: 'center',
@@ -3055,13 +3129,11 @@ const styles = StyleSheet.create({
   heroMicroKpiRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    paddingVertical: 9,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    paddingVertical: 10,
     paddingHorizontal: 12,
     marginTop: 12,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
   },
   microKpiItem: {
     flex: 1,
@@ -3072,11 +3144,11 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#64748B',
     textTransform: 'uppercase',
-    letterSpacing: 0.2,
+    letterSpacing: 0.3,
     marginBottom: 2,
   },
   microKpiVal: {
-    fontSize: 12,
+    fontSize: 12.5,
     fontWeight: '900',
     color: '#0F172A',
   },
@@ -3086,25 +3158,25 @@ const styles = StyleSheet.create({
     backgroundColor: '#E2E8F0',
   },
   heroInnerCardLabel: {
-    fontSize: 9,
-    fontWeight: '800',
+    fontSize: 9.5,
+    fontWeight: '700',
     color: '#64748B',
     textTransform: 'uppercase',
-    letterSpacing: 0.2,
+    letterSpacing: 0.3,
     flex: 1,
   },
   heroIncomeAmount: {
-    fontSize: 12,
+    fontSize: 12.5,
     fontWeight: '900',
     color: '#16A34A',
   },
   heroExpenseAmount: {
-    fontSize: 12,
+    fontSize: 12.5,
     fontWeight: '900',
     color: '#DC2626',
   },
   heroDailyAmount: {
-    fontSize: 12,
+    fontSize: 12.5,
     fontWeight: '900',
     color: '#0F172A',
   },
@@ -3113,7 +3185,7 @@ const styles = StyleSheet.create({
   chartViewSwitcher: {
     flexDirection: 'row',
     backgroundColor: '#F1F5F9',
-    borderRadius: 14,
+    borderRadius: 16,
     padding: 3,
     marginBottom: 14,
   },
@@ -3123,15 +3195,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 8,
-    borderRadius: 11,
+    borderRadius: 13,
   },
   chartViewBtnActive: {
     backgroundColor: '#FFFFFF',
-    shadowColor: '#0F172A',
-    shadowOpacity: 0.08,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 5,
-    elevation: 2,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowOffset: { width: 0, height: 1 },
+    shadowRadius: 3,
+    elevation: 1,
   },
   chartViewText: {
     fontSize: 11,
@@ -3139,22 +3211,20 @@ const styles = StyleSheet.create({
     color: '#64748B',
   },
   chartViewTextActive: {
-    color: '#1C1C1E',
+    color: '#0F172A',
     fontWeight: '800',
   },
 
-  // CHART CARDS
+  // CHART CARDS - SMOOTH & BORDERLESS
   chartWrapperCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 22,
+    borderRadius: 24,
     padding: 18,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
     marginBottom: 14,
-    shadowColor: '#000000',
+    shadowColor: '#0F172A',
     shadowOpacity: 0.04,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 12,
     elevation: 2,
   },
   chartHeaderRow: {
@@ -3166,34 +3236,33 @@ const styles = StyleSheet.create({
   themeCardTitle: {
     fontSize: 16,
     fontWeight: '900',
-    color: '#1C1C1E',
-    letterSpacing: -0.2,
+    color: '#0F172A',
+    letterSpacing: -0.3,
   },
   themeCardSub: {
-    fontSize: 12,
+    fontSize: 11.5,
     color: '#64748B',
     marginTop: 2,
+    fontWeight: '500',
   },
   activePointPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#FEF9E7',
-    borderWidth: 1,
-    borderColor: '#FFD740',
-    paddingHorizontal: 8,
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 9,
     paddingVertical: 4,
-    borderRadius: 8,
+    borderRadius: 10,
   },
   activePointPillDate: {
-    fontSize: 11,
+    fontSize: 10.5,
     fontWeight: '700',
     color: '#92400E',
   },
   activePointPillAmount: {
     fontSize: 11,
     fontWeight: '900',
-    color: '#1C1C1E',
+    color: '#0F172A',
   },
   barLegendRow: {
     flexDirection: 'row',
@@ -3206,9 +3275,9 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   legendDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   legendText: {
     fontSize: 11,
@@ -3219,11 +3288,9 @@ const styles = StyleSheet.create({
   // CASH FLOW TRENDS ENHANCEMENTS
   trendLiveBadge: {
     backgroundColor: '#EFF6FF',
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#DBEAFE',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
   },
   trendLiveBadgeText: {
     fontSize: 9.5,
@@ -3236,12 +3303,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: '#F8FAFC',
-    borderRadius: 14,
-    paddingVertical: 9,
+    borderRadius: 16,
+    paddingVertical: 10,
     paddingHorizontal: 12,
     marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
   },
   trendSummaryCol: {
     flex: 1,
@@ -3266,16 +3331,9 @@ const styles = StyleSheet.create({
   },
   trendInspectorCard: {
     backgroundColor: '#F8FAFC',
-    borderRadius: 14,
-    padding: 12,
+    borderRadius: 18,
+    padding: 14,
     marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#BFDBFE',
-    shadowColor: '#2563EB',
-    shadowOpacity: 0.05,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
-    elevation: 2,
   },
   trendInspectorHeader: {
     flexDirection: 'row',
@@ -3284,28 +3342,28 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   trendInspectorIcon: {
-    width: 22,
-    height: 22,
-    borderRadius: 7,
+    width: 24,
+    height: 24,
+    borderRadius: 8,
     backgroundColor: '#EFF6FF',
     alignItems: 'center',
     justifyContent: 'center',
   },
   trendInspectorTitle: {
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: '800',
     color: '#0F172A',
   },
   trendNetBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 10,
   },
   trendNetBadgeText: {
     fontSize: 11,
-    fontWeight: '900',
+    fontWeight: '800',
   },
   trendInspectorPillsRow: {
     flexDirection: 'row',
@@ -3314,28 +3372,22 @@ const styles = StyleSheet.create({
   trendInspectorPillIn: {
     flex: 1,
     backgroundColor: '#FFFFFF',
-    borderRadius: 10,
+    borderRadius: 12,
     padding: 8,
-    borderWidth: 1,
-    borderColor: '#BBF7D0',
     alignItems: 'center',
   },
   trendInspectorPillOut: {
     flex: 1,
     backgroundColor: '#FFFFFF',
-    borderRadius: 10,
+    borderRadius: 12,
     padding: 8,
-    borderWidth: 1,
-    borderColor: '#FECDD3',
     alignItems: 'center',
   },
   trendInspectorPillRate: {
     flex: 1,
     backgroundColor: '#FFFFFF',
-    borderRadius: 10,
+    borderRadius: 12,
     padding: 8,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
     alignItems: 'center',
   },
   trendInspectorPillLabel: {
@@ -3356,14 +3408,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F1F5F9',
-    borderRadius: 8,
-    padding: 2.5,
+    borderRadius: 12,
+    padding: 3,
     gap: 2,
   },
   rangePillBtn: {
-    paddingHorizontal: 8,
-    paddingVertical: 3.5,
-    borderRadius: 6,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 9,
   },
   rangePillBtnActive: {
     backgroundColor: '#0F172A',
@@ -3375,7 +3427,7 @@ const styles = StyleSheet.create({
   },
   rangePillTextActive: {
     color: '#FFFFFF',
-    fontWeight: '900',
+    fontWeight: '800',
   },
   waveLegendBar: {
     flexDirection: 'row',
@@ -3385,12 +3437,10 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   waveLiveBadge: {
-    backgroundColor: '#FFFBEB',
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#FDE68A',
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
   },
   waveLiveBadgeText: {
     fontSize: 9.5,
@@ -3401,12 +3451,10 @@ const styles = StyleSheet.create({
   wavePeakSummaryPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFBEB',
-    paddingHorizontal: 8,
-    paddingVertical: 3.5,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#FDE68A',
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 10,
   },
   wavePeakSummaryText: {
     fontSize: 10.5,
@@ -3418,12 +3466,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: '#F8FAFC',
-    borderRadius: 14,
-    paddingVertical: 9,
+    borderRadius: 16,
+    paddingVertical: 10,
     paddingHorizontal: 12,
     marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
   },
   waveSummaryCol: {
     flex: 1,
@@ -3445,19 +3491,13 @@ const styles = StyleSheet.create({
   waveSummaryValue: {
     fontSize: 12.5,
     fontWeight: '900',
+    color: '#0F172A',
   },
   waveInspectorCard: {
-    backgroundColor: '#FFFDF7',
-    borderRadius: 14,
-    padding: 12,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 18,
+    padding: 14,
     marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#FDE68A',
-    shadowColor: '#D97706',
-    shadowOpacity: 0.05,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
-    elevation: 2,
   },
   waveInspectorHeader: {
     flexDirection: 'row',
@@ -3466,29 +3506,28 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   waveInspectorIcon: {
-    width: 22,
-    height: 22,
-    borderRadius: 7,
+    width: 24,
+    height: 24,
+    borderRadius: 8,
     backgroundColor: '#FEF3C7',
     alignItems: 'center',
     justifyContent: 'center',
   },
   waveInspectorTitle: {
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: '800',
     color: '#0F172A',
   },
   waveBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-    borderWidth: 1,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 10,
   },
   waveBadgeText: {
-    fontSize: 11,
-    fontWeight: '900',
+    fontSize: 10.5,
+    fontWeight: '800',
   },
   waveInspectorPillsRow: {
     flexDirection: 'row',
@@ -3496,37 +3535,35 @@ const styles = StyleSheet.create({
   },
   waveInspectorPillItem: {
     flex: 1,
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
     backgroundColor: '#FFFFFF',
-    borderRadius: 10,
-    padding: 8,
-    borderWidth: 1,
-    borderColor: '#FDE68A',
     alignItems: 'center',
   },
   waveInspectorPillLabel: {
     fontSize: 8.5,
     fontWeight: '800',
-    color: '#64748B',
     textTransform: 'uppercase',
-    marginBottom: 2,
+    marginBottom: 3,
+    color: '#64748B',
   },
   waveInspectorPillValue: {
-    fontSize: 12,
+    fontSize: 12.5,
     fontWeight: '900',
+    color: '#0F172A',
   },
 
   // SMART AI FINANCIAL HEALTH CARD
   aiHealthCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 22,
+    borderRadius: 24,
     padding: 18,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
     marginBottom: 14,
-    shadowColor: '#000000',
+    shadowColor: '#0F172A',
     shadowOpacity: 0.04,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 12,
     elevation: 2,
   },
   aiHealthHeader: {
@@ -3544,6 +3581,7 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 12,
+    backgroundColor: '#EEF2FF',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -3562,12 +3600,13 @@ const styles = StyleSheet.create({
   healthScoreBadge: {
     paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 12,
-    borderWidth: 1,
+    borderRadius: 10,
+    backgroundColor: '#F0FDF4',
   },
   healthScoreText: {
     fontSize: 11,
-    fontWeight: '900',
+    fontWeight: '800',
+    color: '#16A34A',
   },
   healthScoreTrack: {
     height: 6,
@@ -3584,8 +3623,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F8FAFC',
-    borderRadius: 14,
-    paddingVertical: 9,
+    borderRadius: 16,
+    paddingVertical: 10,
     paddingHorizontal: 12,
     marginBottom: 12,
   },
@@ -3594,11 +3633,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   vitalityItemLabel: {
-    fontSize: 10,
+    fontSize: 9.5,
     fontWeight: '700',
     color: '#64748B',
     textTransform: 'uppercase',
-    letterSpacing: 0.2,
+    letterSpacing: 0.3,
   },
   vitalityItemVal: {
     fontSize: 13.5,
@@ -3627,18 +3666,16 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 12,
     color: '#334155',
-    fontWeight: '600',
-    lineHeight: 17,
+    fontWeight: '500',
+    lineHeight: 18,
   },
   compactTakeawayPill: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     marginTop: 2,
   },
   compactTakeawayText: {
@@ -3648,18 +3685,16 @@ const styles = StyleSheet.create({
     color: '#334155',
   },
 
-  // SECTION CARDS
+  // SECTION CARDS - CLEAN & ROUNDED
   sectionCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 22,
+    borderRadius: 24,
     padding: 18,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
     marginBottom: 14,
-    shadowColor: '#000000',
+    shadowColor: '#0F172A',
     shadowOpacity: 0.04,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 12,
     elevation: 2,
   },
   sectionHeaderBetween: {
@@ -3671,11 +3706,11 @@ const styles = StyleSheet.create({
   cardHeading: {
     fontSize: 16,
     fontWeight: '900',
-    color: '#1C1C1E',
+    color: '#0F172A',
     letterSpacing: -0.2,
   },
   cardSub: {
-    fontSize: 12,
+    fontSize: 11.5,
     color: '#64748B',
     marginTop: 2,
   },
@@ -3689,7 +3724,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F1F5F9',
-    paddingHorizontal: 9,
+    paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 10,
   },
@@ -3701,19 +3736,19 @@ const styles = StyleSheet.create({
   catTypeToggleRow: {
     flexDirection: 'row',
     backgroundColor: '#F1F5F9',
-    borderRadius: 12,
+    borderRadius: 14,
     padding: 3,
   },
   catTypeBtn: {
     paddingHorizontal: 12,
     paddingVertical: 5,
-    borderRadius: 9,
+    borderRadius: 11,
   },
   catTypeBtnActiveExpense: {
-    backgroundColor: '#DC2626',
+    backgroundColor: '#EF4444',
   },
   catTypeBtnActiveIncome: {
-    backgroundColor: '#16A34A',
+    backgroundColor: '#10B981',
   },
   catTypeText: {
     fontSize: 11,
@@ -3730,9 +3765,9 @@ const styles = StyleSheet.create({
   },
   categoryCountBadge: {
     backgroundColor: '#F1F5F9',
-    paddingHorizontal: 8,
+    paddingHorizontal: 9,
     paddingVertical: 4,
-    borderRadius: 8,
+    borderRadius: 10,
   },
   categoryCountText: {
     fontSize: 11,
@@ -3751,112 +3786,143 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
   },
 
-  // DONUT
+  // DONUT - ROUNDED & BORDERLESS
   donutCardInner: {
     alignItems: 'center',
+    width: '100%',
   },
   donutContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    marginVertical: 8,
+    marginVertical: 4,
     position: 'relative',
   },
   donutCenterContent: {
     position: 'absolute',
     alignItems: 'center',
     justifyContent: 'center',
-    width: 130,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 65,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.06,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 8,
+    elevation: 3,
   },
   donutActiveCatIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 2,
   },
   donutActiveCatName: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#64748B',
-    marginBottom: 2,
-    textAlign: 'center',
-  },
-  donutActiveCatAmount: {
-    fontSize: 16,
-    fontWeight: '900',
-    color: '#0F172A',
-  },
-  donutActiveCatPercent: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#94A3B8',
-    marginTop: 1,
-  },
-  donutCenterLabel: {
     fontSize: 11,
     fontWeight: '700',
     color: '#64748B',
+    marginBottom: 1,
+    textAlign: 'center',
+  },
+  donutActiveCatAmount: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#0F172A',
+  },
+  donutPercentBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2.5,
+    borderRadius: 10,
+    marginTop: 2,
+    backgroundColor: '#EFF6FF',
+  },
+  donutPercentBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#2563EB',
+  },
+  donutCenterLabel: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#64748B',
     textTransform: 'uppercase',
+    letterSpacing: 0.6,
   },
   donutCenterAmount: {
     fontSize: 18,
     fontWeight: '900',
-    color: '#1C1C1E',
-    marginTop: 1,
+    color: '#0F172A',
+    marginTop: 2,
+    marginBottom: 2,
   },
   donutTapHint: {
     fontSize: 10,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#94A3B8',
-    marginTop: 2,
   },
-  donutChipsWrap: {
+  donutLegendGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: 6,
-    marginTop: 12,
-    paddingHorizontal: 4,
+    justifyContent: 'space-between',
+    gap: 8,
+    marginTop: 14,
+    width: '100%',
   },
-  donutChip: {
+  donutLegendItem: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 10,
+    borderRadius: 14,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    width: '48.5%',
   },
-  donutChipDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-    marginRight: 5,
+  donutLegendItemSelected: {
+    backgroundColor: '#EFF6FF',
   },
-  donutChipText: {
-    fontSize: 11,
+  donutLegendDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6,
+  },
+  donutLegendName: {
+    flex: 1,
+    fontSize: 11.5,
     fontWeight: '600',
+    color: '#334155',
+  },
+  donutLegendNameActive: {
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  donutLegendPercent: {
+    fontSize: 10.5,
+    fontWeight: '700',
     color: '#64748B',
+    marginRight: 4,
+  },
+  donutLegendAmount: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: '#0F172A',
   },
 
-  // CATEGORY LIST
+  // CATEGORY LIST - SOFT & ROUNDED
   categoryListWrap: {
-    gap: 10,
+    gap: 8,
   },
   categoryRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingVertical: 6,
-    paddingHorizontal: 6,
-    borderRadius: 14,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 16,
+    backgroundColor: '#F8FAFC',
   },
   categoryRowSelected: {
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
+    backgroundColor: '#EFF6FF',
   },
   categoryIconCircle: {
     width: 40,
@@ -3875,19 +3941,19 @@ const styles = StyleSheet.create({
     marginBottom: 5,
   },
   categoryName: {
-    fontSize: 14,
+    fontSize: 13.5,
     fontWeight: '800',
-    color: '#1C1C1E',
+    color: '#0F172A',
   },
   categoryAmount: {
-    fontSize: 14,
+    fontSize: 13.5,
     fontWeight: '900',
-    color: '#1C1C1E',
+    color: '#0F172A',
   },
   progressBarTrack: {
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: '#E2E8F0',
     overflow: 'hidden',
   },
   progressBarFill: {
@@ -3910,6 +3976,20 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#94A3B8',
   },
+  viewAllCatBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    marginTop: 6,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 14,
+  },
+  viewAllCatBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#2563EB',
+  },
 
   // PAYMENT BAR
   paymentBarContainer: {
@@ -3923,17 +4003,15 @@ const styles = StyleSheet.create({
   paymentPillsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    gap: 8,
   },
   paymentPillBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
     paddingHorizontal: 10,
     paddingVertical: 5,
-    borderRadius: 8,
+    borderRadius: 10,
   },
   paymentDot: {
     width: 6,
@@ -3949,7 +4027,7 @@ const styles = StyleSheet.create({
   paymentModeValue: {
     fontSize: 11,
     fontWeight: '800',
-    color: '#1C1C1E',
+    color: '#0F172A',
   },
 
   // DAY OF WEEK
@@ -3976,11 +4054,11 @@ const styles = StyleSheet.create({
   },
   dayBarFill: {
     width: '100%',
-    backgroundColor: '#1C1C1E',
+    backgroundColor: '#0F172A',
     borderRadius: 7,
   },
   dayBarFillHigh: {
-    backgroundColor: '#FFD740',
+    backgroundColor: '#F59E0B',
   },
   dayNameText: {
     fontSize: 11,
@@ -3990,22 +4068,20 @@ const styles = StyleSheet.create({
 
   // TOP EXPENSES
   topExpenseList: {
-    gap: 10,
+    gap: 8,
   },
   topExpenseItem: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F8FAFC',
-    borderRadius: 14,
+    borderRadius: 16,
     padding: 12,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
   },
   topExpenseRank: {
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: '#E2E8F0',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 10,
@@ -4022,7 +4098,7 @@ const styles = StyleSheet.create({
   topExpenseTitle: {
     fontSize: 13,
     fontWeight: '800',
-    color: '#1C1C1E',
+    color: '#0F172A',
     marginBottom: 2,
   },
   topExpenseDate: {
@@ -4031,7 +4107,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   topExpenseAmount: {
-    fontSize: 14,
+    fontSize: 13.5,
     fontWeight: '900',
     color: '#EF4444',
   },
@@ -4040,40 +4116,26 @@ const styles = StyleSheet.create({
   pdfExportBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FEF2F2',
-    paddingHorizontal: 11,
+    backgroundColor: '#0F172A',
+    paddingHorizontal: 14,
     paddingVertical: 9,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#FECACA',
-    shadowColor: '#EF4444',
-    shadowOpacity: 0.08,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
-    elevation: 2,
+    borderRadius: 16,
   },
   pdfExportBtnText: {
-    fontSize: 12,
-    fontWeight: '900',
-    color: '#DC2626',
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
   csvExportBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 12,
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 14,
     paddingVertical: 9,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
-    elevation: 2,
+    borderRadius: 16,
   },
   csvExportBtnText: {
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: '800',
     color: '#0F172A',
   },
@@ -4081,15 +4143,13 @@ const styles = StyleSheet.create({
   // VELOCITY CARD
   velocityCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 22,
+    borderRadius: 24,
     padding: 18,
     marginBottom: 14,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#000000',
+    shadowColor: '#0F172A',
     shadowOpacity: 0.04,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 12,
     elevation: 2,
   },
   velocityHeaderRow: {
@@ -4115,7 +4175,7 @@ const styles = StyleSheet.create({
     color: '#0F172A',
   },
   velocityCardSub: {
-    fontSize: 11.5,
+    fontSize: 11,
     color: '#64748B',
     marginTop: 1,
   },
@@ -4133,7 +4193,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEE2E2',
   },
   velocityPillText: {
-    fontSize: 11.5,
+    fontSize: 11,
     fontWeight: '800',
   },
   velocityTextLower: {
@@ -4149,7 +4209,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   velocityPillNeutralText: {
-    fontSize: 11.5,
+    fontSize: 11,
     fontWeight: '700',
     color: '#64748B',
   },
@@ -4157,7 +4217,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F8FAFC',
-    borderRadius: 14,
+    borderRadius: 16,
     padding: 12,
   },
   velocityStatBox: {
@@ -4167,23 +4227,23 @@ const styles = StyleSheet.create({
     width: 1,
     height: 36,
     backgroundColor: '#E2E8F0',
-    marginHorizontal: 12,
+    marginHorizontal: 10,
   },
   velocityStatLabel: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
     color: '#64748B',
     textTransform: 'uppercase',
     letterSpacing: 0.3,
   },
   velocityStatValue: {
-    fontSize: 15,
+    fontSize: 14.5,
     fontWeight: '900',
     color: '#0F172A',
     marginTop: 2,
   },
   velocityStatHint: {
-    fontSize: 11,
+    fontSize: 10.5,
     color: '#94A3B8',
     marginTop: 2,
   },
@@ -4192,9 +4252,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: '#F0FDF4',
-    borderWidth: 1,
-    borderColor: '#BBF7D0',
-    borderRadius: 14,
+    borderRadius: 16,
     padding: 12,
     marginTop: 10,
   },
@@ -4213,7 +4271,7 @@ const styles = StyleSheet.create({
     marginRight: 9,
   },
   safeToSpendTitle: {
-    fontSize: 13,
+    fontSize: 12.5,
     fontWeight: '800',
     color: '#065F46',
   },
@@ -4227,12 +4285,12 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   safeToSpendValue: {
-    fontSize: 15,
+    fontSize: 14.5,
     fontWeight: '900',
     color: '#065F46',
   },
   safeToSpendPerDay: {
-    fontSize: 10,
+    fontSize: 9.5,
     fontWeight: '600',
     color: '#047857',
   },
@@ -4262,15 +4320,13 @@ const styles = StyleSheet.create({
   // 50/30/20 RULE
   ruleCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 22,
+    borderRadius: 24,
     padding: 18,
     marginBottom: 14,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#000000',
+    shadowColor: '#0F172A',
     shadowOpacity: 0.04,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 12,
     elevation: 2,
   },
   ruleHeaderRow: {
@@ -4296,7 +4352,7 @@ const styles = StyleSheet.create({
     color: '#0F172A',
   },
   ruleCardSub: {
-    fontSize: 11.5,
+    fontSize: 11,
     color: '#64748B',
     marginTop: 1,
   },
@@ -4307,7 +4363,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   ruleBadgeText: {
-    fontSize: 11,
+    fontSize: 10.5,
     fontWeight: '800',
     color: '#334155',
   },
@@ -4365,7 +4421,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEF3C7',
   },
   weekendRatioText: {
-    fontSize: 11,
+    fontSize: 10.5,
     fontWeight: '800',
     color: '#2563EB',
   },
@@ -4380,15 +4436,13 @@ const styles = StyleSheet.create({
   weekSplitCard: {
     flex: 1,
     backgroundColor: '#F8FAFC',
-    borderRadius: 14,
+    borderRadius: 16,
     padding: 12,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
   },
   weekSplitIconCircle: {
     width: 32,
     height: 32,
-    borderRadius: 10,
+    borderRadius: 12,
     backgroundColor: '#DBEAFE',
     alignItems: 'center',
     justifyContent: 'center',
@@ -4429,8 +4483,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
   },
   modalCloseBtn: {
     width: 36,
@@ -4446,7 +4498,7 @@ const styles = StyleSheet.create({
     color: '#0F172A',
   },
   drillModalSubTitle: {
-    fontSize: 12,
+    fontSize: 11.5,
     color: '#64748B',
     marginTop: 2,
   },
@@ -4454,21 +4506,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
   },
   drillDownTitle: {
-    fontSize: 14,
+    fontSize: 13.5,
     fontWeight: '800',
     color: '#0F172A',
   },
   drillDownDate: {
-    fontSize: 11.5,
+    fontSize: 11,
     color: '#94A3B8',
     marginTop: 2,
   },
   drillDownAmount: {
-    fontSize: 14.5,
+    fontSize: 14,
     fontWeight: '900',
   },
   drillDownAmountExpense: {
@@ -4481,12 +4531,12 @@ const styles = StyleSheet.create({
   // EXPORT MODAL CONTENT
   exportModalContent: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 24,
+    borderRadius: 26,
     padding: 22,
-    marginHorizontal: 20,
-    marginBottom: 40,
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
+    marginHorizontal: 16,
+    marginBottom: 36,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.12,
     shadowOffset: { width: 0, height: 8 },
     shadowRadius: 20,
     elevation: 8,
@@ -4497,15 +4547,15 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   exportModalTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '900',
     color: '#0F172A',
   },
   exportModalSub: {
-    fontSize: 12.5,
+    fontSize: 12,
     color: '#64748B',
     lineHeight: 18,
-    marginBottom: 16,
+    marginBottom: 14,
   },
   exportOptionRow: {
     flexDirection: 'row',
@@ -4514,13 +4564,12 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 14,
     marginBottom: 10,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
   },
   exportOptionIconCircle: {
     width: 40,
     height: 40,
     borderRadius: 12,
+    backgroundColor: '#EEF2FF',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
@@ -4539,31 +4588,144 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 12,
-    marginTop: 6,
+    marginTop: 4,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 14,
   },
   exportCancelText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '800',
     color: '#64748B',
   },
   pdfLimitPill: {
     backgroundColor: '#EFF6FF',
-    borderWidth: 1,
-    borderColor: '#BFDBFE',
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    borderRadius: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
   },
   pdfLimitPillMax: {
-    backgroundColor: '#FEF2F2',
-    borderColor: '#FECACA',
+    backgroundColor: '#FEE2E2',
   },
   pdfLimitPillText: {
-    fontSize: 9.5,
+    fontSize: 10,
     fontWeight: '800',
     color: '#2563EB',
   },
   pdfLimitPillTextMax: {
     color: '#DC2626',
+  },
+
+  // PRO LIMIT UPGRADE MODAL
+  proLimitModalCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 28,
+    padding: 24,
+    marginHorizontal: 16,
+    alignItems: 'center',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.16,
+    shadowOffset: { width: 0, height: 8 },
+    shadowRadius: 24,
+    elevation: 8,
+    width: '90%',
+    maxWidth: 380,
+  },
+  proCrownBadgeWrap: {
+    marginBottom: 10,
+  },
+  proCrownBadgeCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#FEF3C7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  proLimitTitle: {
+    fontSize: 19,
+    fontWeight: '900',
+    color: '#0F172A',
+    textAlign: 'center',
+    letterSpacing: -0.3,
+  },
+  proLimitBadgeRow: {
+    marginTop: 6,
+    marginBottom: 8,
+  },
+  proLimitCountBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEE2E2',
+    paddingHorizontal: 10,
+    paddingVertical: 3.5,
+    borderRadius: 10,
+  },
+  proLimitCountText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#DC2626',
+  },
+  proLimitBodyText: {
+    fontSize: 12,
+    color: '#64748B',
+    textAlign: 'center',
+    lineHeight: 17,
+    marginBottom: 14,
+    paddingHorizontal: 4,
+  },
+  proPerksBox: {
+    width: '100%',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    padding: 12,
+    marginBottom: 16,
+    gap: 8,
+  },
+  proPerkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  proPerkCheckCircle: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#10B981',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  proPerkText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#1E293B',
+    flex: 1,
+  },
+  proUpgradePrimaryBtn: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0F172A',
+    height: 48,
+    borderRadius: 16,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.25,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  proUpgradePrimaryText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  proCancelBtn: {
+    paddingVertical: 10,
+    marginTop: 2,
+  },
+  proCancelText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#94A3B8',
   },
 });

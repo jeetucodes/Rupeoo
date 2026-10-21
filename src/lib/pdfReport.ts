@@ -2,6 +2,8 @@ import { Platform } from 'react-native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
+import { warn } from '@/lib/logger';
+import { formatAmountNumber } from '@/lib/formatCurrency';
 
 export interface PDFReportData {
   userName?: string;
@@ -121,9 +123,9 @@ function renderSpendingWaveSvg(
   }
 
   const width = 680;
-  const height = 95;
+  const height = 96;
   const paddingX = 35;
-  const paddingTop = 15;
+  const paddingTop = 16;
   const paddingBottom = 22;
   const chartHeight = height - paddingBottom;
   const usableWidth = width - paddingX * 2;
@@ -131,7 +133,7 @@ function renderSpendingWaveSvg(
 
   const totalExp = points.reduce((sum, p) => sum + p.expense, 0);
   const avgVal = dailyAvg !== undefined && dailyAvg > 0 ? dailyAvg : Math.round(totalExp / Math.max(points.length, 1));
-  const maxVal = Math.max(...points.map(p => p.expense), avgVal * 1.25, 500);
+  const maxVal = Math.max(...points.map(p => p.expense), avgVal * 1.3, 500);
 
   const coords = points.map((p, idx) => ({
     x: paddingX + idx * step,
@@ -154,21 +156,21 @@ function renderSpendingWaveSvg(
     <svg width="100%" height="${height}" viewBox="0 0 ${width} ${height}" style="overflow: visible;">
       <defs>
         <linearGradient id="waveAreaGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#FFD740" stop-opacity="0.45" />
-          <stop offset="70%" stop-color="#FFD740" stop-opacity="0.1" />
-          <stop offset="100%" stop-color="#FFD740" stop-opacity="0.0" />
+          <stop offset="0%" stop-color="#3B82F6" stop-opacity="0.3" />
+          <stop offset="60%" stop-color="#3B82F6" stop-opacity="0.08" />
+          <stop offset="100%" stop-color="#3B82F6" stop-opacity="0.0" />
         </linearGradient>
         <linearGradient id="waveLineGrad" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stop-color="#F59E0B" />
-          <stop offset="50%" stop-color="#D97706" />
-          <stop offset="100%" stop-color="#B45309" />
+          <stop offset="0%" stop-color="#2563EB" />
+          <stop offset="50%" stop-color="#3B82F6" />
+          <stop offset="100%" stop-color="#1D4ED8" />
         </linearGradient>
       </defs>
 
       <!-- Guidelines -->
       <line x1="${paddingX}" y1="${paddingTop}" x2="${width - paddingX}" y2="${paddingTop}" stroke="#F1F5F9" stroke-width="1" stroke-dasharray="3 3" />
       <line x1="${paddingX}" y1="${(paddingTop + chartHeight) / 2}" x2="${width - paddingX}" y2="${(paddingTop + chartHeight) / 2}" stroke="#F1F5F9" stroke-width="1" stroke-dasharray="3 3" />
-      <line x1="${paddingX}" y1="${chartHeight}" x2="${width - paddingX}" y2="${chartHeight}" stroke="#E2E8F0" stroke-width="1" />
+      <line x1="${paddingX}" y1="${chartHeight}" x2="${width - paddingX}" y2="${chartHeight}" stroke="#E2E8F0" stroke-width="1.2" />
 
       <!-- Area & Line -->
       <path d="${smoothAreaD}" fill="url(#waveAreaGrad)" />
@@ -178,34 +180,32 @@ function renderSpendingWaveSvg(
       ${
         avgVal > 0
           ? `
-        <line x1="${paddingX}" y1="${avgY.toFixed(1)}" x2="${(width - paddingX).toFixed(1)}" y2="${avgY.toFixed(1)}" stroke="#6366F1" stroke-width="1.8" stroke-dasharray="4 3" />
-        <rect x="${(width - paddingX - 112).toFixed(1)}" y="${Math.max(avgY - 14, 2).toFixed(1)}" width="112" height="12" rx="3" fill="#EEF2FF" stroke="#6366F1" stroke-width="0.8" />
-        <text x="${(width - paddingX - 56).toFixed(1)}" y="${Math.max(avgY - 4.5, 11).toFixed(1)}" font-size="7.5" font-weight="800" fill="#4338CA" text-anchor="middle">Daily Avg: ${curr}${avgVal.toLocaleString('en-IN')}</text>
+        <line x1="${paddingX}" y1="${avgY.toFixed(1)}" x2="${(width - paddingX).toFixed(1)}" y2="${avgY.toFixed(1)}" stroke="#6366F1" stroke-width="1.6" stroke-dasharray="4 3" />
+        <rect x="${(width - paddingX - 116).toFixed(1)}" y="${Math.max(avgY - 14, 2).toFixed(1)}" width="116" height="12" rx="4" fill="#EEF2FF" stroke="#6366F1" stroke-width="0.8" />
+        <text x="${(width - paddingX - 58).toFixed(1)}" y="${Math.max(avgY - 4.5, 11).toFixed(1)}" font-size="7.5" font-weight="800" fill="#4338CA" text-anchor="middle">Daily Avg: ${curr}${avgVal.toLocaleString('en-IN')}</text>
       `
           : ''
       }
 
       <!-- Points -->
       ${coords
-        .map(
-          (c, idx) => {
-            const isAbove = points[idx].expense > avgVal;
-            const isZero = points[idx].expense === 0;
-            const dotFill = isAbove ? '#F59E0B' : isZero ? '#E2E8F0' : '#10B981';
-            return `
+        .map((c, idx) => {
+          const isAbove = points[idx].expense > avgVal;
+          const isZero = points[idx].expense === 0;
+          const dotFill = isAbove ? '#EF4444' : isZero ? '#E2E8F0' : '#10B981';
+          return `
         <circle cx="${c.x.toFixed(1)}" cy="${c.y.toFixed(1)}" r="3" fill="${dotFill}" stroke="#FFFFFF" stroke-width="1.5" />
         <text x="${c.x.toFixed(1)}" y="${height - 6}" font-size="8.5" font-weight="700" fill="#64748B" text-anchor="middle">${points[idx].label.split(' ')[0]}</text>
       `;
-          }
-        )
+        })
         .join('')}
 
       <!-- Peak Pill -->
       ${
         peakPoint && peakPoint.expense > 0
           ? `
-        <rect x="${(peakCoord.x - 36).toFixed(1)}" y="${(peakCoord.y - 14).toFixed(1)}" width="72" height="11" rx="3" fill="#FEF3C7" stroke="#F59E0B" stroke-width="0.8" />
-        <text x="${peakCoord.x.toFixed(1)}" y="${(peakCoord.y - 5.5).toFixed(1)}" font-size="7.5" font-weight="800" fill="#92400E" text-anchor="middle">Peak: ${curr}${peakPoint.expense.toLocaleString('en-IN')}</text>
+        <rect x="${(peakCoord.x - 36).toFixed(1)}" y="${(peakCoord.y - 14).toFixed(1)}" width="72" height="11" rx="4" fill="#FEE2E2" stroke="#EF4444" stroke-width="0.8" />
+        <text x="${peakCoord.x.toFixed(1)}" y="${(peakCoord.y - 5.5).toFixed(1)}" font-size="7.5" font-weight="800" fill="#DC2626" text-anchor="middle">Peak: ${curr}${peakPoint.expense.toLocaleString('en-IN')}</text>
       `
           : ''
       }
@@ -222,14 +222,14 @@ function renderCashFlowTrendsSvg(
   }
 
   const width = 680;
-  const height = 100;
+  const height = 98;
   const paddingX = 20;
   const paddingTop = 14;
   const paddingBottom = 22;
   const chartHeight = height - paddingBottom;
   const usableWidth = width - paddingX * 2;
   const gap = usableWidth / Math.max(trends.length, 1);
-  const barWidth = Math.min(Math.max(gap * 0.3, 14), 22);
+  const barWidth = Math.min(Math.max(gap * 0.32, 14), 22);
   const maxVal = Math.max(...trends.map(t => Math.max(t.income, t.expense)), 1000);
 
   return `
@@ -248,7 +248,7 @@ function renderCashFlowTrendsSvg(
       <!-- Guidelines -->
       <line x1="${paddingX}" y1="${paddingTop}" x2="${width - paddingX}" y2="${paddingTop}" stroke="#F1F5F9" stroke-width="1" stroke-dasharray="3 3" />
       <line x1="${paddingX}" y1="${(paddingTop + chartHeight) / 2}" x2="${width - paddingX}" y2="${(paddingTop + chartHeight) / 2}" stroke="#F1F5F9" stroke-width="1" stroke-dasharray="3 3" />
-      <line x1="${paddingX}" y1="${chartHeight}" x2="${width - paddingX}" y2="${chartHeight}" stroke="#E2E8F0" stroke-width="1" />
+      <line x1="${paddingX}" y1="${chartHeight}" x2="${width - paddingX}" y2="${chartHeight}" stroke="#E2E8F0" stroke-width="1.2" />
 
       <!-- Comparative Bars -->
       ${trends
@@ -264,11 +264,11 @@ function renderCashFlowTrendsSvg(
           return `
           <g>
             <!-- Income Bar -->
-            <rect x="${xInc.toFixed(1)}" y="${yInc.toFixed(1)}" width="${barWidth}" height="${Math.max(incH, 2).toFixed(1)}" rx="3" fill="url(#pdfIncomeGrad)" />
+            <rect x="${xInc.toFixed(1)}" y="${yInc.toFixed(1)}" width="${barWidth}" height="${Math.max(incH, 2).toFixed(1)}" rx="4" fill="url(#pdfIncomeGrad)" />
             ${t.income > 0 ? `<text x="${(xInc + barWidth / 2).toFixed(1)}" y="${(yInc - 3).toFixed(1)}" font-size="7" font-weight="800" fill="#16A34A" text-anchor="middle">+${curr}${t.income >= 1000 ? Math.round(t.income / 1000) + 'k' : t.income}</text>` : ''}
 
             <!-- Expense Bar -->
-            <rect x="${xExp.toFixed(1)}" y="${yExp.toFixed(1)}" width="${barWidth}" height="${Math.max(expH, 2).toFixed(1)}" rx="3" fill="url(#pdfExpenseGrad)" />
+            <rect x="${xExp.toFixed(1)}" y="${yExp.toFixed(1)}" width="${barWidth}" height="${Math.max(expH, 2).toFixed(1)}" rx="4" fill="url(#pdfExpenseGrad)" />
             ${t.expense > 0 ? `<text x="${(xExp + barWidth / 2).toFixed(1)}" y="${(yExp - 3).toFixed(1)}" font-size="7" font-weight="800" fill="#DC2626" text-anchor="middle">-${curr}${t.expense >= 1000 ? Math.round(t.expense / 1000) + 'k' : t.expense}</text>` : ''}
 
             <!-- Month Label -->
@@ -292,7 +292,7 @@ function renderExpenseBreakdownHtml(
 
   const topCats = categories.slice(0, 6);
   const size = 118;
-  const strokeWidth = 17;
+  const strokeWidth = 16;
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
   let accumulatedOffset = 0;
@@ -326,36 +326,36 @@ function renderExpenseBreakdownHtml(
     </div>
 
     <!-- Donut Chart & Category Breakdown Row -->
-    <div style="display: flex; align-items: center; gap: 12px;">
+    <div style="display: flex; align-items: center; gap: 14px;">
       <!-- Circular Donut SVG with Slices & Center Metric -->
-      <div style="flex-shrink: 0; width: ${size}px; height: ${size}px; display: flex; align-items: center; justify-content: center; background: #FFFFFF; border-radius: 10px; border: 1px solid #F1F5F9; padding: 2px;">
+      <div style="flex-shrink: 0; width: ${size}px; height: ${size}px; display: flex; align-items: center; justify-content: center; background: #FFFFFF; border-radius: 14px; border: 1px solid #F1F5F9; padding: 2px;">
         <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
           <g transform="rotate(-90 ${size / 2} ${size / 2})">
             ${circles}
           </g>
           <!-- Center Text -->
-          <text x="${size / 2}" y="${size / 2 - 11}" font-size="7" font-weight="800" fill="#64748B" text-anchor="middle" letter-spacing="0.4">TOTAL SPENT</text>
+          <text x="${size / 2}" y="${size / 2 - 11}" font-size="7" font-weight="800" fill="#64748B" text-anchor="middle" letter-spacing="0.4">TOTAL OUTFLOW</text>
           <text x="${size / 2}" y="${size / 2 + 4}" font-size="11.5" font-weight="900" fill="#0F172A" text-anchor="middle">${curr}${totalExpense.toLocaleString('en-IN')}</text>
           <text x="${size / 2}" y="${size / 2 + 15}" font-size="6.5" font-weight="700" fill="#94A3B8" text-anchor="middle">${categories.length} Categories</text>
         </svg>
       </div>
 
       <!-- Categories 2-Column Grid (Top 6) -->
-      <div style="flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 5px;">
+      <div style="flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
         ${topCats
           .map(
             c => `
-          <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px; padding: 4px 7px;">
+          <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 10px; padding: 5px 8px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
               <div style="display: flex; align-items: center; gap: 4px; overflow: hidden;">
-                <span style="display: inline-block; width: 6px; height: 6px; border-radius: 3px; background: ${c.color}; flex-shrink: 0;"></span>
-                <span style="font-weight: 800; font-size: 9px; color: #0F172A; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; max-width: 80px;">${c.name}</span>
+                <span style="display: inline-block; width: 7px; height: 7px; border-radius: 3.5px; background: ${c.color}; flex-shrink: 0;"></span>
+                <span style="font-weight: 800; font-size: 9px; color: #0F172A; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; max-width: 82px;">${c.name}</span>
               </div>
               <span style="font-weight: 900; font-size: 9.5px; color: #0F172A; flex-shrink: 0; margin-left: 3px;">${curr}${c.amount.toLocaleString('en-IN')}</span>
             </div>
             <!-- Mini Progress bar -->
-            <div style="height: 3px; background: #E2E8F0; border-radius: 1.5px; overflow: hidden; margin: 1px 0;">
-              <div style="width: ${Math.min(c.percentage, 100)}%; height: 100%; background: ${c.color}; border-radius: 1.5px;"></div>
+            <div style="height: 3px; background: #E2E8F0; border-radius: 2px; overflow: hidden; margin: 1px 0;">
+              <div style="width: ${Math.min(c.percentage, 100)}%; height: 100%; background: ${c.color}; border-radius: 2px;"></div>
             </div>
             <div style="display: flex; justify-content: space-between; font-size: 7.5px; color: #64748B;">
               <span>${c.percentage}% share</span>
@@ -400,6 +400,8 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
     minute: '2-digit',
   });
 
+  const reportRef = `REP-${Date.now().toString().slice(-7)}`;
+
   const html = `
 <!DOCTYPE html>
 <html>
@@ -423,25 +425,22 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
       padding: 0;
       color: #0F172A;
       background: #FFFFFF;
-      font-size: 11.5px;
+      font-size: 11px;
       line-height: 1.4;
+      -webkit-font-smoothing: antialiased;
     }
 
-    /* Suppress any injected extension badges or watermarks */
+    /* Suppress any browser injected watermarks */
     div[class*="adobe"], div[id*="adobe"],
-    div[class*="acrobat"], div[id*="acrobat"],
-    div[style*="z-index: 2147483647"],
-    div[style*="z-index: 999999"] {
+    div[class*="acrobat"], div[id*="acrobat"] {
       display: none !important;
-      visibility: hidden !important;
-      opacity: 0 !important;
     }
 
-    /* SEPARATE PAGES - STRICT A4 BREAKS */
+    /* STRICT 3-PAGE LAYOUT */
     .page {
       width: 100%;
-      min-height: 270mm;
-      max-height: 270mm;
+      min-height: 272mm;
+      max-height: 272mm;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
@@ -449,21 +448,40 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
       break-before: page;
       page-break-inside: avoid;
       break-inside: avoid;
-      padding: 4mm 0 2mm 0;
+      padding: 2mm 0;
       overflow: hidden;
     }
     .page:first-of-type {
       page-break-before: avoid;
       break-before: avoid;
     }
+    .page.page-ledger {
+      min-height: 272mm;
+      max-height: none;
+      height: auto;
+      overflow: visible;
+      page-break-inside: auto;
+      break-inside: auto;
+      justify-content: flex-start;
+    }
+    table {
+      page-break-inside: auto;
+    }
+    thead {
+      display: table-header-group;
+    }
+    tr {
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
 
-    /* HEADER */
+    /* MODERN HEADER */
     .header-bar {
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
       padding-bottom: 10px;
-      border-bottom: 2px solid #E2E8F0;
+      border-bottom: 1.5px solid #E2E8F0;
       margin-bottom: 12px;
     }
     .brand-title {
@@ -473,13 +491,25 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
       letter-spacing: -0.4px;
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 8px;
+    }
+    .brand-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: #0F172A;
+      color: #FFD740;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      font-weight: 900;
     }
     .brand-badge {
       font-size: 9px;
       font-weight: 800;
-      color: #B45309;
-      background: #FEF3C7;
+      color: #1E40AF;
+      background: #DBEAFE;
       padding: 2px 7px;
       border-radius: 6px;
       text-transform: uppercase;
@@ -489,10 +519,11 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
       font-size: 10.5px;
       color: #64748B;
       margin-top: 2px;
+      font-weight: 600;
     }
     .meta-box {
       text-align: right;
-      font-size: 10px;
+      font-size: 9.5px;
       color: #64748B;
     }
     .meta-period {
@@ -503,11 +534,21 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
 
     /* CARDS & GRIDS */
     .hero-card {
-      background: linear-gradient(135deg, #EEF2FF 0%, #E0E7FF 100%);
-      border: 1px solid #C7D2FE;
-      border-radius: 12px;
-      padding: 14px 16px;
+      background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
+      border-radius: 16px;
+      padding: 14px 18px;
       margin-bottom: 12px;
+      color: #FFFFFF;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero-gold-line {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, #FFD740, #F59E0B, #FFD740);
     }
     .hero-row {
       display: flex;
@@ -517,23 +558,25 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
     .hero-label {
       font-size: 9.5px;
       font-weight: 800;
-      color: #4338CA;
+      color: #94A3B8;
       text-transform: uppercase;
-      letter-spacing: 0.8px;
+      letter-spacing: 0.6px;
     }
     .hero-badge {
-      background: #4338CA;
-      color: #FFFFFF;
-      font-size: 10px;
+      background: rgba(255, 255, 255, 0.12);
+      color: #FFD740;
+      font-size: 9.5px;
       font-weight: 800;
-      padding: 2px 8px;
-      border-radius: 10px;
+      padding: 2px 9px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 215, 64, 0.3);
     }
     .hero-amount {
       font-size: 26px;
       font-weight: 900;
-      color: #1E1B4B;
-      margin-top: 3px;
+      color: #FFFFFF;
+      margin-top: 2px;
+      letter-spacing: -0.5px;
     }
     .grid-3 {
       display: grid;
@@ -542,71 +585,63 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
       margin-top: 10px;
     }
     .stat-pill {
-      background: #FFFFFF;
-      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 10px;
       padding: 8px 10px;
-      border: 1px solid #E2E8F0;
+      border: 1px solid rgba(255, 255, 255, 0.1);
     }
     .stat-label {
-      font-size: 9px;
-      font-weight: 700;
-      color: #64748B;
+      font-size: 8.5px;
+      font-weight: 800;
+      color: #94A3B8;
       text-transform: uppercase;
+      letter-spacing: 0.4px;
     }
     .stat-value {
-      font-size: 15px;
-      font-weight: 800;
-      color: #0F172A;
+      font-size: 14.5px;
+      font-weight: 900;
+      color: #FFFFFF;
       margin-top: 2px;
     }
-    .val-income { color: #16A34A; }
-    .val-expense { color: #DC2626; }
+    .val-income { color: #34D399; }
+    .val-expense { color: #F87171; }
 
     /* SECTION CARD */
     .section-box {
       border: 1px solid #E2E8F0;
-      border-radius: 10px;
-      padding: 12px 14px;
-      margin-bottom: 11px;
+      border-radius: 14px;
+      padding: 11px 14px;
+      margin-bottom: 10px;
       background: #FFFFFF;
       page-break-inside: avoid;
       break-inside: avoid;
     }
     .section-title {
-      font-size: 13px;
+      font-size: 12.5px;
       font-weight: 800;
       color: #0F172A;
       margin-bottom: 2px;
+      letter-spacing: -0.2px;
     }
     .section-desc {
-      font-size: 10px;
+      font-size: 9.5px;
       color: #64748B;
-      margin-bottom: 8px;
-    }
-
-    /* VELOCITY / PACE */
-    .velocity-grid {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 10px;
-      background: #F8FAFC;
-      border-radius: 8px;
-      padding: 9px 12px;
+      margin-bottom: 6px;
     }
 
     /* 50 / 30 / 20 PROGRESS */
     .bar-track {
       display: flex;
-      height: 10px;
-      border-radius: 5px;
+      height: 8px;
+      border-radius: 4px;
       overflow: hidden;
       background: #F1F5F9;
-      margin: 8px 0;
+      margin: 6px 0;
       gap: 2px;
     }
     .bar-segment {
       height: 100%;
-      border-radius: 3px;
+      border-radius: 2px;
     }
     .rule-cols {
       display: grid;
@@ -615,8 +650,8 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
     }
     .rule-col {
       background: #F8FAFC;
-      border-radius: 6px;
-      padding: 7px 9px;
+      border-radius: 10px;
+      padding: 7px 10px;
       border-left: 3px solid #CBD5E1;
     }
 
@@ -624,17 +659,18 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
     table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 10.5px;
+      font-size: 10px;
     }
     th {
       background: #F8FAFC;
       text-align: left;
-      padding: 7px 8px;
-      font-size: 9.5px;
+      padding: 6px 8px;
+      font-size: 8.5px;
       font-weight: 800;
       color: #475569;
       text-transform: uppercase;
       border-bottom: 1.5px solid #E2E8F0;
+      letter-spacing: 0.3px;
     }
     td {
       padding: 6px 8px;
@@ -648,8 +684,8 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
     .badge {
       display: inline-block;
       padding: 2px 6px;
-      border-radius: 4px;
-      font-size: 9px;
+      border-radius: 6px;
+      font-size: 8.5px;
       font-weight: 700;
     }
     .badge-expense { background: #FEE2E2; color: #DC2626; }
@@ -661,7 +697,7 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
       padding-top: 6px;
       display: flex;
       justify-content: space-between;
-      font-size: 9px;
+      font-size: 8.5px;
       color: #94A3B8;
       margin-top: auto;
     }
@@ -675,25 +711,27 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
       <div class="header-bar">
         <div>
           <div class="brand-title">
+            <span class="brand-icon">₹</span>
             Rupeo <span class="brand-badge">Financial Intelligence</span>
           </div>
-          <div class="report-subtitle">Official Statement & Cash Flow Overview</div>
-          <div style="font-size: 10px; color: #475569; margin-top: 3px;">
-            Account: <strong>${userName}</strong> ${userEmail ? `(${userEmail})` : ''}
+          <div class="report-subtitle">Executive Statement & Cash Flow Overview</div>
+          <div style="font-size: 9.5px; color: #475569; margin-top: 2px;">
+            Account: <strong>${userName}</strong> ${userEmail ? `(${userEmail})` : ''} • Ref: ${reportRef}
           </div>
         </div>
         <div class="meta-box">
           <div class="meta-period">${periodTitle}</div>
           <div>Date: ${generatedDate} ${generatedTime}</div>
-          <div style="color: #0F172A; font-weight: 700; margin-top: 1px;">PAGE 1 OF 3 • CERTIFIED</div>
+          <div style="color: #0F172A; font-weight: 800; margin-top: 1px;">PAGE 1 OF 3 • CERTIFIED AUDIT</div>
           <div style="font-size: 8px; font-weight: 800; color: #2563EB; margin-top: 2px;">VERIFY: rupeoo.vercel.app/scanner</div>
         </div>
       </div>
 
       <!-- HERO NET SAVINGS CARD -->
       <div class="hero-card">
+        <div class="hero-gold-line"></div>
         <div class="hero-row">
-          <span class="hero-label">✦ Net Savings for Period</span>
+          <span class="hero-label">✦ Net Surplus / Savings for Period</span>
           <span class="hero-badge">${metrics.savingsRate}% Saved</span>
         </div>
         <div class="hero-amount">
@@ -701,11 +739,11 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
         </div>
         <div class="grid-3">
           <div class="stat-pill">
-            <div class="stat-label">Total Income</div>
+            <div class="stat-label">Total Inflow</div>
             <div class="stat-value val-income">+${curr}${metrics.income.toLocaleString('en-IN')}</div>
           </div>
           <div class="stat-pill">
-            <div class="stat-label">Total Expense</div>
+            <div class="stat-label">Total Outflow</div>
             <div class="stat-value val-expense">-${curr}${metrics.expense.toLocaleString('en-IN')}</div>
           </div>
           <div class="stat-pill">
@@ -720,9 +758,9 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
           <div>
             <div class="section-title">Cash Flow Trends • Income vs Expense Comparison</div>
-            <div class="section-desc" style="margin-bottom: 0;">Comparative trajectory of inflows versus outflows</div>
+            <div class="section-desc" style="margin-bottom: 0;">Comparative trajectory of inflows versus outflows across periods</div>
           </div>
-          <div style="display: flex; align-items: center; gap: 10px; font-size: 10px; font-weight: 800;">
+          <div style="display: flex; align-items: center; gap: 10px; font-size: 9.5px; font-weight: 800;">
             <div style="display: flex; align-items: center; gap: 4px;">
               <span style="display: inline-block; width: 8px; height: 8px; border-radius: 4px; background: #10B981;"></span>
               <span style="color: #10B981;">Income</span>
@@ -741,13 +779,13 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
         <!-- SPENDING VELOCITY & PACE -->
         <div class="section-box" style="margin-bottom: 0;">
           <div class="section-title">Spending Velocity & Pace</div>
-          <div class="section-desc" style="margin-bottom: 6px;">Comparison against prior run-rate</div>
-          <div style="background: #F8FAFC; border-radius: 8px; padding: 8px 10px;">
+          <div class="section-desc" style="margin-bottom: 6px;">Run-rate and projection benchmark</div>
+          <div style="background: #F8FAFC; border-radius: 10px; padding: 8px 10px;">
             <div class="stat-label">Projected Month-End Spend</div>
             <div style="font-size: 15px; font-weight: 900; color: #0F172A; margin-top: 2px;">
               ${curr}${prevPeriodMetrics.projectedSpend.toLocaleString('en-IN')}
             </div>
-            <div style="font-size: 9px; color: #64748B; margin-top: 1px;">
+            <div style="font-size: 8.5px; color: #64748B; margin-top: 1px;">
               At ${curr}${metrics.dailyAvg.toLocaleString('en-IN')}/day current pace
             </div>
 
@@ -757,9 +795,11 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
                 ${curr}${prevPeriodMetrics.prevExpense.toLocaleString('en-IN')}
               </div>
               <div style="font-size: 9px; color: ${prevPeriodMetrics.isHigher ? '#DC2626' : '#16A34A'}; font-weight: 700; margin-top: 1px;">
-                ${prevPeriodMetrics.hasPrevData
-                  ? `${prevPeriodMetrics.diffPct}% ${prevPeriodMetrics.isHigher ? 'more' : 'less'} spending`
-                  : 'Initial recorded period'}
+                ${
+                  prevPeriodMetrics.hasPrevData
+                    ? `${prevPeriodMetrics.diffPct}% ${prevPeriodMetrics.isHigher ? 'higher' : 'lower'} spending`
+                    : 'Initial recorded period'
+                }
               </div>
             </div>
           </div>
@@ -768,8 +808,8 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
         <!-- FINANCIAL VITALITY & AI INSIGHTS -->
         <div class="section-box" style="border-left: 4px solid ${financialHealth.color}; margin-bottom: 0;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-            <div class="section-title" style="margin-bottom: 0;">Financial Vitality Rating</div>
-            <span style="background: ${financialHealth.color}15; color: ${financialHealth.color}; font-weight: 800; padding: 2px 8px; border-radius: 8px; font-size: 10px;">
+            <div class="section-title" style="margin-bottom: 0;">Financial Health Score</div>
+            <span style="background: ${financialHealth.color}15; color: ${financialHealth.color}; font-weight: 800; padding: 2px 8px; border-radius: 8px; font-size: 9.5px;">
               ${financialHealth.score}/100 • ${financialHealth.rating}
             </span>
           </div>
@@ -778,7 +818,7 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
               .slice(0, 3)
               .map(
                 ins => `
-              <div style="display: flex; align-items: flex-start; gap: 5px; margin-bottom: 5px; font-size: 10px; color: #334155;">
+              <div style="display: flex; align-items: flex-start; gap: 5px; margin-bottom: 5px; font-size: 9.5px; color: #334155;">
                 <span style="color: ${financialHealth.color}; font-size: 11px;">✔</span>
                 <span>${ins}</span>
               </div>`
@@ -790,8 +830,8 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
     </div>
 
     <div class="page-footer">
-      <span>Rupeo Financial Reports • Page 1 of 3</span>
-      <span>Automated Wealth Intelligence • Verify at https://rupeoo.vercel.app/scanner</span>
+      <span>Rupeo Financial Intelligence • Page 1 of 3</span>
+      <span>Automated Wealth Analytics • Verify at https://rupeoo.vercel.app/scanner</span>
     </div>
   </div>
 
@@ -800,12 +840,15 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
     <div>
       <div class="header-bar">
         <div>
-          <div class="brand-title">Rupeo <span class="brand-badge">Spending Dynamics</span></div>
-          <div class="report-subtitle">Spending Wave Trajectory & Categorical Expense Breakdown</div>
+          <div class="brand-title">
+            <span class="brand-icon">₹</span>
+            Rupeo <span class="brand-badge">Spending Dynamics</span>
+          </div>
+          <div class="report-subtitle">Daily Outflow Trajectory & Category Distribution</div>
         </div>
         <div class="meta-box">
           <div class="meta-period">${periodTitle}</div>
-          <div style="color: #0F172A; font-weight: 700;">PAGE 2 OF 3</div>
+          <div style="color: #0F172A; font-weight: 800;">PAGE 2 OF 3</div>
         </div>
       </div>
 
@@ -813,12 +856,12 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
       <div class="section-box" style="margin-bottom: 10px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
           <div>
-            <div class="section-title">Spending Wave • Daily Outflow & Daily Average</div>
-            <div class="section-desc" style="margin-bottom: 0;">Daily cadence of expenditures compared against your daily average run-rate</div>
+            <div class="section-title">Spending Wave • Daily Outflow Cadence</div>
+            <div class="section-desc" style="margin-bottom: 0;">Daily expenditure trajectory benchmarked against your daily run-rate</div>
           </div>
           <div style="display: flex; align-items: center; gap: 8px;">
-            <span style="display: inline-flex; align-items: center; gap: 3px; font-size: 8px; font-weight: 700; color: #D97706; background: #FFFBEB; padding: 2px 6px; border-radius: 4px; border: 1px solid #FDE68A;">
-              <span style="width: 7px; height: 3px; background: #F59E0B; border-radius: 1px;"></span> Daily Spend
+            <span style="display: inline-flex; align-items: center; gap: 3px; font-size: 8px; font-weight: 700; color: #1D4ED8; background: #EFF6FF; padding: 2px 6px; border-radius: 4px; border: 1px solid #BFDBFE;">
+              <span style="width: 7px; height: 3px; background: #2563EB; border-radius: 1px;"></span> Daily Spend
             </span>
             <span style="display: inline-flex; align-items: center; gap: 3px; font-size: 8px; font-weight: 800; color: #4338CA; background: #EEF2FF; padding: 2px 6px; border-radius: 4px; border: 1px solid #C7D2FE;">
               <span style="width: 8px; height: 0; border-top: 1.5px dashed #6366F1;"></span> Daily Avg (${curr}${metrics.dailyAvg.toLocaleString('en-IN')})
@@ -832,12 +875,12 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
       <div class="section-box" style="margin-bottom: 10px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
           <div>
-            <div class="section-title">Expense Breakdown</div>
-            <div class="section-desc" style="margin-bottom: 0;">Tap on any slice to inspect category share • Categorical Distribution</div>
+            <div class="section-title">Expense Breakdown by Category</div>
+            <div class="section-desc" style="margin-bottom: 0;">Detailed distribution across major spending buckets</div>
           </div>
           <div>
-            <span style="background: #EEF2FF; border: 1px solid #C7D2FE; color: #4338CA; font-size: 9px; font-weight: 800; padding: 2px 7px; border-radius: 6px;">
-              ✦ Category Share
+            <span style="background: #EEF2FF; border: 1px solid #C7D2FE; color: #4338CA; font-size: 8.5px; font-weight: 800; padding: 2px 7px; border-radius: 6px;">
+              ✦ Category Insights
             </span>
           </div>
         </div>
@@ -851,7 +894,7 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
             <div class="section-title">50 / 30 / 20 Budget Rule Compliance</div>
             <div class="section-desc">Needs (Target 50%) • Wants (Target 30%) • Savings (Target 20%)</div>
           </div>
-          <span style="font-size: 10px; font-weight: 800; background: #F1F5F9; padding: 2px 7px; border-radius: 6px;">
+          <span style="font-size: 9.5px; font-weight: 800; background: #F1F5F9; padding: 2px 8px; border-radius: 6px;">
             ${rule503020.needsPct <= 55 && rule503020.savingsPct >= 15 ? 'Balanced 🎯' : 'Review Recommended ⚠️'}
           </span>
         </div>
@@ -864,49 +907,52 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
 
         <div class="rule-cols">
           <div class="rule-col" style="border-left-color: #3B82F6;">
-            <div class="stat-label" style="color: #2563EB;">Needs (50% Goal)</div>
+            <div class="stat-label" style="color: #2563EB;">Needs (50% Target)</div>
             <div style="font-size: 13.5px; font-weight: 800; color: #0F172A; margin-top: 2px;">
               ${curr}${rule503020.needsAmt.toLocaleString('en-IN')}
             </div>
-            <div style="font-size: 9.5px; color: #64748B;">${rule503020.needsPct}% of budget</div>
+            <div style="font-size: 9px; color: #64748B;">${rule503020.needsPct}% of budget</div>
           </div>
 
           <div class="rule-col" style="border-left-color: #F59E0B;">
-            <div class="stat-label" style="color: #D97706;">Wants (30% Goal)</div>
+            <div class="stat-label" style="color: #D97706;">Wants (30% Target)</div>
             <div style="font-size: 13.5px; font-weight: 800; color: #0F172A; margin-top: 2px;">
               ${curr}${rule503020.wantsAmt.toLocaleString('en-IN')}
             </div>
-            <div style="font-size: 9.5px; color: #64748B;">${rule503020.wantsPct}% of budget</div>
+            <div style="font-size: 9px; color: #64748B;">${rule503020.wantsPct}% of budget</div>
           </div>
 
           <div class="rule-col" style="border-left-color: #10B981;">
-            <div class="stat-label" style="color: #059669;">Savings (20% Goal)</div>
+            <div class="stat-label" style="color: #059669;">Savings (20% Target)</div>
             <div style="font-size: 13.5px; font-weight: 800; color: #0F172A; margin-top: 2px;">
               ${curr}${rule503020.savingsAmt.toLocaleString('en-IN')}
             </div>
-            <div style="font-size: 9.5px; color: #64748B;">${rule503020.savingsPct}% saved rate</div>
+            <div style="font-size: 9px; color: #64748B;">${rule503020.savingsPct}% saved rate</div>
           </div>
         </div>
       </div>
     </div>
 
     <div class="page-footer">
-      <span>Rupeo Financial Reports • Page 2 of 3</span>
-      <span>Automated Wealth Intelligence • Verify at https://rupeoo.vercel.app/scanner</span>
+      <span>Rupeo Financial Intelligence • Page 2 of 3</span>
+      <span>Budget Compliance & Wave Trajectory • Verify at https://rupeoo.vercel.app/scanner</span>
     </div>
   </div>
 
   <!-- ==================== PAGE 3: BEHAVIORAL AUDIT & CERTIFIED LEDGER ==================== -->
-  <div class="page">
+  <div class="page page-ledger">
     <div>
       <div class="header-bar">
         <div>
-          <div class="brand-title">Rupeo <span class="brand-badge">Financial Ledger</span></div>
+          <div class="brand-title">
+            <span class="brand-icon">₹</span>
+            Rupeo <span class="brand-badge">Financial Ledger</span>
+          </div>
           <div class="report-subtitle">Behavioral Rhythms & Itemized Audit Trail</div>
         </div>
         <div class="meta-box">
           <div class="meta-period">${periodTitle}</div>
-          <div style="color: #0F172A; font-weight: 700;">PAGE 3 OF 3</div>
+          <div style="color: #0F172A; font-weight: 800;">LEDGER & AUDIT TRAIL</div>
         </div>
       </div>
 
@@ -914,7 +960,7 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
         <div class="section-box" style="margin-bottom: 0;">
           <div class="section-title">Weekend vs Weekday Flow</div>
-          <div class="section-desc">Spending cadence through the week</div>
+          <div class="section-desc">Spending cadence across workdays and weekends</div>
           <div style="margin-top: 4px;">
             <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
               <span style="font-weight: 700; color: #1E293B;">Weekdays (Mon-Fri)</span>
@@ -924,7 +970,7 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
               <span style="font-weight: 700; color: #1E293B;">Weekends (Sat-Sun)</span>
               <span style="font-weight: 800; color: #D97706;">${curr}${weekendVsWeekday.weekendTotal.toLocaleString('en-IN')} (${weekendVsWeekday.weekendPct}%)</span>
             </div>
-            <div style="font-size: 9px; color: #64748B; background: #F8FAFC; padding: 4px 6px; border-radius: 6px;">
+            <div style="font-size: 8.5px; color: #64748B; background: #F8FAFC; padding: 4px 6px; border-radius: 6px;">
               ${weekendVsWeekday.weekendPct >= 50 ? 'Weekend Intensive: Majority of spending occurs on weekends.' : 'Weekday Intensive: Workday expenses drive your financial outflow.'}
             </div>
           </div>
@@ -932,15 +978,15 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
 
         <div class="section-box" style="margin-bottom: 0;">
           <div class="section-title">Payment Methods</div>
-          <div class="section-desc">Distribution of payment modes used</div>
+          <div class="section-desc">Distribution of transaction rails</div>
           <div style="margin-top: 4px;">
             ${paymentModesSplit
               .slice(0, 4)
               .map(
                 pm => `
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; font-size: 10px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; font-size: 9.5px;">
                 <span style="font-weight: 700; color: #334155;">${pm.mode}</span>
-                <span style="font-weight: 800; color: #0F172A;">${curr}${pm.amount.toLocaleString('en-IN')} <span style="color: #64748B; font-size: 9px;">(${pm.percentage}%)</span></span>
+                <span style="font-weight: 800; color: #0F172A;">${curr}${pm.amount.toLocaleString('en-IN')} <span style="color: #64748B; font-size: 8.5px;">(${pm.percentage}%)</span></span>
               </div>`
               )
               .join('')}
@@ -954,17 +1000,17 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
           ? `
       <div class="section-box" style="margin-bottom: 10px;">
         <div class="section-title">Day-of-Week Spending Rhythm</div>
-        <div class="section-desc">Concentration of spending across each day of the week</div>
-        <div style="display: flex; align-items: flex-end; justify-content: space-between; height: 46px; padding: 0 10px; margin-top: 2px;">
+        <div class="section-desc">Concentration of outflow across each day of the week</div>
+        <div style="display: flex; align-items: flex-end; justify-content: space-between; height: 44px; padding: 0 10px; margin-top: 2px;">
           ${dayOfWeekSpend
             .map(
               d => `
             <div style="display: flex; flex-direction: column; align-items: center; flex: 1;">
-              <div style="font-size: 8px; color: #64748B; margin-bottom: 1px;">${d.amount > 0 ? curr + d.amount : ''}</div>
-              <div style="width: 22px; height: 26px; background: #F1F5F9; border-radius: 4px; display: flex; align-items: flex-end; overflow: hidden;">
+              <div style="font-size: 7.5px; color: #64748B; margin-bottom: 1px;">${d.amount > 0 ? curr + d.amount : ''}</div>
+              <div style="width: 22px; height: 24px; background: #F1F5F9; border-radius: 4px; display: flex; align-items: flex-end; overflow: hidden;">
                 <div style="width: 100%; height: ${Math.max(d.percentOfMax, 8)}%; background: ${d.percentOfMax >= 80 ? '#F59E0B' : '#0F172A'}; border-radius: 4px;"></div>
               </div>
-              <div style="font-size: 9px; font-weight: 700; color: #475569; margin-top: 2px;">${d.day}</div>
+              <div style="font-size: 8.5px; font-weight: 700; color: #475569; margin-top: 2px;">${d.day}</div>
             </div>`
             )
             .join('')}
@@ -976,7 +1022,7 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
       <!-- TOP LARGEST EXPENSES -->
       <div class="section-box" style="margin-bottom: 10px;">
         <div class="section-title">Top Largest Expenses</div>
-        <div class="section-desc">Significant individual outflows during this period</div>
+        <div class="section-desc">Highest individual outflows during this period</div>
         <table>
           <thead>
             <tr>
@@ -1007,7 +1053,7 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
 
       <!-- ITEMIZED TRANSACTIONS LOG -->
       <div class="section-box" style="padding: 10px; margin-bottom: 0;">
-        <div class="section-title" style="padding: 2px 4px;">Itemized Transactions Log (${transactions.length} Total)</div>
+        <div class="section-title" style="padding: 2px 4px;">Itemized Audit Trail (${transactions.length} Total)</div>
         <table>
           <thead>
             <tr>
@@ -1021,7 +1067,6 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
           </thead>
           <tbody>
             ${transactions
-              .slice(0, 10)
               .map(
                 tx => `
               <tr>
@@ -1031,26 +1076,25 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
                 <td style="color: #64748B;">${tx.payment_mode || 'UPI'}</td>
                 <td><span class="badge ${tx.type === 'income' ? 'badge-income' : 'badge-expense'}">${tx.type}</span></td>
                 <td class="text-right" style="font-weight: 800; color: ${tx.type === 'income' ? '#16A34A' : '#DC2626'};">
-                  ${tx.type === 'income' ? '+' : '-'}${curr}${Math.abs(tx.amount).toLocaleString('en-IN')}
+                  ${tx.type === 'income' ? '+' : '-'}${curr}${formatAmountNumber(Math.abs(tx.amount))}
                 </td>
               </tr>`
               )
               .join('')}
           </tbody>
         </table>
-        ${transactions.length > 10 ? `<div style="text-align: center; color: #64748B; font-size: 9px; margin-top: 4px;">(Showing 10 itemized transactions. For full raw audit list, export CSV).</div>` : ''}
       </div>
     </div>
 
     <div class="page-footer">
-      <span>Rupeo Financial Reports • Page 3 of 3</span>
+      <span>Rupeo Financial Reports • Official Ledger & Audit Trail</span>
       <span>Certified Official Ledger • Verify at https://rupeoo.vercel.app/scanner</span>
     </div>
   </div>
 
 </body>
 </html>
-`;
+  `;
 
   const defaultPdfTitle = `Rupeo Report ${periodTitle}`;
   const cleanFilename = `Rupeo_Report_${periodTitle.replace(/[^a-zA-Z0-9_-]/g, '_')}_${Date.now().toString().slice(-6)}.pdf`;
@@ -1059,7 +1103,7 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
   if (Platform.OS === 'web') {
     if (typeof document !== 'undefined' && typeof window !== 'undefined') {
       const originalTitle = document.title;
-      document.title = defaultPdfTitle; // Browser default "Save as PDF" filename!
+      document.title = defaultPdfTitle;
 
       const iframe = document.createElement('iframe');
       iframe.style.position = 'fixed';
@@ -1081,7 +1125,7 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
           iframe.contentWindow?.focus();
           iframe.contentWindow?.print();
           setTimeout(() => {
-            document.title = originalTitle; // Restore original window title
+            document.title = originalTitle;
             if (document.body.contains(iframe)) {
               document.body.removeChild(iframe);
             }
@@ -1116,7 +1160,7 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
         shareUri = targetUri;
       }
     } catch (err) {
-      console.warn('Could not rename PDF file, using default URI', err);
+      warn('Could not rename PDF file, using default URI', err);
     }
 
     if (await Sharing.isAvailableAsync()) {

@@ -22,6 +22,7 @@ import {
   getCategoryBudgets,
   saveCategoryBudget,
   saveUserSettings,
+  UserSettings,
   CategoryItem,
 } from '@/lib/database';
 import { safeGoBack } from '@/lib/navigation';
@@ -30,6 +31,7 @@ import { getLocalMonthString } from '@/lib/dateUtils';
 import Toast from 'react-native-toast-message';
 import Skeleton from '@/components/Skeleton';
 import BudgetArcGauge from '@/components/BudgetArcGauge';
+import { error } from '@/lib/logger';
 
 export default function BudgetScreen() {
   const router = useRouter();
@@ -76,7 +78,7 @@ export default function BudgetScreen() {
       setCategoryTotals(totalsMap);
       setTotalSpent(total);
     } catch (err) {
-      console.error('Error fetching budget data:', err);
+      error('Error fetching budget data:', err);
     } finally {
       setLoading(false);
     }
@@ -101,7 +103,7 @@ export default function BudgetScreen() {
     if (!user) return;
     setSavingOverall(true);
     try {
-      const updated = { ...settings, monthlyBudget: val } as any;
+      const updated: UserSettings = { ...(settings || { language: 'English', currency: '₹' }), monthlyBudget: val };
       await saveUserSettings(user.uid, updated);
       await refreshSettings();
       setShowOverallModal(false);
@@ -113,7 +115,7 @@ export default function BudgetScreen() {
         }).catch(() => { });
       }
     } catch (err) {
-      console.error(err);
+      error(err);
       Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to save monthly budget.' });
     } finally {
       setSavingOverall(false);
@@ -147,7 +149,7 @@ export default function BudgetScreen() {
         }).catch(() => { });
       }
     } catch (err) {
-      console.error(err);
+      error(err);
       Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to save category budget.' });
     } finally {
       setSavingCategory(false);

@@ -31,6 +31,7 @@ import { safeGoBack } from '@/lib/navigation';
 import { useTranslation } from '@/lib/i18n';
 import { ConfirmDialogModal } from '@/components/confirm-dialog-modal';
 import Skeleton from '@/components/Skeleton';
+import { warn, error as logError } from '@/lib/logger';
 
 type FilterTab = 'all' | 'unread' | 'budget' | 'tip';
 
@@ -54,7 +55,7 @@ export default function NotificationsScreen() {
       const list = await getUserNotifications(user.uid);
       setNotifications(list);
     } catch (err) {
-      console.error('Error fetching notifications:', err);
+      logError('Error fetching notifications:', err);
       setError('Unable to load notifications. Check your connection and try again.');
     } finally {
       setLoading(false);
@@ -86,7 +87,7 @@ export default function NotificationsScreen() {
         await markNotificationsAsRead(user.uid);
         setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
       } catch (err) {
-        console.warn('Error auto-marking notifications as read:', err);
+        warn('Error auto-marking notifications as read:', err);
       }
     }, 800);
 
@@ -135,7 +136,7 @@ export default function NotificationsScreen() {
       await markNotificationsAsRead(user.uid);
       setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
     } catch (err) {
-      console.error('Error marking all as read:', err);
+      logError('Error marking all as read:', err);
     }
   };
 
@@ -148,7 +149,7 @@ export default function NotificationsScreen() {
           prev.map(n => (n.id === item.id ? { ...n, isRead: true } : n))
         );
       } catch (err) {
-        console.error(err);
+        logError(err);
       }
     }
 
@@ -163,7 +164,7 @@ export default function NotificationsScreen() {
       await deleteNotification(user.uid, notificationId);
       setNotifications(prev => prev.filter(n => n.id !== notificationId));
     } catch (err) {
-      console.error('Error deleting notification:', err);
+      logError('Error deleting notification:', err);
     }
   };
 
@@ -173,7 +174,7 @@ export default function NotificationsScreen() {
       await deleteAllNotifications(user.uid);
       setNotifications([]);
     } catch (err) {
-      console.error('Error clearing notifications:', err);
+      logError('Error clearing notifications:', err);
     }
   };
 

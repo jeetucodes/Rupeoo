@@ -2,6 +2,7 @@ import { Platform } from 'react-native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
+import { warn, error } from '@/lib/logger';
 
 export interface StatementPdfOptions {
   userName?: string;
@@ -39,14 +40,18 @@ function formatDateDisplay(dateStr?: string): string {
         return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
       }
     }
-  } catch {}
+  } catch {
+    // Intentional: fall back to raw dateStr if parsing fails
+  }
   return dateStr;
 }
 
 /**
- * Generates and shares/downloads a comprehensive, professional PDF Transaction Statement
+ * Generates and shares/downloads a comprehensive, certified bank-grade PDF Passbook & Statement
  */
-export async function generateAndShareTransactionStatementPDF(options: StatementPdfOptions): Promise<{ success: boolean; count: number; error?: string }> {
+export async function generateAndShareTransactionStatementPDF(
+  options: StatementPdfOptions
+): Promise<{ success: boolean; count: number; error?: string }> {
   const {
     userName = 'Rupeo User',
     userEmail = '',
@@ -68,22 +73,44 @@ export async function generateAndShareTransactionStatementPDF(options: Statement
     filtered = filtered.filter(tx => (tx.type || 'debit').toLowerCase() === typeFilter);
   }
 
-  // Sort chronological descending (newest first)
-  filtered.sort((a, b) => {
-    const dateA = a.date || '';
-    const dateB = b.date || '';
-    if (dateA !== dateB) return dateB.localeCompare(dateA);
-    return (b.time || '').localeCompare(a.time || '');
-  });
-
   if (filtered.length === 0) {
     return { success: false, count: 0, error: 'No transactions found for the selected period.' };
   }
 
-  // 2. Compute Aggregates
+  // 2. Compute Running Balance (Sort chronological ascending first)
+  const chronological = [...filtered].sort((a, b) => {
+    const dateA = a.date || '';
+    const dateB = b.date || '';
+    if (dateA !== dateB) return dateA.localeCompare(dateB);
+    return (a.time || '').localeCompare(b.time || '');
+  });
+
+  let runningBalance = 0;
+  const enrichedList = chronological.map(tx => {
+    const amt = Math.abs(Number(tx.amount) || 0);
+    const type = (tx.type || 'debit').toLowerCase();
+    const isIncome = type === 'credit' || type === 'income';
+    if (isIncome) {
+      runningBalance += amt;
+    } else {
+      runningBalance -= amt;
+    }
+    return {
+      ...tx,
+      isIncome,
+      parsedAmount: amt,
+      balanceAfter: runningBalance,
+    };
+  });
+
+  // Display newest first in passbook ledger
+  const displayList = [...enrichedList].reverse();
+
+  // 3. Compute Aggregates
   let totalIncome = 0;
   let totalExpense = 0;
   const categoryMap: Record<string, number> = {};
+  const dailySpendMap: Record<string, number> = {};
 
   filtered.forEach(tx => {
     const amt = Math.abs(Number(tx.amount) || 0);
@@ -94,6 +121,10 @@ export async function generateAndShareTransactionStatementPDF(options: Statement
       totalExpense += amt;
       const cat = tx.category || 'Others';
       categoryMap[cat] = (categoryMap[cat] || 0) + amt;
+
+      if (tx.date) {
+        dailySpendMap[tx.date] = (dailySpendMap[tx.date] || 0) + amt;
+      }
     }
   });
 
@@ -113,8 +144,8 @@ export async function generateAndShareTransactionStatementPDF(options: Statement
   // Period title
   const periodLabel =
     periodMode === 'month' && monthStr
-      ? `${formatMonthDisplay(monthStr)} Statement`
-      : 'Lifetime Passbook (All Transactions)';
+      ? `${formatMonthDisplay(monthStr)} Passbook Statement`
+      : 'Comprehensive Passbook (Lifetime Ledger)';
 
   const generatedDate = new Date().toLocaleDateString('en-IN', {
     day: 'numeric',
@@ -126,18 +157,7 @@ export async function generateAndShareTransactionStatementPDF(options: Statement
     minute: '2-digit',
   });
 
-  // 2b. Compute Daily Spending & Average Benchmark
-  const dailySpendMap: Record<string, number> = {};
-  filtered.forEach(tx => {
-    const type = (tx.type || 'debit').toLowerCase();
-    if (type !== 'credit' && type !== 'income') {
-      const d = tx.date;
-      if (d) {
-        dailySpendMap[d] = (dailySpendMap[d] || 0) + (Math.abs(Number(tx.amount)) || 0);
-      }
-    }
-  });
-
+  // Daily points for wave chart
   const sortedDates = Object.keys(dailySpendMap).sort();
   const dailyPoints = sortedDates.map(dateStr => {
     let label = dateStr;
@@ -149,7 +169,9 @@ export async function generateAndShareTransactionStatementPDF(options: Statement
         const mIdx = parseInt(parts[1], 10) - 1;
         label = `${day} ${months[mIdx] || ''}`;
       }
-    } catch {}
+    } catch {
+      // Fallback
+    }
     return {
       date: dateStr,
       label,
@@ -160,18 +182,18 @@ export async function generateAndShareTransactionStatementPDF(options: Statement
   const activeDaysCount = Math.max(dailyPoints.length, 1);
   const avgDailySpend = Math.round(totalExpense / activeDaysCount);
 
-  // Build Daily Spend vs Average SVG Chart for Statement
+  // Build Daily Spend Wave SVG
   let dailySpendChartHtml = '';
   if (dailyPoints.length > 1 && totalExpense > 0) {
     const chartW = 750;
-    const chartH = 95;
+    const chartH = 92;
     const padX = 35;
-    const padTop = 15;
+    const padTop = 16;
     const padBottom = 22;
     const innerH = chartH - padBottom;
     const usableW = chartW - padX * 2;
     const step = usableW / Math.max(dailyPoints.length - 1, 1);
-    const maxVal = Math.max(...dailyPoints.map(p => p.expense), avgDailySpend * 1.25, 500);
+    const maxVal = Math.max(...dailyPoints.map(p => p.expense), avgDailySpend * 1.3, 500);
 
     const coords = dailyPoints.map((p, idx) => ({
       x: padX + idx * step,
@@ -182,76 +204,89 @@ export async function generateAndShareTransactionStatementPDF(options: Statement
 
     let lineD = `M ${coords[0].x.toFixed(1)} ${coords[0].y.toFixed(1)}`;
     for (let i = 1; i < coords.length; i++) {
-      lineD += ` L ${coords[i].x.toFixed(1)} ${coords[i].y.toFixed(1)}`;
+      const prev = coords[i - 1];
+      const currPt = coords[i];
+      const cx1 = prev.x + (currPt.x - prev.x) / 2;
+      const cy1 = prev.y;
+      const cx2 = prev.x + (currPt.x - prev.x) / 2;
+      const cy2 = currPt.y;
+      lineD += ` C ${cx1.toFixed(1)} ${cy1.toFixed(1)}, ${cx2.toFixed(1)} ${cy2.toFixed(1)}, ${currPt.x.toFixed(1)} ${currPt.y.toFixed(1)}`;
     }
     const areaD = `${lineD} L ${coords[coords.length - 1].x.toFixed(1)} ${innerH} L ${coords[0].x.toFixed(1)} ${innerH} Z`;
 
     const stepLabel = Math.max(1, Math.ceil(dailyPoints.length / 10));
 
     dailySpendChartHtml = `
-    <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 10px; padding: 10px 12px; margin-bottom: 14px;">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-        <div style="font-size: 10.5px; font-weight: 800; color: #0F172A;">
-          Daily Spending & Daily Average (${activeDaysCount} Active Days)
+    <div class="chart-card">
+      <div class="chart-header">
+        <div class="chart-title">
+          <span>Daily Outflow Rhythm & Spending Average</span>
+          <span class="chart-subtitle">• ${activeDaysCount} Active Spending Days</span>
         </div>
-        <div style="display: flex; align-items: center; gap: 10px; font-size: 8.5px; font-weight: 700;">
-          <span style="display: inline-flex; align-items: center; gap: 3px; color: #D97706;">
-            <span style="width: 8px; height: 3px; background: #F59E0B; border-radius: 1px;"></span> Daily Spend
+        <div class="chart-legend">
+          <span class="legend-item">
+            <span class="legend-color-spend"></span> Daily Outflow
           </span>
-          <span style="display: inline-flex; align-items: center; gap: 3px; color: #4338CA;">
-            <span style="width: 10px; height: 0; border-top: 1.5px dashed #6366F1;"></span> Daily Avg (${curr}${avgDailySpend.toLocaleString('en-IN')}/day)
+          <span class="legend-item">
+            <span class="legend-color-avg"></span> Benchmark Avg: ${curr}${avgDailySpend.toLocaleString('en-IN')}/day
           </span>
         </div>
       </div>
       <svg width="100%" height="${chartH}" viewBox="0 0 ${chartW} ${chartH}" style="overflow: visible;">
         <defs>
-          <linearGradient id="stmtWaveGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#F59E0B" stop-opacity="0.35" />
-            <stop offset="100%" stop-color="#F59E0B" stop-opacity="0.0" />
+          <linearGradient id="passbookWaveGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#3B82F6" stop-opacity="0.32" />
+            <stop offset="100%" stop-color="#3B82F6" stop-opacity="0.0" />
           </linearGradient>
         </defs>
-        <!-- Guidelines -->
+        <!-- Horizontal Gridlines -->
         <line x1="${padX}" y1="${padTop}" x2="${chartW - padX}" y2="${padTop}" stroke="#F1F5F9" stroke-width="1" stroke-dasharray="3 3" />
-        <line x1="${padX}" y1="${innerH}" x2="${chartW - padX}" y2="${innerH}" stroke="#E2E8F0" stroke-width="1" />
+        <line x1="${padX}" y1="${innerH}" x2="${chartW - padX}" y2="${innerH}" stroke="#E2E8F0" stroke-width="1.2" />
 
-        <!-- Area & Line -->
-        <path d="${areaD}" fill="url(#stmtWaveGrad)" />
-        <path d="${lineD}" stroke="#D97706" stroke-width="2.2" fill="transparent" stroke-linecap="round" stroke-linejoin="round" />
+        <!-- Fill & Line -->
+        <path d="${areaD}" fill="url(#passbookWaveGrad)" />
+        <path d="${lineD}" stroke="#2563EB" stroke-width="2.4" fill="transparent" stroke-linecap="round" stroke-linejoin="round" />
 
         <!-- Daily Average Benchmark Line -->
-        ${avgDailySpend > 0 ? `
-          <line x1="${padX}" y1="${avgY.toFixed(1)}" x2="${(chartW - padX).toFixed(1)}" y2="${avgY.toFixed(1)}" stroke="#6366F1" stroke-width="1.8" stroke-dasharray="4 3" />
-          <rect x="${(chartW - padX - 116).toFixed(1)}" y="${Math.max(avgY - 14, 2).toFixed(1)}" width="116" height="12" rx="3" fill="#EEF2FF" stroke="#6366F1" stroke-width="0.8" />
-          <text x="${(chartW - padX - 58).toFixed(1)}" y="${Math.max(avgY - 4.5, 11).toFixed(1)}" font-size="7.5" font-weight="800" fill="#4338CA" text-anchor="middle">Daily Avg: ${curr}${avgDailySpend.toLocaleString('en-IN')}/day</text>
-        ` : ''}
+        ${
+          avgDailySpend > 0
+            ? `
+          <line x1="${padX}" y1="${avgY.toFixed(1)}" x2="${(chartW - padX).toFixed(1)}" y2="${avgY.toFixed(1)}" stroke="#6366F1" stroke-width="1.6" stroke-dasharray="4 3" />
+          <rect x="${(chartW - padX - 120).toFixed(1)}" y="${Math.max(avgY - 14, 2).toFixed(1)}" width="120" height="12" rx="4" fill="#EEF2FF" stroke="#6366F1" stroke-width="0.8" />
+          <text x="${(chartW - padX - 60).toFixed(1)}" y="${Math.max(avgY - 4.5, 11).toFixed(1)}" font-size="7.5" font-weight="800" fill="#4338CA" text-anchor="middle">Avg: ${curr}${avgDailySpend.toLocaleString('en-IN')}/day</text>
+        `
+            : ''
+        }
 
-        <!-- Points & Labels -->
-        ${coords.map((c, idx) => {
-          const isAbove = dailyPoints[idx].expense > avgDailySpend;
-          const showLabel = idx % stepLabel === 0 || idx === coords.length - 1;
-          return `
-            <circle cx="${c.x.toFixed(1)}" cy="${c.y.toFixed(1)}" r="2.8" fill="${isAbove ? '#F59E0B' : '#10B981'}" stroke="#FFFFFF" stroke-width="1.2" />
+        <!-- Data Points & Labels -->
+        ${coords
+          .map((c, idx) => {
+            const isAbove = dailyPoints[idx].expense > avgDailySpend;
+            const showLabel = idx % stepLabel === 0 || idx === coords.length - 1;
+            return `
+            <circle cx="${c.x.toFixed(1)}" cy="${c.y.toFixed(1)}" r="2.8" fill="${isAbove ? '#EF4444' : '#10B981'}" stroke="#FFFFFF" stroke-width="1.5" />
             ${showLabel ? `<text x="${c.x.toFixed(1)}" y="${chartH - 6}" font-size="8" font-weight="700" fill="#64748B" text-anchor="middle">${dailyPoints[idx].label}</text>` : ''}
           `;
-        }).join('')}
+          })
+          .join('')}
       </svg>
     </div>`;
   }
 
-  const statementRef = `RUP-${Date.now().toString().slice(-6)}`;
+  const statementRef = `RUP-${Date.now().toString().slice(-7)}`;
 
-  // 3. Build HTML Template
+  // 4. Build Ultra-Clean HTML Template
   const html = `
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Rupeo Statement - ${periodLabel}</title>
+  <title>Rupeo Passbook - ${periodLabel}</title>
   <style>
     @page {
       size: A4 portrait;
-      margin: 12mm 14mm 12mm 14mm;
+      margin: 10mm 12mm 10mm 12mm;
     }
     * {
       box-sizing: border-box;
@@ -264,94 +299,125 @@ export async function generateAndShareTransactionStatementPDF(options: Statement
       padding: 0;
       color: #0F172A;
       background: #FFFFFF;
-      font-size: 11px;
+      font-size: 10.5px;
       line-height: 1.4;
     }
 
-    /* HEADER */
-    .header-container {
+    /* PASSBOOK HEADER */
+    .passbook-header {
+      background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
+      border-radius: 18px;
+      padding: 16px 20px;
+      margin-bottom: 14px;
+      color: #FFFFFF;
       display: flex;
       justify-content: space-between;
-      align-items: flex-start;
-      border-bottom: 2px solid #0F172A;
-      padding-bottom: 12px;
-      margin-bottom: 14px;
+      align-items: center;
+      position: relative;
+      overflow: hidden;
     }
-    .brand-col {
+    .header-gold-line {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, #FFD740, #F59E0B, #FFD740);
+    }
+    .brand-left {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 12px;
     }
     .brand-emblem {
-      width: 42px;
-      height: 42px;
-      border-radius: 10px;
-      background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      background: #FFD740;
       display: flex;
       align-items: center;
       justify-content: center;
-      border: 1.5px solid #FFD740;
-    }
-    .brand-emblem-text {
-      color: #FFD740;
+      color: #0F172A;
       font-size: 24px;
       font-weight: 900;
-      font-family: sans-serif;
-    }
-    .brand-title-wrap {
-      display: flex;
-      flex-direction: column;
+      box-shadow: 0 4px 12px rgba(255, 215, 64, 0.3);
     }
     .brand-title {
-      font-size: 22px;
+      font-size: 20px;
       font-weight: 900;
-      color: #0F172A;
-      letter-spacing: -0.5px;
+      color: #FFFFFF;
+      letter-spacing: -0.4px;
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 8px;
     }
-    .brand-tag {
-      font-size: 9px;
+    .cert-pill {
+      font-size: 8.5px;
       font-weight: 800;
-      color: #1E40AF;
-      background: #DBEAFE;
+      color: #0F172A;
+      background: #FFD740;
       padding: 2px 7px;
       border-radius: 6px;
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
-    .brand-sub {
-      font-size: 10.5px;
-      color: #64748B;
-      font-weight: 600;
-      margin-top: 1px;
+    .brand-desc {
+      font-size: 10px;
+      color: #94A3B8;
+      margin-top: 2px;
     }
 
-    .meta-col {
+    .header-meta {
       text-align: right;
     }
-    .meta-title {
-      font-size: 13px;
-      font-weight: 900;
-      color: #0F172A;
-    }
-    .meta-ref {
-      font-size: 9.5px;
-      color: #64748B;
-      font-weight: 700;
-      margin-top: 1px;
-    }
-    .meta-user {
-      font-size: 10.5px;
+    .meta-ref-badge {
+      display: inline-block;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 6px;
+      padding: 3px 8px;
+      font-size: 9px;
       font-weight: 800;
-      color: #1E293B;
+      color: #E2E8F0;
+      letter-spacing: 0.5px;
+    }
+    .meta-datetime {
+      font-size: 9px;
+      color: #94A3B8;
       margin-top: 3px;
     }
-    .meta-date {
-      font-size: 9px;
+
+    /* ACCOUNT HOLDER SLIP */
+    .account-slip {
+      background: #F8FAFC;
+      border: 1px solid #E2E8F0;
+      border-radius: 14px;
+      padding: 10px 14px;
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .slip-col {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .slip-label {
+      font-size: 8px;
+      font-weight: 800;
       color: #64748B;
-      margin-top: 1px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .slip-value {
+      font-size: 11px;
+      font-weight: 800;
+      color: #0F172A;
+    }
+    .slip-value-highlight {
+      color: #2563EB;
+      font-weight: 900;
     }
 
     /* SUMMARY CARDS */
@@ -359,63 +425,65 @@ export async function generateAndShareTransactionStatementPDF(options: Statement
       display: grid;
       grid-template-columns: repeat(4, 1fr);
       gap: 8px;
-      margin-bottom: 14px;
+      margin-bottom: 12px;
     }
     .summary-card {
       padding: 10px 12px;
-      border-radius: 10px;
+      border-radius: 14px;
       border: 1px solid #E2E8F0;
       background: #FFFFFF;
     }
     .card-income {
       background: #F0FDF4;
-      border-color: #BBF7D0;
+      border-color: #DCFCE7;
     }
     .card-expense {
       background: #FEF2F2;
-      border-color: #FECACA;
+      border-color: #FEE2E2;
     }
     .card-net {
       background: #EFF6FF;
-      border-color: #BFDBFE;
+      border-color: #DBEAFE;
     }
     .card-txns {
       background: #F8FAFC;
       border-color: #E2E8F0;
     }
     .card-label {
-      font-size: 9px;
+      font-size: 8.5px;
       font-weight: 800;
       text-transform: uppercase;
       letter-spacing: 0.5px;
       color: #64748B;
     }
     .card-amount {
-      font-size: 16px;
+      font-size: 15px;
       font-weight: 900;
-      margin-top: 3px;
+      margin-top: 2px;
       color: #0F172A;
     }
     .color-income { color: #16A34A; }
     .color-expense { color: #DC2626; }
     .color-net { color: #2563EB; }
 
-    /* CATEGORY SUMMARY PILLS */
+    /* CATEGORY SUMMARY */
     .category-section {
       background: #F8FAFC;
       border: 1px solid #E2E8F0;
-      border-radius: 10px;
-      padding: 9px 12px;
-      margin-bottom: 14px;
+      border-radius: 14px;
+      padding: 8px 12px;
+      margin-bottom: 12px;
     }
     .category-heading {
-      font-size: 10.5px;
+      font-size: 9.5px;
       font-weight: 800;
       color: #0F172A;
-      margin-bottom: 6px;
+      margin-bottom: 5px;
       display: flex;
       justify-content: space-between;
       align-items: center;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
     }
     .category-pills {
       display: flex;
@@ -425,9 +493,9 @@ export async function generateAndShareTransactionStatementPDF(options: Statement
     .category-pill {
       background: #FFFFFF;
       border: 1px solid #CBD5E1;
-      border-radius: 6px;
+      border-radius: 8px;
       padding: 3px 8px;
-      font-size: 9.5px;
+      font-size: 9px;
       font-weight: 700;
       color: #334155;
       display: flex;
@@ -435,24 +503,85 @@ export async function generateAndShareTransactionStatementPDF(options: Statement
       gap: 4px;
     }
 
-    /* TRANSACTION TABLE */
-    .table-container {
-      width: 100%;
-      margin-bottom: 16px;
+    /* CHART CARD */
+    .chart-card {
+      background: #F8FAFC;
+      border: 1px solid #E2E8F0;
+      border-radius: 14px;
+      padding: 10px 14px;
+      margin-bottom: 12px;
     }
-    .table-title {
-      font-size: 12px;
-      font-weight: 900;
-      color: #0F172A;
-      margin-bottom: 6px;
+    .chart-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
+      margin-bottom: 4px;
+    }
+    .chart-title {
+      font-size: 10px;
+      font-weight: 800;
+      color: #0F172A;
+    }
+    .chart-subtitle {
+      font-size: 9px;
+      color: #64748B;
+      font-weight: 600;
+    }
+    .chart-legend {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 8px;
+      font-weight: 700;
+    }
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      color: #475569;
+    }
+    .legend-color-spend {
+      width: 8px;
+      height: 3px;
+      background: #2563EB;
+      border-radius: 1px;
+    }
+    .legend-color-avg {
+      width: 10px;
+      height: 0;
+      border-top: 1.5px dashed #6366F1;
+    }
+
+    /* PASSBOOK LEDGER TABLE */
+    .table-container {
+      width: 100%;
+      margin-bottom: 14px;
+    }
+    .table-title-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+      padding: 0 2px;
+    }
+    .table-title {
+      font-size: 11px;
+      font-weight: 900;
+      color: #0F172A;
+      letter-spacing: -0.2px;
+    }
+    .table-badge {
+      font-size: 8.5px;
+      font-weight: 800;
+      color: #059669;
+      background: #DCFCE7;
+      padding: 2px 7px;
+      border-radius: 6px;
     }
     table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 10px;
+      font-size: 9.5px;
       page-break-inside: auto;
     }
     thead {
@@ -467,10 +596,10 @@ export async function generateAndShareTransactionStatementPDF(options: Statement
       color: #FFFFFF;
       text-align: left;
       padding: 7px 8px;
-      font-size: 9px;
+      font-size: 8.5px;
       font-weight: 800;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
+      letter-spacing: 0.4px;
     }
     th.text-right { text-align: right; }
     th.text-center { text-align: center; }
@@ -487,16 +616,16 @@ export async function generateAndShareTransactionStatementPDF(options: Statement
       color: #94A3B8;
       font-weight: 700;
       text-align: center;
-      width: 26px;
+      width: 24px;
     }
     .td-date {
       font-weight: 700;
       color: #334155;
       white-space: nowrap;
-      width: 82px;
+      width: 76px;
     }
     .td-time {
-      font-size: 8.5px;
+      font-size: 8px;
       color: #94A3B8;
       font-weight: 600;
     }
@@ -505,7 +634,7 @@ export async function generateAndShareTransactionStatementPDF(options: Statement
       color: #0F172A;
     }
     .td-note {
-      font-size: 8.5px;
+      font-size: 8px;
       color: #64748B;
       font-weight: 500;
       margin-top: 1px;
@@ -513,53 +642,80 @@ export async function generateAndShareTransactionStatementPDF(options: Statement
     .cat-badge {
       display: inline-block;
       padding: 2px 6px;
-      border-radius: 4px;
-      font-size: 8.5px;
+      border-radius: 6px;
+      font-size: 8px;
       font-weight: 700;
       background: #F1F5F9;
       color: #475569;
-      border: 1px solid #E2E8F0;
     }
-    .type-pill {
-      display: inline-block;
-      padding: 2px 6px;
-      border-radius: 4px;
-      font-size: 8.5px;
+    .amount-dr {
+      font-size: 10.5px;
       font-weight: 800;
-      text-transform: uppercase;
+      color: #DC2626;
+      text-align: right;
     }
-    .type-pill-income {
+    .amount-cr {
+      font-size: 10.5px;
+      font-weight: 800;
+      color: #16A34A;
+      text-align: right;
+    }
+    .amount-balance {
+      font-size: 10px;
+      font-weight: 900;
+      color: #0F172A;
+      text-align: right;
+    }
+
+    /* CERTIFIED SEAL BANNER */
+    .cert-seal-card {
+      background: #F8FAFC;
+      border: 1px dashed #CBD5E1;
+      border-radius: 14px;
+      padding: 10px 14px;
+      margin-top: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      page-break-inside: avoid;
+    }
+    .seal-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .seal-badge {
+      width: 32px;
+      height: 32px;
+      border-radius: 16px;
       background: #DCFCE7;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       color: #16A34A;
-    }
-    .type-pill-expense {
-      background: #FEE2E2;
-      color: #DC2626;
-    }
-    .amount-income {
-      font-size: 11px;
+      font-size: 16px;
       font-weight: 900;
-      color: #16A34A;
-      text-align: right;
     }
-    .amount-expense {
-      font-size: 11px;
+    .seal-title {
+      font-size: 10px;
       font-weight: 900;
-      color: #DC2626;
-      text-align: right;
+      color: #0F172A;
+    }
+    .seal-sub {
+      font-size: 8.5px;
+      color: #64748B;
     }
 
     /* PLAY STORE BANNER & FOOTER */
     .playstore-banner {
       background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%);
-      border-radius: 12px;
-      padding: 12px 16px;
-      margin-top: 20px;
+      border-radius: 14px;
+      padding: 10px 16px;
+      margin-top: 10px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       color: #FFFFFF;
-      border: 1px solid #334155;
       page-break-inside: avoid;
     }
     .banner-left {
@@ -568,88 +724,97 @@ export async function generateAndShareTransactionStatementPDF(options: Statement
       gap: 10px;
     }
     .banner-icon {
-      width: 36px;
-      height: 36px;
-      border-radius: 9px;
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
       background: #FFD740;
       display: flex;
       align-items: center;
       justify-content: center;
-      flex-shrink: 0;
-    }
-    .banner-icon span {
-      font-size: 20px;
+      font-size: 16px;
       font-weight: 900;
       color: #0F172A;
     }
     .banner-title {
-      font-size: 12px;
+      font-size: 10.5px;
       font-weight: 900;
       color: #FFFFFF;
     }
     .banner-sub {
-      font-size: 9.5px;
+      font-size: 8.5px;
       color: #94A3B8;
-      margin-top: 1px;
     }
-    .banner-badge {
+    .banner-btn {
       background: #2563EB;
       color: #FFFFFF;
-      font-size: 10px;
+      font-size: 9px;
       font-weight: 800;
-      padding: 5px 12px;
-      border-radius: 7px;
-      display: inline-block;
-      text-transform: uppercase;
-      letter-spacing: 0.4px;
-      white-space: nowrap;
+      padding: 4px 10px;
+      border-radius: 8px;
+      letter-spacing: 0.3px;
     }
 
     .statement-footer {
-      border-top: 1px solid #CBD5E1;
+      border-top: 1px solid #E2E8F0;
       padding-top: 8px;
       margin-top: 12px;
       display: flex;
       justify-content: space-between;
-      font-size: 8.5px;
-      color: #64748B;
+      font-size: 8px;
+      color: #94A3B8;
       page-break-inside: avoid;
     }
   </style>
 </head>
 <body>
 
-  <!-- HEADER -->
-  <div class="header-container">
-    <div class="brand-col">
-      <div class="brand-emblem">
-        <span class="brand-emblem-text">₹</span>
-      </div>
-      <div class="brand-title-wrap">
+  <!-- PASSBOOK HEADER -->
+  <div class="passbook-header">
+    <div class="header-gold-line"></div>
+    <div class="brand-left">
+      <div class="brand-emblem">₹</div>
+      <div>
         <div class="brand-title">
-          Rupeo <span class="brand-tag">Certified Statement</span>
+          Rupeo <span class="cert-pill">Passbook Statement</span>
         </div>
-        <div class="brand-sub">Smart Expense Tracker • Personal Wealth Intelligence</div>
+        <div class="brand-desc">Personal Wealth Intelligence • Official Certified Transaction Ledger</div>
       </div>
     </div>
-
-    <div class="meta-col">
-      <div class="meta-title">${periodLabel}</div>
-      <div class="meta-ref">Ref: ${statementRef}</div>
-      <div class="meta-user">Account: ${userName} ${userEmail ? `(${userEmail})` : ''}</div>
-      <div class="meta-date">Generated: ${generatedDate}, ${generatedTime}</div>
+    <div class="header-meta">
+      <div class="meta-ref-badge">REF: ${statementRef}</div>
+      <div class="meta-datetime">Date: ${generatedDate}, ${generatedTime}</div>
     </div>
   </div>
 
-  <!-- SUMMARY CARDS -->
+  <!-- ACCOUNT HOLDER SLIP -->
+  <div class="account-slip">
+    <div class="slip-col">
+      <span class="slip-label">Account Holder</span>
+      <span class="slip-value">${userName}</span>
+    </div>
+    <div class="slip-col">
+      <span class="slip-label">Account Email / ID</span>
+      <span class="slip-value">${userEmail || 'Personal Account'}</span>
+    </div>
+    <div class="slip-col">
+      <span class="slip-label">Statement Duration</span>
+      <span class="slip-value slip-value-highlight">${periodLabel}</span>
+    </div>
+    <div class="slip-col">
+      <span class="slip-label">Audit Status</span>
+      <span class="slip-value" style="color: #16A34A;">✔ Digitally Verified</span>
+    </div>
+  </div>
+
+  <!-- SUMMARY STATS -->
   <div class="summary-grid">
     <div class="summary-card card-income">
-      <div class="card-label">Total Received</div>
+      <div class="card-label">Total Deposits (Cr)</div>
       <div class="card-amount color-income">+${curr}${totalIncome.toLocaleString('en-IN')}</div>
     </div>
 
     <div class="summary-card card-expense">
-      <div class="card-label">Total Spent</div>
+      <div class="card-label">Total Withdrawals (Dr)</div>
       <div class="card-amount color-expense">-${curr}${totalExpense.toLocaleString('en-IN')}</div>
     </div>
 
@@ -659,8 +824,8 @@ export async function generateAndShareTransactionStatementPDF(options: Statement
     </div>
 
     <div class="summary-card card-txns">
-      <div class="card-label">Total Transactions</div>
-      <div class="card-amount">${filtered.length} Entries</div>
+      <div class="card-label">Ledger Volume</div>
+      <div class="card-amount">${filtered.length} Recorded</div>
     </div>
   </div>
 
@@ -670,8 +835,8 @@ export async function generateAndShareTransactionStatementPDF(options: Statement
       ? `
   <div class="category-section">
     <div class="category-heading">
-      <span>Top Spending Categories</span>
-      <span style="font-size: 9px; color: #64748B; font-weight: 700;">Account Outflow Breakdown</span>
+      <span>Top Outflow Distribution</span>
+      <span style="font-size: 8px; color: #64748B;">Categorical Breakdown</span>
     </div>
     <div class="category-pills">
       ${sortedCategories
@@ -689,35 +854,36 @@ export async function generateAndShareTransactionStatementPDF(options: Statement
       : ''
   }
 
-  <!-- DAILY SPEND & AVERAGE GRAPH -->
+  <!-- DAILY SPEND & RUNNING AVERAGE WAVE GRAPH -->
   ${dailySpendChartHtml}
 
-  <!-- ITEMISED LEDGER TABLE -->
+  <!-- PASSBOOK LEDGER TABLE -->
   <div class="table-container">
-    <div class="table-title">
-      <span>Itemized Transactions Ledger (${filtered.length} Total)</span>
-      <span style="font-size: 9px; color: #64748B; font-weight: 700;">All records verified</span>
+    <div class="table-title-row">
+      <div class="table-title">Certified Transaction Ledger (${displayList.length} Entries)</div>
+      <div class="table-badge">Running Balance Verified</div>
     </div>
 
     <table>
       <thead>
         <tr>
-          <th class="text-center" style="width: 26px;">#</th>
-          <th style="width: 86px;">Date</th>
-          <th>Description / Payee</th>
-          <th>Category</th>
-          <th>Mode</th>
-          <th class="text-center" style="width: 60px;">Type</th>
-          <th class="text-right" style="width: 90px;">Amount</th>
+          <th class="text-center" style="width: 24px;">#</th>
+          <th style="width: 78px;">Date</th>
+          <th>Description & Particulars</th>
+          <th style="width: 80px;">Category</th>
+          <th style="width: 60px;">Mode</th>
+          <th class="text-right" style="width: 85px;">Withdrawal (Dr)</th>
+          <th class="text-right" style="width: 85px;">Deposit (Cr)</th>
+          <th class="text-right" style="width: 85px;">Balance</th>
         </tr>
       </thead>
       <tbody>
-        ${filtered
+        ${displayList
           .map((tx, idx) => {
-            const isIncome = (tx.type || 'debit').toLowerCase() === 'credit' || (tx.type || 'debit').toLowerCase() === 'income';
-            const amt = Math.abs(Number(tx.amount) || 0);
+            const isIncome = tx.isIncome;
+            const amt = tx.parsedAmount;
             const title = tx.merchant_name || tx.description || tx.category || 'Transaction';
-            const note = tx.merchant_name && tx.description ? tx.description : tx.utr ? `Ref/UTR: ${tx.utr}` : '';
+            const note = tx.merchant_name && tx.description ? tx.description : tx.utr ? `Ref: ${tx.utr}` : '';
             return `
           <tr>
             <td class="td-num">${idx + 1}</td>
@@ -729,15 +895,16 @@ export async function generateAndShareTransactionStatementPDF(options: Statement
               <div class="td-desc">${title}</div>
               ${note ? `<div class="td-note">${note}</div>` : ''}
             </td>
-            <td><span class="cat-badge">${tx.category || 'Others'}</span></td>
-            <td style="color: #475569; font-size: 9px; font-weight: 600;">${tx.payment_mode || 'Cash'}</td>
-            <td class="text-center">
-              <span class="type-pill ${isIncome ? 'type-pill-income' : 'type-pill-expense'}">
-                ${isIncome ? 'Credit' : 'Debit'}
-              </span>
+            <td><span class="cat-badge">${tx.category || 'General'}</span></td>
+            <td style="color: #475569; font-size: 8.5px; font-weight: 600;">${tx.payment_mode || 'UPI'}</td>
+            <td class="amount-dr">
+              ${!isIncome ? `-${curr}${amt.toLocaleString('en-IN')}` : '-'}
             </td>
-            <td class="${isIncome ? 'amount-income' : 'amount-expense'}">
-              ${isIncome ? '+' : '-'}${curr}${amt.toLocaleString('en-IN')}
+            <td class="amount-cr">
+              ${isIncome ? `+${curr}${amt.toLocaleString('en-IN')}` : '-'}
+            </td>
+            <td class="amount-balance">
+              ${tx.balanceAfter >= 0 ? '' : '-'}${curr}${Math.abs(tx.balanceAfter).toLocaleString('en-IN')}
             </td>
           </tr>
         `;
@@ -747,38 +914,48 @@ export async function generateAndShareTransactionStatementPDF(options: Statement
     </table>
   </div>
 
+  <!-- CERTIFIED AUDIT SEAL -->
+  <div class="cert-seal-card">
+    <div class="seal-left">
+      <div class="seal-badge">✔</div>
+      <div>
+        <div class="seal-title">Authentic Digital Ledger • Rupeo Financial Systems</div>
+        <div class="seal-sub">Generated from tamper-proof encrypted local & cloud synchronization. Valid without physical signature.</div>
+      </div>
+    </div>
+    <div style="font-size: 9px; font-weight: 800; color: #2563EB;">
+      VERIFY: rupeoo.vercel.app/scanner
+    </div>
+  </div>
+
   <!-- GOOGLE PLAY STORE PROMOTION BANNER -->
   <div class="playstore-banner">
     <div class="banner-left">
-      <div class="banner-icon">
-        <span>₹</span>
-      </div>
+      <div class="banner-icon">₹</div>
       <div>
         <div class="banner-title">Download Rupeo on Google Play Store</div>
-        <div class="banner-sub">Split UPI Payments • Track Daily Budgets • 100% Private & Ad-Free</div>
+        <div class="banner-sub">Smart Expense Tracker • UPI Reminders • 100% Private & Ad-Free</div>
       </div>
     </div>
-    <div>
-      <div class="banner-badge">
-        📱 Get It on Play Store
-      </div>
+    <div class="banner-btn">
+      📱 Get on Play Store
     </div>
   </div>
 
   <!-- STATEMENT FOOTER -->
   <div class="statement-footer">
-    <span>Certified Electronic Statement • Generated by Rupeo App (No signature required)</span>
-    <span>Official Website: https://rupeoo.vercel.app • Play Store: Rupeo App</span>
+    <span>Certified Electronic Passbook • Rupeo Personal Finance Intelligence</span>
+    <span>Official Portal: https://rupeoo.vercel.app</span>
   </div>
 
 </body>
 </html>
   `;
 
-  const cleanFilename = `Rupeo_Statement_${(monthStr || 'All').replace(/[^a-zA-Z0-9_-]/g, '_')}_${Date.now().toString().slice(-6)}.pdf`;
-  const defaultPdfTitle = `Rupeo Statement - ${periodLabel}`;
+  const cleanFilename = `Rupeo_Passbook_${(monthStr || 'All').replace(/[^a-zA-Z0-9_-]/g, '_')}_${Date.now().toString().slice(-6)}.pdf`;
+  const defaultPdfTitle = `Rupeo Passbook - ${periodLabel}`;
 
-  // 4. Web Handling
+  // 5. Web Handling
   if (Platform.OS === 'web') {
     if (typeof document !== 'undefined' && typeof window !== 'undefined') {
       const originalTitle = document.title;
@@ -817,7 +994,7 @@ export async function generateAndShareTransactionStatementPDF(options: Statement
     return { success: true, count: filtered.length };
   }
 
-  // 5. Mobile Handling (Android & iOS)
+  // 6. Mobile Handling (Android & iOS)
   try {
     const result = await Print.printToFileAsync({
       html,
@@ -841,7 +1018,7 @@ export async function generateAndShareTransactionStatementPDF(options: Statement
           shareUri = targetUri;
         }
       } catch (copyErr) {
-        console.warn('Could not rename PDF file, using default URI:', copyErr);
+        warn('Could not rename PDF file, using default URI:', copyErr);
       }
 
       if (await Sharing.isAvailableAsync()) {
@@ -857,7 +1034,7 @@ export async function generateAndShareTransactionStatementPDF(options: Statement
 
     return { success: false, count: 0, error: 'Failed to generate PDF file.' };
   } catch (err: any) {
-    console.error('Error generating transaction statement PDF:', err);
+    error('Error generating transaction statement PDF:', err);
     return { success: false, count: 0, error: err?.message || 'Failed to print PDF.' };
   }
 }

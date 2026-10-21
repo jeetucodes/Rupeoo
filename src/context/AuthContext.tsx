@@ -3,9 +3,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { User, onAuthStateChanged, signOut } from 'firebase/auth';
 import { auth, db } from '@/lib/firebase';
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
-import { getStartingBalanceProfile, getUserSettings, saveUserSettings, setPremiumStatus, UserSettings } from '@/lib/database';
+import { getStartingBalanceProfile, getUserSettings, UserSettings } from '@/lib/database';
 import { clearWidgetSnapshot } from '@/lib/widgetSnapshot';
 import { triggerWidgetUpdate } from '@/lib/widgetSync';
+import { warn, error } from '@/lib/logger';
 
 export type AdsStrategy = 'custom_only' | 'custom_first' | 'network_only' | 'both';
 
@@ -46,6 +47,12 @@ export interface AppConfig {
   // Support
   supportPhone: string;
   supportEmail: string;
+  // In-App & Remote Version Updates
+  latestVersionCode?: number;
+  minSupportedVersionCode?: number;
+  updateTitle?: string;
+  updateMessage?: string;
+  updateCooldownHours?: number;
 }
 
 export const DEFAULT_APP_CONFIG: AppConfig = {
@@ -74,6 +81,11 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   maintenanceMessage: 'We are performing critical upgrades. Please check back shortly.',
   supportPhone: '+91 98765 43210',
   supportEmail: 'innovatexlab.services@gmail.com',
+  latestVersionCode: undefined,
+  minSupportedVersionCode: undefined,
+  updateTitle: undefined,
+  updateMessage: undefined,
+  updateCooldownHours: 24,
 };
 
 /**
@@ -162,6 +174,27 @@ export function parseAppConfig(d: any): AppConfig {
     maintenanceMessage: d.maintenanceMessage || 'We are performing critical upgrades. Please check back shortly.',
     supportPhone: d.supportPhone || DEFAULT_APP_CONFIG.supportPhone,
     supportEmail: d.supportEmail || DEFAULT_APP_CONFIG.supportEmail,
+    latestVersionCode: (() => {
+      const v = d.latestVersionCode ?? d.latest_version_code;
+      if (v === undefined || v === null || v === '') return undefined;
+      const n = Number(v);
+      return isNaN(n) ? undefined : n;
+    })(),
+    minSupportedVersionCode: (() => {
+      const v = d.minSupportedVersionCode ?? d.min_supported_version_code;
+      if (v === undefined || v === null || v === '') return undefined;
+      const n = Number(v);
+      return isNaN(n) ? undefined : n;
+    })(),
+    updateTitle: typeof (d.updateTitle ?? d.update_title) === 'string' && (d.updateTitle ?? d.update_title).trim().length > 0
+      ? (d.updateTitle ?? d.update_title).trim()
+      : undefined,
+    updateMessage: typeof (d.updateMessage ?? d.update_message) === 'string' && (d.updateMessage ?? d.update_message).trim().length > 0
+      ? (d.updateMessage ?? d.update_message).trim()
+      : undefined,
+    updateCooldownHours: typeof (d.updateCooldownHours ?? d.update_cooldown_hours) === 'number' && (d.updateCooldownHours ?? d.update_cooldown_hours) > 0
+      ? Number(d.updateCooldownHours ?? d.update_cooldown_hours)
+      : 24,
   };
 }
 
@@ -223,7 +256,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (raw) {
           try {
             setAppConfig(JSON.parse(raw));
-          } catch {}
+          } catch (parseErr) {
+            warn('Failed to parse cached app config from AsyncStorage:', parseErr);
+          }
         }
       })
       .catch(() => {});
@@ -242,7 +277,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       },
       (err) => {
-        console.warn('App config real-time listener error:', err);
+        warn('App config real-time listener error:', err);
       }
     );
     return () => unsubConfig();
@@ -258,7 +293,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         AsyncStorage.setItem('@rupeo_app_config', JSON.stringify(parsed)).catch(() => {});
       }
     } catch (e) {
-      console.warn('Error refreshing app config:', e);
+      warn('Error refreshing app config:', e);
     }
   };
 
@@ -290,7 +325,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } as RupeoUser;
       }
     } catch (err) {
-      console.warn('Error fetching Firestore user profile:', err);
+      warn('Error fetching Firestore user profile:', err);
     }
     return {
       ...currentUser,
@@ -306,7 +341,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSettings(userSettings);
     } catch (error) {
       setSettings(null);
-      console.warn('Could not load settings; using defaults.', error);
+      warn('Could not load settings; using defaults.', error);
     }
   };
 
@@ -317,6 +352,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
+        // B4: Refresh token once on auth change so new claims (e.g. grandfathered, email_verified) are picked up
+        try {
+          await currentUser.getIdToken(true);
+        } catch (tokenErr) {
+          warn('Token claim refresh error:', tokenErr);
+        }
         const profileUser = await fetchUserProfile(currentUser);
         setUser(profileUser);
         await fetchSettings(currentUser);
@@ -341,7 +382,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         await auth.currentUser.reload();
       } catch (e) {
-        console.warn('Auth reload error:', e);
+        warn('Auth reload error:', e);
       }
       const profileUser = await fetchUserProfile(auth.currentUser);
       setUser(profileUser);
@@ -351,11 +392,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const upgradeToPremium = async (plan: 'monthly' | '3_months' | '6_months' | 'yearly' | 'lifetime' | string = 'lifetime') => {
     if (!user?.uid) return;
     try {
-      await setPremiumStatus(user.uid, true, plan);
+      // Local state update; persistent Firestore is_premium is server-managed
       setSettings(prev => prev ? { ...prev, isPremium: true, premiumPlan: plan } : { language: 'English', currency: '₹', isPremium: true, premiumPlan: plan });
       setUser(prev => prev ? { ...prev, isPremium: true, premiumPlan: plan } : null);
     } catch (e) {
-      console.error('Failed to upgrade to premium:', e);
+      error('Failed to upgrade to premium:', e);
       throw e;
     }
   };
@@ -363,11 +404,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const downgradeFromPremium = async () => {
     if (!user?.uid) return;
     try {
-      await setPremiumStatus(user.uid, false);
+      // Local state update; persistent Firestore is_premium is server-managed
       setSettings(prev => prev ? { ...prev, isPremium: false } : null);
       setUser(prev => prev ? { ...prev, isPremium: false } : null);
     } catch (e) {
-      console.error('Failed to downgrade from premium:', e);
+      error('Failed to downgrade from premium:', e);
       throw e;
     }
   };
@@ -377,8 +418,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await clearWidgetSnapshot().catch(() => {});
       await triggerWidgetUpdate().catch(() => {});
       await signOut(auth);
-    } catch (error) {
-      console.error('Logout error:', error);
+    } catch (err) {
+      error('Logout error:', err);
     }
   };
 

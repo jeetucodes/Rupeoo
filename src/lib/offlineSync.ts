@@ -11,6 +11,7 @@ import {
   orderBy,
   serverTimestamp,
 } from 'firebase/firestore';
+import { warn } from '@/lib/logger';
 
 export interface SyncAction {
   id: string;
@@ -63,7 +64,7 @@ export async function getOfflineTransactions(userId: string): Promise<any[]> {
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
   } catch (err) {
-    console.warn('Failed to load offline transactions:', err);
+    warn('Failed to load offline transactions:', err);
     return [];
   }
 }
@@ -88,7 +89,7 @@ export async function saveOfflineTransactions(userId: string, txs: any[]): Promi
     });
     await AsyncStorage.setItem(getTxsKey(userId), JSON.stringify(sanitized));
   } catch (err) {
-    console.warn('Failed to save offline transactions:', err);
+    warn('Failed to save offline transactions:', err);
   }
 }
 
@@ -115,7 +116,7 @@ export async function saveOfflineCategories(userId: string, categories: any[]): 
   try {
     await AsyncStorage.setItem(getCategoriesKey(userId), JSON.stringify(categories));
   } catch (err) {
-    console.warn('Failed to save offline categories:', err);
+    warn('Failed to save offline categories:', err);
   }
 }
 
@@ -138,7 +139,7 @@ export async function enqueueSyncAction(
     const updatedQueue = [...queue, newAction];
     await AsyncStorage.setItem(getQueueKey(userId), JSON.stringify(updatedQueue));
   } catch (err) {
-    console.warn('Failed to enqueue sync action:', err);
+    warn('Failed to enqueue sync action:', err);
   }
 }
 
@@ -167,7 +168,7 @@ export async function removeSyncAction(userId: string, actionId: string): Promis
     const updated = queue.filter((item) => item.id !== actionId);
     await AsyncStorage.setItem(getQueueKey(userId), JSON.stringify(updated));
   } catch (err) {
-    console.warn('Failed to remove sync action:', err);
+    warn('Failed to remove sync action:', err);
   }
 }
 
@@ -239,7 +240,7 @@ export async function flushSyncQueue(
           }
         }
       } catch (itemErr) {
-        console.warn(`Sync item failed (${item.type} on ${item.targetId}):`, itemErr);
+        warn(`Sync item failed (${item.type} on ${item.targetId}):`, itemErr);
         // Only retry up to 5 times to prevent poison pill tasks from blocking queue forever
         if (item.retryCount < 5) {
           remainingQueue.push({
@@ -254,7 +255,7 @@ export async function flushSyncQueue(
     await AsyncStorage.setItem(getQueueKey(userId), JSON.stringify(remainingQueue));
     await AsyncStorage.setItem(getLastSyncKey(userId), Date.now().toString());
   } catch (err) {
-    console.warn('Sync queue flush error:', err);
+    warn('Sync queue flush error:', err);
   } finally {
     isSyncInProgress = false;
   }
@@ -336,7 +337,7 @@ export async function syncRemoteTransactions(
     await saveOfflineTransactions(userId, mergedResult);
     return mergedResult;
   } catch (err) {
-    console.warn('Sync remote transactions error:', err);
+    warn('Sync remote transactions error:', err);
     return await getOfflineTransactions(userId);
   }
 }

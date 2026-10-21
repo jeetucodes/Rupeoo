@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
   Animated,
   Easing,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -21,9 +22,15 @@ import {
   createUserWithEmailAndPassword,
   updateProfile,
   getAdditionalUserInfo,
+  sendEmailVerification,
 } from 'firebase/auth';
+import { sendEmailOtpOnServer } from '@/lib/authVerification';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { auth, db } from '@/lib/firebase';
+// @ts-ignore
+import { httpsCallable } from 'firebase/functions';
+import { auth, db, functions } from '@/lib/firebase';
+import { isDisposableEmail } from '@/lib/disposableDomains';
+import { useTranslation } from '@/lib/i18n';
 import { promptGoogleSignIn } from '@/lib/google-auth';
 import { Ionicons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
@@ -32,9 +39,12 @@ import {
   sendWelcomeNotification,
   setupPeriodicSmartNotifications,
 } from '@/lib/notifications';
+import { warn, error } from '@/lib/logger';
+import { LegalModal } from '@/components/LegalModal';
 
 export default function AuthScreen() {
   const router = useRouter();
+  const { t } = useTranslation();
 
   // Mode: 'signin' | 'signup'
   const [isSignUp, setIsSignUp] = useState(false);
@@ -44,6 +54,8 @@ export default function AuthScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const [legalModal, setLegalModal] = useState<'terms' | 'privacy' | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
@@ -80,8 +92,20 @@ export default function AuthScreen() {
       Toast.show({ type: 'error', text1: 'Weak Password', text2: 'Password must be at least 6 characters' });
       return;
     }
+    if (isSignUp && isDisposableEmail(trimmedEmail)) {
+      Toast.show({ type: 'error', text1: 'Invalid Email', text2: t('disposable_email_error') });
+      return;
+    }
     if (isSignUp && !name.trim()) {
       Toast.show({ type: 'error', text1: 'Required', text2: 'Please enter your name' });
+      return;
+    }
+    if (isSignUp && !agreedToTerms) {
+      Toast.show({
+        type: 'error',
+        text1: 'Terms & Conditions Required',
+        text2: 'Please accept the Terms & Conditions and Privacy Policy to create an account.',
+      });
       return;
     }
 
@@ -96,20 +120,15 @@ export default function AuthScreen() {
             await updateProfile(cred.user, { displayName: name.trim() });
           }
 
-          await setDoc(doc(db, 'users', cred.user.uid), {
-            email: cred.user.email,
-            name: name.trim() || 'User',
-            createdAt: new Date().toISOString(),
-            starting_balance: 0,
-            has_set_starting_balance: false,
-          }, { merge: true });
+          // Send 6-digit OTP via Supabase Edge Function (primary verification method)
+          // The Firebase magic link is sent on-demand from the verify-email screen if the user requests it
+          try {
+            await sendEmailOtpOnServer();
+          } catch (otpErr: any) {
+            warn('Initial sendEmailOtp warning:', otpErr);
+          }
 
-          requestNotificationPermissions().then((granted) => {
-            if (granted) setupPeriodicSmartNotifications().catch(() => {});
-          }).catch(() => {});
-
-          sendWelcomeNotification(cred.user.uid).catch(() => {});
-          router.replace('/setup');
+          router.replace('/verify-email');
         }
       } else {
         // 2. Sign In to Existing Account
@@ -127,15 +146,16 @@ export default function AuthScreen() {
           }
         }
       }
-    } catch (error: any) {
-      console.error('Email Auth Error:', error);
-      let msg = error?.message || 'Authentication failed. Please try again.';
+    } catch (err: any) {
+      error('Email Auth Error:', err);
+      let msg = err?.message || 'Authentication failed. Please try again.';
 
-      if (error?.code === 'auth/invalid-credential' || error?.code === 'auth/wrong-password' || error?.code === 'auth/user-not-found') {
+      if (err?.code === 'auth/invalid-credential' || err?.code === 'auth/wrong-password' || err?.code === 'auth/user-not-found') {
         msg = 'Incorrect email or password. Please check your credentials.';
-      } else if (error?.code === 'auth/email-already-in-use') {
+      } else if (err?.code === 'auth/email-already-in-use') {
         msg = 'This email is already registered. Please sign in instead.';
-      } else if (error?.code === 'auth/invalid-email') {
+        setIsSignUp(false);
+      } else if (err?.code === 'auth/invalid-email') {
         msg = 'Please enter a valid email address.';
       }
 
@@ -147,6 +167,15 @@ export default function AuthScreen() {
 
   // Google Sign In Handler
   const handleGoogleAuth = async () => {
+    if (isSignUp && !agreedToTerms) {
+      Toast.show({
+        type: 'error',
+        text1: 'Terms & Conditions Required',
+        text2: 'Please accept the Terms & Conditions and Privacy Policy to create an account.',
+      });
+      return;
+    }
+
     try {
       setGoogleLoading(true);
       const result = await promptGoogleSignIn();
@@ -173,7 +202,7 @@ export default function AuthScreen() {
         }
       }
     } catch (error: any) {
-      console.warn('Google Auth Error:', error.message);
+      warn('Google Auth Error:', error.message);
       if (error?.message !== 'GoogleSignin native module unavailable') {
         Alert.alert('Google Sign-In', error.message || 'Could not sign in with Google.');
       }
@@ -333,9 +362,52 @@ export default function AuthScreen() {
               </View>
             </View>
 
+            {/* TERMS & CONDITIONS CHECKBOX (SIGN UP ONLY) */}
+            {isSignUp && (
+              <View style={styles.termsContainer}>
+                <TouchableOpacity
+                  style={styles.termsRow}
+                  onPress={() => setAgreedToTerms(!agreedToTerms)}
+                  activeOpacity={0.7}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: agreedToTerms }}
+                >
+                  <View style={[styles.checkboxBox, agreedToTerms && styles.checkboxBoxChecked]}>
+                    {agreedToTerms && <Ionicons name="checkmark" size={13} color="#FFFFFF" />}
+                  </View>
+                  <Text style={styles.termsText}>
+                    I agree to the{' '}
+                    <Text
+                      style={styles.termsLink}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        setLegalModal('terms');
+                      }}
+                    >
+                      Terms & Conditions
+                    </Text>
+                    {' '}and{' '}
+                    <Text
+                      style={styles.termsLink}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        setLegalModal('privacy');
+                      }}
+                    >
+                      Privacy Policy
+                    </Text>
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
             {/* SUBMIT BUTTON */}
             <TouchableOpacity
-              style={[styles.primaryButton, loading && { opacity: 0.75 }]}
+              style={[
+                styles.primaryButton,
+                loading && { opacity: 0.75 },
+                isSignUp && !agreedToTerms && styles.primaryButtonDisabled,
+              ]}
               onPress={handleEmailAuth}
               disabled={loading}
               activeOpacity={0.85}
@@ -398,6 +470,13 @@ export default function AuthScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* TERMS & PRIVACY MODAL */}
+      <LegalModal
+        visible={legalModal !== null}
+        type={legalModal}
+        onClose={() => setLegalModal(null)}
+      />
     </SafeAreaView>
   );
 }
@@ -629,5 +708,132 @@ const styles = StyleSheet.create({
     color: '#64748B',
     fontSize: 12,
     fontWeight: '700',
+  },
+
+  // Terms & Conditions Checkbox
+  termsContainer: {
+    marginBottom: 14,
+    marginTop: 2,
+    paddingHorizontal: 2,
+  },
+  termsRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  checkboxBox: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    borderWidth: 1.8,
+    borderColor: '#94A3B8',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
+  },
+  checkboxBoxChecked: {
+    backgroundColor: '#0F172A',
+    borderColor: '#0F172A',
+  },
+  termsText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#475569',
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+  termsLink: {
+    color: '#2563EB',
+    fontWeight: '700',
+    textDecorationLine: 'underline',
+  },
+  primaryButtonDisabled: {
+    opacity: 0.65,
+    backgroundColor: '#64748B',
+    borderColor: '#64748B',
+  },
+
+  // Legal Modal
+  legalModalContainer: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  legalModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  legalModalCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  legalModalTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  legalModalScroll: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+  },
+  legalHeadTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#0F172A',
+    marginBottom: 4,
+  },
+  legalSubDate: {
+    fontSize: 11,
+    color: '#64748B',
+    fontWeight: '600',
+    marginBottom: 16,
+  },
+  legalIntroText: {
+    fontSize: 13,
+    color: '#334155',
+    lineHeight: 19,
+    marginBottom: 16,
+  },
+  legalSectionHeading: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginTop: 14,
+    marginBottom: 6,
+  },
+  legalText: {
+    fontSize: 12.5,
+    color: '#475569',
+    lineHeight: 18.5,
+    marginBottom: 12,
+  },
+  legalModalFooter: {
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+    backgroundColor: '#FFFFFF',
+  },
+  legalAgreeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0F172A',
+    height: 50,
+    borderRadius: 14,
+  },
+  legalAgreeBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14.5,
+    fontWeight: '800',
   },
 });

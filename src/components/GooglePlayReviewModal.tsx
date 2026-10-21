@@ -12,9 +12,11 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { openPlayStorePageDirectly, saveAppReview, setUserReviewPrompted, clearReviewPending } from '@/lib/review';
 import { useAuth } from '@/context/AuthContext';
+import { warn } from '@/lib/logger';
 
 interface GooglePlayReviewModalProps {
   visible: boolean;
@@ -58,6 +60,27 @@ export function GooglePlayReviewModal({
     );
   };
 
+  const handleStarPress = async (star: number) => {
+    setRating(star);
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch {}
+
+    if (userId) {
+      setUserReviewPrompted(userId).catch(() => {});
+      clearReviewPending(userId).catch(() => {});
+      saveAppReview(userId, {
+        rating: star,
+        tags: selectedTags,
+        userName: user?.displayName || undefined,
+        userEmail: user?.email || undefined,
+      }).catch(() => {});
+    }
+
+    onClose();
+    await openPlayStorePageDirectly();
+  };
+
   const handleSubmit = async () => {
     try {
       setIsSubmitting(true);
@@ -77,7 +100,7 @@ export function GooglePlayReviewModal({
       onClose();
       await openPlayStorePageDirectly();
     } catch (err) {
-      console.warn('Failed to submit review:', err);
+      warn('Failed to submit review:', err);
       onClose();
       await openPlayStorePageDirectly();
     } finally {
@@ -142,7 +165,7 @@ export function GooglePlayReviewModal({
               {[1, 2, 3, 4, 5].map((star) => (
                 <TouchableOpacity
                   key={star}
-                  onPress={() => setRating(star)}
+                  onPress={() => handleStarPress(star)}
                   activeOpacity={0.7}
                   style={styles.starBtn}
                 >

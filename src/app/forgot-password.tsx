@@ -11,6 +11,7 @@ import {
   StatusBar,
   ScrollView,
   ActivityIndicator,
+  TextStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -19,6 +20,7 @@ import { auth } from '@/lib/firebase';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from '@/lib/i18n';
 import { safeGoBack } from '@/lib/navigation';
+import { error } from '@/lib/logger';
 
 export default function ForgotPasswordScreen() {
   const router = useRouter();
@@ -47,9 +49,9 @@ export default function ForgotPasswordScreen() {
           },
         ]
       );
-    } catch (err: any) {
-      console.error(err);
-      Alert.alert('Error', err.message || 'Failed to send password reset email.');
+    } catch (err: unknown) {
+      error(err);
+      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to send password reset email.');
     } finally {
       setLoading(false);
     }
@@ -250,7 +252,7 @@ const styles = StyleSheet.create({
     color: '#020617',
     fontWeight: '800',
     borderWidth: 0,
-    ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}),
+    ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as unknown as TextStyle) : {}),
   },
   successBanner: {
     flexDirection: 'row',

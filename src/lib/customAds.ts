@@ -4,6 +4,7 @@ import { db } from './firebase';
 import { collection, doc, increment, onSnapshot, query, updateDoc, where } from 'firebase/firestore';
 import * as WebBrowser from 'expo-web-browser';
 import { AppConfig } from '@/context/AuthContext';
+import { warn } from '@/lib/logger';
 
 export type AdPlacement =
   | 'home_banner'
@@ -41,8 +42,8 @@ export interface InAppCustomAd {
   active: boolean;
   startDate?: string;
   endDate?: string;
-  createdAt?: any;
-  updatedAt?: any;
+  createdAt?: unknown;
+  updatedAt?: unknown;
 }
 
 // In-memory cache of active custom ads shared across the app
@@ -98,11 +99,11 @@ export function startCustomAdsListener() {
         adsListeners.forEach((listener) => listener(ads));
       },
       (err) => {
-        console.warn('Custom ads listener error:', err);
+        warn('Custom ads listener error:', err);
       }
     );
   } catch (e) {
-    console.warn('Could not initialize custom ads query:', e);
+    warn('Could not initialize custom ads query:', e);
     isListening = false;
   }
 }
@@ -307,7 +308,7 @@ export async function trackAdImpression(adId: string) {
     });
   } catch (err) {
     // Non-blocking telemetry
-    console.warn('Ad impression tracking warning:', err);
+    warn('Ad impression tracking warning:', err);
   }
 }
 
@@ -323,7 +324,7 @@ export async function trackAdClick(adId: string) {
       clicksCount: increment(1),
     });
   } catch (err) {
-    console.warn('Ad click tracking warning:', err);
+    warn('Ad click tracking warning:', err);
   }
 }
 
@@ -400,6 +401,6 @@ export async function executeAdAction(
         break;
     }
   } catch (err) {
-    console.warn('Error executing ad action:', err);
+    warn('Error executing ad action:', err);
   }
 }

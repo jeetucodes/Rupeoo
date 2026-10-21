@@ -1,9 +1,10 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-// @ts-ignore
+// @ts-ignore: getReactNativePersistence is provided by React Native platform bundle of firebase/auth but not declared in standard d.ts
 import { getAuth, initializeAuth, getReactNativePersistence } from 'firebase/auth';
 import { getFirestore, initializeFirestore, Firestore } from 'firebase/firestore';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { warn, error } from '@/lib/logger';
 
 const firebaseConfig = {
   apiKey: "AIzaSyAy0P_i2ywT_jpF_leDU-oo3juR1Pu9VJE",
@@ -33,7 +34,7 @@ if (Platform.OS === 'web') {
     if (err.code === 'auth/already-initialized') {
       auth = getAuth(app);
     } else {
-      console.error('Firebase Auth Persistence Init Error:', err);
+      error('Firebase Auth Persistence Init Error:', err);
       // Ensure we still have an auth object to prevent immediate crashes, but warn heavily
       auth = getAuth(app); 
     }
@@ -49,7 +50,7 @@ try {
   try {
     dbInstance = app ? getFirestore(app) : ({} as Firestore);
   } catch {
-    console.error('Firestore init error:', firestoreErr);
+    error('Firestore init error:', firestoreErr);
     dbInstance = {} as Firestore;
   }
 }
@@ -61,7 +62,17 @@ try {
   const { getStorage } = require('firebase/storage');
   storageInstance = app ? getStorage(app) : null;
 } catch (storageErr) {
-  console.warn('Firebase Storage init warning:', storageErr);
+  warn('Firebase Storage init warning:', storageErr);
   storageInstance = null;
 }
 export const storage = storageInstance;
+
+let functionsInstance: any = null;
+try {
+  const { getFunctions } = require('firebase/functions');
+  functionsInstance = app ? getFunctions(app) : null;
+} catch (functionsErr) {
+  warn('Firebase Functions init warning:', functionsErr);
+  functionsInstance = null;
+}
+export const functions = functionsInstance;

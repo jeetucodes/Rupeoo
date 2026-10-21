@@ -39,7 +39,7 @@ import {
   SplitBreakdown,
 } from '@/lib/splitPayment';
 import { MultiPartQrCard } from '@/components/MultiPartQrCard';
-import BankLogo from '@/components/BankLogo';
+import BankLogo, { BankLogoId } from '@/components/BankLogo';
 import {
   SavedQrPaymentCard,
   getSavedQrPayments,
@@ -48,13 +48,14 @@ import {
   addSavedQrToTransactions,
 } from '@/lib/savedQrPayments';
 import { SavedQrCardItem } from '@/components/SavedQrCardItem';
+import { warn } from '@/lib/logger';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = Math.min(SCREEN_WIDTH - 32, 380);
 
 const AMOUNT_PRESETS = [100, 500, 1000, 2000, 4000];
 
-const POPULAR_HANDLES = [
+const POPULAR_HANDLES: { id: BankLogoId; label: string; handle: string; color: string; textColor: string }[] = [
   { id: 'hdfc', label: 'HDFC Bank', handle: '@okhdfcbank', color: '#004C8F', textColor: '#FFFFFF' },
   { id: 'icici', label: 'ICICI Bank', handle: '@icici', color: '#991B1E', textColor: '#FFFFFF' },
   { id: 'phonepe', label: 'पे PhonePe', handle: '@ybl', color: '#5F259F', textColor: '#FFFFFF' },
@@ -299,7 +300,7 @@ export default function SplitQrScreen() {
         message: text,
       });
     } catch (err) {
-      console.warn('Share error:', err);
+      warn('Share error:', err);
     }
   };
 
@@ -310,7 +311,7 @@ export default function SplitQrScreen() {
       const list = await getSavedQrPayments(user?.uid);
       setSavedCards(list);
     } catch (err) {
-      console.warn('Failed to load saved cards:', err);
+      warn('Failed to load saved cards:', err);
     } finally {
       setIsLoadingSaved(false);
     }
@@ -361,11 +362,11 @@ export default function SplitQrScreen() {
         position: 'top',
         visibilityTime: 4000,
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       Toast.show({
         type: 'error',
         text1: 'Save Failed',
-        text2: err?.message || 'Could not save payment card',
+        text2: err instanceof Error ? err.message : 'Could not save payment card',
         position: 'top',
       });
     } finally {
@@ -395,11 +396,11 @@ export default function SplitQrScreen() {
           position: 'top',
         });
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       Toast.show({
         type: 'error',
         text1: 'Error',
-        text2: err?.message || 'Failed to record transaction',
+        text2: err instanceof Error ? err.message : 'Failed to record transaction',
         position: 'top',
       });
     } finally {
@@ -420,12 +421,12 @@ export default function SplitQrScreen() {
         position: 'top',
         visibilityTime: 2500,
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       await loadSavedCards();
       Toast.show({
         type: 'error',
         text1: 'Delete Failed',
-        text2: err?.message || 'Could not delete card',
+        text2: err instanceof Error ? err.message : 'Could not delete card',
         position: 'top',
       });
     }
@@ -835,7 +836,7 @@ export default function SplitQrScreen() {
                       onPress={() => handleSelectHandle(bank.handle)}
                       activeOpacity={0.7}
                     >
-                      <BankLogo id={bank.id as any} height={16} />
+                      <BankLogo id={bank.id} height={16} />
                     </TouchableOpacity>
                   );
                 })}

@@ -1,6 +1,8 @@
 import * as StoreReview from 'expo-store-review';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Linking, Platform } from 'react-native';
+import { log, warn } from '@/lib/logger';
+
 
 const REVIEW_PROMPTED_PREFIX = '@rupeo_google_review_prompted_';
 const PENDING_REVIEW_PREFIX = '@rupeo_pending_first_tx_review_';
@@ -22,21 +24,17 @@ export async function requestGooglePlayReview(): Promise<boolean> {
 
     const isAvailable = await StoreReview.isAvailableAsync();
     if (isAvailable) {
-      console.log('⭐ [Review] Launching native Google In-App Review flow...');
+      log('⭐ [Review] Launching native Google In-App Review flow...');
       await StoreReview.requestReview();
       return true;
     }
 
-    console.log('⚠️ [Review] Native StoreReview not available, opening Play Store');
+    log('⚠️ [Review] Native StoreReview not available, opening Play Store');
     await openPlayStorePageDirectly();
     return true;
   } catch (error) {
-    console.warn('❌ [Review] Could not launch Google Play Review:', error);
-    try {
-      await Linking.openURL(PLAY_STORE_URL);
-    } catch {
-      // ignore
-    }
+    warn('❌ [Review] Could not launch Google Play Review:', error);
+    await openPlayStorePageDirectly();
     return false;
   }
 }
@@ -46,16 +44,13 @@ export async function requestGooglePlayReview(): Promise<boolean> {
  */
 export async function openPlayStorePageDirectly(): Promise<void> {
   try {
-    // On Android native mobile, market:// opens the Google Play Store app directly
+    // On Android native mobile, directly launch market:// to open Google Play Store app
     if (Platform.OS === 'android') {
       try {
-        const canOpen = await Linking.canOpenURL(PLAY_STORE_MARKET_URL);
-        if (canOpen) {
-          await Linking.openURL(PLAY_STORE_MARKET_URL);
-          return;
-        }
-      } catch {
-        // Fallback to https url
+        await Linking.openURL(PLAY_STORE_MARKET_URL);
+        return;
+      } catch (err) {
+        log('market:// failed, opening web Play Store URL:', err);
       }
     }
 
@@ -91,7 +86,7 @@ export async function setUserReviewPrompted(userId: string): Promise<void> {
   try {
     await AsyncStorage.setItem(`${REVIEW_PROMPTED_PREFIX}${userId}`, 'true');
   } catch (err) {
-    console.warn('Failed to save review prompted state:', err);
+    warn('Failed to save review prompted state:', err);
   }
 }
 
@@ -106,7 +101,7 @@ export async function markFirstTransactionReviewPending(userId: string): Promise
       await AsyncStorage.setItem(`${PENDING_REVIEW_PREFIX}${userId}`, 'true');
     }
   } catch (err) {
-    console.warn('Failed to mark first tx review pending:', err);
+    warn('Failed to mark first tx review pending:', err);
   }
 }
 
@@ -136,7 +131,7 @@ export async function checkAndPromptPendingReview(userId: string): Promise<boole
     }
     return false;
   } catch (err) {
-    console.warn('Error checking pending review:', err);
+    warn('Error checking pending review:', err);
     return false;
   }
 }
@@ -160,7 +155,7 @@ export async function checkFirstTransactionFallback(
     }, 1000);
     return true;
   } catch (err) {
-    console.warn('Error in first transaction fallback check:', err);
+    warn('Error in first transaction fallback check:', err);
     return false;
   }
 }
@@ -194,6 +189,7 @@ export async function clearReviewPending(userId: string): Promise<void> {
 
 import { db } from './firebase';
 import { collection, addDoc, serverTimestamp, doc, setDoc } from 'firebase/firestore';
+
 
 export interface AppReviewData {
   rating: number;
@@ -230,12 +226,12 @@ export async function saveAppReview(userId: string, data: AppReviewData): Promis
           created_at: serverTimestamp(),
         });
       } catch (firestoreErr) {
-        console.warn('Could not save review to Firestore:', firestoreErr);
+        warn('Could not save review to Firestore:', firestoreErr);
       }
     }
     return true;
   } catch (err) {
-    console.warn('Error saving app review:', err);
+    warn('Error saving app review:', err);
     return false;
   }
 }

@@ -18,7 +18,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
-import { getCategoryTotals, deleteAllTransactions, saveStartingBalance, saveUserSettings, UserSettings, getAllTransactions } from '@/lib/database';
+import { getCategoryTotals, deleteAllTransactions, saveStartingBalance, saveUserSettings, UserSettings, getAllTransactions, normalizeDate } from '@/lib/database';
 import { syncWidgetWithTransactions } from '@/lib/widgetSync';
 import { getSyncUdharToDashboardTx, setSyncUdharToDashboardTx, saveLastUsedUpiId } from '@/lib/udharStorage';
 import { validateUpiId } from '@/lib/splitPayment';
@@ -37,9 +37,10 @@ import { CurrencySelectorModal } from '@/components/CurrencySelectorModal';
 import { VipAvatar } from '@/components/VipAvatar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image as ExpoImage } from 'expo-image';
+import * as Haptics from 'expo-haptics';
 import { restorePurchases, getPlanDisplayName } from '@/lib/iap';
 import { HelpSupportModal } from '@/components/help-support-modal';
-import { requestGooglePlayReview, openPlayStorePageDirectly } from '@/lib/review';
+import { requestGooglePlayReview, openPlayStorePageDirectly, setUserReviewPrompted, clearReviewPending } from '@/lib/review';
 import { GooglePlayReviewModal } from '@/components/GooglePlayReviewModal';
 import Constants from 'expo-constants';
 
@@ -103,6 +104,7 @@ function BottomSheetModal({
   icon,
   iconBg,
   iconColor,
+  gradientColors,
   autoHeight = false,
   children,
 }: {
@@ -112,6 +114,7 @@ function BottomSheetModal({
   icon?: keyof typeof Ionicons.glyphMap;
   iconBg?: string;
   iconColor?: string;
+  gradientColors?: [string, string];
   autoHeight?: boolean;
   children: React.ReactNode;
 }) {
@@ -133,9 +136,20 @@ function BottomSheetModal({
           <View style={styles.modalHeader}>
             <View style={styles.modalHeaderLeft}>
               {icon && (
-                <View style={[styles.infoIconBg, { backgroundColor: iconBg || '#F3F4F6' }]}>
-                  <Ionicons name={icon} size={22} color={iconColor || '#1C1C1E'} />
-                </View>
+                gradientColors ? (
+                  <LinearGradient
+                    colors={gradientColors}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.infoIconGradient}
+                  >
+                    <Ionicons name={icon} size={22} color="#FFFFFF" />
+                  </LinearGradient>
+                ) : (
+                  <View style={[styles.infoIconBg, { backgroundColor: iconBg || '#F3F4F6' }]}>
+                    <Ionicons name={icon} size={22} color={iconColor || '#1C1C1E'} />
+                  </View>
+                )
               )}
               <Text style={styles.modalTitle}>{title}</Text>
             </View>
@@ -171,6 +185,7 @@ function SettingsRow({
   icon,
   iconBg = '#F1F5F9',
   iconColor = '#0F172A',
+  gradientColors,
   label,
   value,
   labelColor,
@@ -184,6 +199,7 @@ function SettingsRow({
   icon: keyof typeof Ionicons.glyphMap;
   iconBg?: string;
   iconColor?: string;
+  gradientColors?: [string, string];
   label: string;
   value?: string;
   labelColor?: string;
@@ -195,17 +211,36 @@ function SettingsRow({
   badgeColor?: string;
 }) {
   const Wrapper = onPress ? TouchableOpacity : View;
+  const handlePress = () => {
+    if (!onPress) return;
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {}
+    onPress();
+  };
+
   return (
     <Wrapper
       style={styles.infoRow}
-      onPress={onPress}
+      onPress={onPress ? handlePress : undefined}
       activeOpacity={0.7}
       accessibilityRole={onPress ? 'button' : undefined}
       accessibilityLabel={label}
     >
-      <View style={[styles.infoIconBg, { backgroundColor: iconBg }]}>
-        <Ionicons name={icon} size={20} color={iconColor} />
-      </View>
+      {gradientColors ? (
+        <LinearGradient
+          colors={gradientColors}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.infoIconGradient}
+        >
+          <Ionicons name={icon} size={20} color="#FFFFFF" />
+        </LinearGradient>
+      ) : (
+        <View style={[styles.infoIconBg, { backgroundColor: iconBg }]}>
+          <Ionicons name={icon} size={20} color={iconColor} />
+        </View>
+      )}
       <View style={styles.infoTextContainer}>
         <View style={styles.infoLabelRow}>
           <Text style={[styles.infoLabel, labelColor && { color: labelColor }]}>{label}</Text>
@@ -221,7 +256,7 @@ function SettingsRow({
           </Text>
         )}
       </View>
-      {onPress && (loading ? <ActivityIndicator size="small" color={iconColor} /> : showChevron && (
+      {onPress && (loading ? <ActivityIndicator size="small" color={gradientColors ? '#FFFFFF' : iconColor} /> : showChevron && (
         <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
       ))}
     </Wrapper>
@@ -249,13 +284,16 @@ export default function SettingsScreen() {
   }, [user?.uid]);
 
   const handleToggleUdharDashboard = async (val: boolean) => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch {}
     setSyncUdharDashboard(val);
     await setSyncUdharToDashboardTx(user?.uid, val);
     Toast.show({
-      type: 'info',
-      text1: val ? (lang === 'Hindi' ? 'डैशबोर्ड में शामिल' : 'Added to Dashboard Spends') : (lang === 'Hindi' ? 'डैशबोर्ड से अलग' : 'Separate from Dashboard'),
+      type: val ? 'success' : 'info',
+      text1: val ? (lang === 'Hindi' ? 'डैशबोर्ड में शामिल ✅' : 'Added to Dashboard Spends ✅') : (lang === 'Hindi' ? 'डैशबोर्ड से अलग' : 'Separate from Dashboard'),
       text2: val
-        ? (lang === 'Hindi' ? 'उधार लेन-देन होम स्क्रीन खर्च और बजट में जुड़ेंगे' : 'Udhar transactions will record in Home spends')
+        ? (lang === 'Hindi' ? 'उधार लेन-देन होम स्क्रीन खर्च और बजट में जुड़ेंगे' : 'Udhar transactions will record in Home spends & monthly budget')
         : (lang === 'Hindi' ? 'उधार लेन-देन सिर्फ खाताबुक में रहेंगे' : 'Udhar transactions will stay in Khata only'),
       position: 'top',
       visibilityTime: 2500,
@@ -268,6 +306,7 @@ export default function SettingsScreen() {
   const [exportMonth, setExportMonth] = useState<string>(getLocalMonthString());
   const [exportAvailableMonths, setExportAvailableMonths] = useState<string[]>([]);
   const [totalExportTxsCount, setTotalExportTxsCount] = useState<number>(0);
+  const [exportAllTxs, setExportAllTxs] = useState<any[]>([]);
   const [showImportModal, setShowImportModal] = useState(false);
   const [importText, setImportText] = useState('');
   const [selectedImportFile, setSelectedImportFile] = useState<string | null>(null);
@@ -286,6 +325,17 @@ export default function SettingsScreen() {
   const [isRestoring, setIsRestoring] = useState(false);
   const [showSupportModal, setShowSupportModal] = useState(false);
   const [showReviewModal, setShowReviewModal] = useState(false);
+  const handleOpenPlayStoreReview = async () => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch {}
+    if (user?.uid) {
+      setUserReviewPrompted(user.uid).catch(() => {});
+      clearReviewPending(user.uid).catch(() => {});
+    }
+    await openPlayStorePageDirectly();
+  };
+
   // Automatically sync widgets in the background when settings screen is active
   useEffect(() => {
     if (user?.uid) {
@@ -353,8 +403,9 @@ export default function SettingsScreen() {
       monthSet.add(lastM);
 
       txs.forEach((t: any) => {
-        if (t.date && typeof t.date === 'string' && t.date.length >= 7) {
-          const m = t.date.slice(0, 7);
+        const norm = normalizeDate(t.date || '');
+        if (norm && norm.length >= 7) {
+          const m = norm.slice(0, 7);
           if (/^\d{4}-\d{2}$/.test(m)) {
             monthSet.add(m);
           }
@@ -463,10 +514,19 @@ export default function SettingsScreen() {
 
   // ---- Export -------------------------------------------------------------
 
+  const selectedMonthExportTxsCount = useMemo(() => {
+    if (exportPeriodMode === 'all') return totalExportTxsCount;
+    return exportAllTxs.filter((t: any) => {
+      const norm = normalizeDate(t.date || '');
+      return norm.startsWith(exportMonth);
+    }).length;
+  }, [exportPeriodMode, exportMonth, exportAllTxs, totalExportTxsCount]);
+
   const openExportModal = async () => {
     if (!user?.uid) return;
     try {
       const txs = await getAllTransactions(user.uid, true);
+      setExportAllTxs(txs);
       setTotalExportTxsCount(txs.length);
 
       const currentM = getLocalMonthString();
@@ -484,6 +544,7 @@ export default function SettingsScreen() {
 
       const sortedMonths = Array.from(monthSet).sort((a, b) => b.localeCompare(a));
       setExportAvailableMonths(sortedMonths);
+      setExportMonth(currentM);
       setExportPeriodMode('all');
       setShowExportModal(true);
     } catch (err) {
@@ -504,23 +565,23 @@ export default function SettingsScreen() {
       if (res.success) {
         Toast.show({
           type: 'success',
-          text1: 'Backup Exported Successfully ✅',
-          text2: `Saved ${res.count} transactions (${exportPeriodMode === 'all' ? 'All Time' : exportMonth}) to ${res.filename}`,
+          text1: t('export_success_title'),
+          text2: `Saved ${res.count} transactions (${exportPeriodMode === 'all' ? t('all_data') : formatMonthDisplay(exportMonth)}) to ${res.filename}`,
           visibilityTime: 4000,
         });
       } else {
         Toast.show({
           type: 'error',
-          text1: 'Export Failed ❌',
-          text2: res.error || 'No transactions found to export.',
+          text1: t('export_failed_title'),
+          text2: res.error || t('no_txs_to_export'),
           visibilityTime: 4000,
         });
       }
     } catch (e: any) {
       Toast.show({
         type: 'error',
-        text1: 'Export Failed ❌',
-        text2: e?.message || 'An error occurred during export.',
+        text1: t('export_failed_title'),
+        text2: e?.message || t('no_txs_to_export'),
         visibilityTime: 4000,
       });
     } finally {
@@ -774,9 +835,13 @@ export default function SettingsScreen() {
         <View style={styles.topHalf}>
           <SafeAreaView edges={['top']}>
             <View style={styles.header}>
-              <View>
+              <View style={{ flex: 1 }}>
                 <Text style={styles.title}>{t('profile')}</Text>
                 <Text style={styles.subtitle}>{t('account_app_preferences')}</Text>
+              </View>
+              <View style={styles.headerAppBadge}>
+                <Ionicons name="sparkles" size={13} color="#F59E0B" style={{ marginRight: 5 }} />
+                <Text style={styles.headerAppBadgeText}>Rupeo</Text>
               </View>
             </View>
           </SafeAreaView>
@@ -786,8 +851,11 @@ export default function SettingsScreen() {
           {/* Profile Card */}
           <TouchableOpacity
             style={styles.profileCardWrapper}
-            onPress={() => router.push('/edit-profile')}
-            activeOpacity={0.85}
+            onPress={() => {
+              try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+              router.push('/edit-profile');
+            }}
+            activeOpacity={0.88}
             accessibilityRole="button"
             accessibilityLabel={t('edit_profile_btn')}
           >
@@ -803,11 +871,24 @@ export default function SettingsScreen() {
                 />
               </View>
 
-              <Text style={styles.userName}>{user.displayName || 'Rupeo User'}</Text>
+              <View style={styles.userNameRow}>
+                <Text style={styles.userName}>{user.displayName || 'Rupeo User'}</Text>
+                {isPremium && (
+                  <LinearGradient
+                    colors={['#F59E0B', '#D97706']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.userVipBadge}
+                  >
+                    <Ionicons name="diamond" size={10} color="#FFFFFF" style={{ marginRight: 3 }} />
+                    <Text style={styles.userVipBadgeText}>PRO</Text>
+                  </LinearGradient>
+                )}
+              </View>
               <Text style={styles.userEmail}>{user.email}</Text>
 
               <View style={styles.editProfilePill}>
-                <Ionicons name="pencil" size={12} color="#3B82F6" style={{ marginRight: 4 }} />
+                <Ionicons name="pencil" size={12} color="#2563EB" style={{ marginRight: 4 }} />
                 <Text style={styles.editProfilePillText}>{t('edit_profile_btn')}</Text>
               </View>
 
@@ -827,9 +908,12 @@ export default function SettingsScreen() {
                 </View>
                 <View style={styles.statDivider} />
                 <View style={styles.statItem}>
-                  <Text style={[styles.statValue, { color: '#10B981' }]} numberOfLines={1}>
-                    {t('account_active')}
-                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, marginBottom: 2 }}>
+                    <View style={styles.activeDotPulse} />
+                    <Text style={[styles.statValue, { color: '#10B981', marginBottom: 0 }]} numberOfLines={1}>
+                      {t('account_active')}
+                    </Text>
+                  </View>
                   <Text style={styles.statLabel} numberOfLines={1}>{t('account_label')}</Text>
                 </View>
               </View>
@@ -1003,30 +1087,27 @@ export default function SettingsScreen() {
 
           {/* Planning & Categories */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>{t('planning_expenses')}</Text>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionTitleNoMargin}>{t('planning_expenses')}</Text>
+            </View>
             <View style={styles.infoCard}>
               <SettingsRow
-                icon="pie-chart-outline"
-                iconBg="#FEF9E7"
-                iconColor="#B45309"
+                icon="pie-chart"
+                gradientColors={['#F59E0B', '#D97706']}
                 label={t('budget_goals')}
                 value={t('budget_goals_desc')}
                 onPress={() => router.push('/budget')}
               />
-              <View style={styles.infoDivider} />
               <SettingsRow
-                icon="grid-outline"
-                iconBg="#EFF6FF"
-                iconColor="#3B82F6"
+                icon="grid"
+                gradientColors={['#6366F1', '#4F46E5']}
                 label={t('manage_categories')}
                 value={t('manage_categories_desc')}
                 onPress={() => router.push('/categories')}
               />
-              <View style={styles.infoDivider} />
               <SettingsRow
-                icon="wallet-outline"
-                iconBg="#FEF3C7"
-                iconColor="#B45309"
+                icon="wallet"
+                gradientColors={['#10B981', '#059669']}
                 label={t('update_starting_balance')}
                 value={`${t('current_balance_prefix')} ${curr}${Number((user as any)?.startingBalance || 0).toLocaleString('en-IN')}`}
                 onPress={openStartingBalanceEditor}
@@ -1036,70 +1117,157 @@ export default function SettingsScreen() {
 
           {/* Preferences */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>{t('preferences')}</Text>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionTitleNoMargin}>{t('preferences')}</Text>
+            </View>
             <View style={styles.infoCard}>
-              <View style={styles.prefRow}>
-                <Text style={styles.prefLabel}>{t('language')}</Text>
-                <PillSelector
-                  options={LANGUAGES}
-                  activeValue={(settings?.language as Language) || 'English'}
-                  onSelect={val => updatePref('language', val)}
-                  a11yLabel="App language"
-                />
-              </View>
-
-              <View style={styles.infoDivider} />
-
-              <View style={styles.prefRow}>
-                <Text style={styles.prefLabel}>{t('currency')}</Text>
-                <TouchableOpacity
-                  style={styles.currencySelectorBtn}
-                  onPress={() => setShowCurrencyModal(true)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.currencySymbolText}>{selectedCurrencyObj?.symbol || settings?.currency || '₹'}</Text>
-                  <Ionicons name="chevron-down" size={14} color="#94A3B8" style={{ marginLeft: 6 }} />
-                </TouchableOpacity>
-              </View>
-
-              <View style={styles.infoDivider} />
-
-              <View style={styles.prefRow}>
-                <View style={{ flex: 1, paddingRight: 12 }}>
-                  <Text style={styles.prefLabel}>{t('sync_udhar_to_dashboard')}</Text>
-                  <Text style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>{t('sync_udhar_to_dashboard_sub')}</Text>
+              {/* Language Card */}
+              <View style={styles.prefRowCard}>
+                <View style={styles.prefHeaderRow}>
+                  <LinearGradient
+                    colors={['#3B82F6', '#1D4ED8']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.infoIconGradient}
+                  >
+                    <Ionicons name="language" size={20} color="#FFFFFF" />
+                  </LinearGradient>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.infoLabel}>{t('language')}</Text>
+                    <Text style={styles.infoValue}>
+                      {settings?.language === 'Hindi' ? 'ऐप की भाषा चुनें' : settings?.language === 'Hinglish' ? 'App ki bhasha chunein' : 'Select app display language'}
+                    </Text>
+                  </View>
                 </View>
-                <Switch
-                  value={syncUdharDashboard}
-                  onValueChange={handleToggleUdharDashboard}
-                  trackColor={{ false: '#CBD5E1', true: '#6366F1' }}
-                  thumbColor="#FFFFFF"
-                />
+                <View style={styles.prefSelectorWrap}>
+                  <PillSelector
+                    options={LANGUAGES}
+                    activeValue={(settings?.language as Language) || 'English'}
+                    onSelect={val => {
+                      try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+                      updatePref('language', val);
+                    }}
+                    a11yLabel="App language"
+                  />
+                </View>
               </View>
 
-              <View style={styles.infoDivider} />
-
-              <View style={styles.prefRow}>
-                <View style={{ flex: 1, paddingRight: 12 }}>
-                  <Text style={styles.prefLabel}>My UPI ID</Text>
-                  <Text style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>
-                    {settings?.upiId || 'Not set (e.g. name@bank)'}
+              {/* Currency Row */}
+              <TouchableOpacity
+                style={styles.infoRow}
+                onPress={() => {
+                  try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+                  setShowCurrencyModal(true);
+                }}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={t('currency')}
+              >
+                <LinearGradient
+                  colors={['#10B981', '#0D9488']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.infoIconGradient}
+                >
+                  <Ionicons name="cash" size={20} color="#FFFFFF" />
+                </LinearGradient>
+                <View style={styles.infoTextContainer}>
+                  <Text style={styles.infoLabel}>{t('currency')}</Text>
+                  <Text style={styles.infoValue}>
+                    {selectedCurrencyObj ? `${selectedCurrencyObj.name} (${selectedCurrencyObj.symbol})` : 'Default Currency'}
                   </Text>
                 </View>
-                <TouchableOpacity
-                  style={styles.currencySelectorBtn}
-                  onPress={() => {
-                    setUpiInput(settings?.upiId || '');
-                    setShowUpiModal(true);
-                  }}
-                  activeOpacity={0.7}
+                <View style={styles.currencySelectorBtnModern}>
+                  <Text style={styles.currencySymbolText}>{selectedCurrencyObj?.symbol || settings?.currency || '₹'}</Text>
+                  <Ionicons name="chevron-forward" size={14} color="#64748B" style={{ marginLeft: 6 }} />
+                </View>
+              </TouchableOpacity>
+
+              {/* Add Udhar to Dashboard Spends Featured Card */}
+              <View style={[styles.udharPrefCard, syncUdharDashboard && styles.udharPrefCardActive]}>
+                <View style={styles.udharPrefHeader}>
+                  <View style={[styles.udharIconCircle, syncUdharDashboard && styles.udharIconCircleActive]}>
+                    <ExpoImage
+                      source={require('@/assets/images/3D_frinds-icon.png')}
+                      style={styles.udhar3dImg}
+                      contentFit="contain"
+                    />
+                  </View>
+                  <View style={{ flex: 1, paddingHorizontal: 12 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <Text style={styles.udharPrefTitle}>{t('sync_udhar_to_dashboard')}</Text>
+                      <View style={[styles.udharBadge, syncUdharDashboard ? styles.udharBadgeActive : styles.udharBadgeInactive]}>
+                        <View style={[styles.udharDot, syncUdharDashboard ? styles.udharDotActive : styles.udharDotInactive]} />
+                        <Text style={[styles.udharBadgeText, syncUdharDashboard ? styles.udharBadgeTextActive : styles.udharBadgeTextInactive]}>
+                          {syncUdharDashboard ? t('udhar_sync_active_badge') : t('udhar_sync_inactive_badge')}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={styles.udharPrefSub}>{t('sync_udhar_to_dashboard_sub')}</Text>
+                  </View>
+                  <Switch
+                    value={syncUdharDashboard}
+                    onValueChange={handleToggleUdharDashboard}
+                    trackColor={{ false: '#CBD5E1', true: '#6366F1' }}
+                    thumbColor="#FFFFFF"
+                    ios_backgroundColor="#CBD5E1"
+                  />
+                </View>
+
+                {/* Dynamic Context Explanation */}
+                <View style={[styles.udharNoteBox, syncUdharDashboard && styles.udharNoteBoxActive]}>
+                  <Ionicons
+                    name={syncUdharDashboard ? "checkmark-circle" : "shield-checkmark-outline"}
+                    size={15}
+                    color={syncUdharDashboard ? "#4F46E5" : "#64748B"}
+                    style={{ marginRight: 6 }}
+                  />
+                  <Text style={[styles.udharNoteText, syncUdharDashboard && styles.udharNoteTextActive]}>
+                    {syncUdharDashboard ? t('udhar_sync_active_desc') : t('udhar_sync_inactive_desc')}
+                  </Text>
+                </View>
+              </View>
+
+              {/* My UPI ID Row */}
+              <TouchableOpacity
+                style={styles.infoRow}
+                onPress={() => {
+                  try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+                  setUpiInput(settings?.upiId || '');
+                  setShowUpiModal(true);
+                }}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel="My UPI ID"
+              >
+                <LinearGradient
+                  colors={['#8B5CF6', '#7C3AED']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.infoIconGradient}
                 >
-                  <Text style={[styles.currencySymbolText, { fontSize: 13, fontWeight: '700', color: '#0F172A' }]}>
+                  <Ionicons name="qr-code" size={20} color="#FFFFFF" />
+                </LinearGradient>
+                <View style={styles.infoTextContainer}>
+                  <View style={styles.infoLabelRow}>
+                    <Text style={styles.infoLabel}>My UPI ID</Text>
+                    {settings?.upiId ? (
+                      <View style={[styles.rowBadge, { backgroundColor: '#ECFDF5' }]}>
+                        <Text style={[styles.rowBadgeText, { color: '#047857' }]}>SET</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <Text style={styles.infoValue} numberOfLines={1}>
+                    {settings?.upiId || 'Add UPI ID for statement QR'}
+                  </Text>
+                </View>
+                <View style={styles.currencySelectorBtnModern}>
+                  <Text style={[styles.currencySymbolText, { fontSize: 13, fontWeight: '700', color: '#6366F1' }]}>
                     {settings?.upiId ? 'Edit' : 'Add'}
                   </Text>
-                  <Ionicons name="pencil" size={12} color="#64748B" style={{ marginLeft: 4 }} />
-                </TouchableOpacity>
-              </View>
+                  <Ionicons name="pencil" size={12} color="#6366F1" style={{ marginLeft: 4 }} />
+                </View>
+              </TouchableOpacity>
             </View>
           </View>
 
@@ -1114,9 +1282,8 @@ export default function SettingsScreen() {
             </View>
             <View style={styles.infoCard}>
               <SettingsRow
-                icon="document-text-outline"
-                iconBg="#FEF2F2"
-                iconColor="#DC2626"
+                icon="document-text"
+                gradientColors={['#EF4444', '#DC2626']}
                 label={t('statement_pdf')}
                 value={t('statement_pdf_desc')}
                 badgeText="PDF PASSBOOK"
@@ -1124,11 +1291,9 @@ export default function SettingsScreen() {
                 badgeColor="#DC2626"
                 onPress={openStatementModal}
               />
-              <View style={styles.infoDivider} />
               <SettingsRow
-                icon="cloud-download-outline"
-                iconBg="#ECFDF5"
-                iconColor="#059669"
+                icon="cloud-download"
+                gradientColors={['#059669', '#047857']}
                 label={t('export_data')}
                 value={t('export_desc')}
                 badgeText="JSON • CSV"
@@ -1138,9 +1303,8 @@ export default function SettingsScreen() {
                 loading={isExporting}
               />
               <SettingsRow
-                icon="cloud-upload-outline"
-                iconBg="#EFF6FF"
-                iconColor="#2563EB"
+                icon="cloud-upload"
+                gradientColors={['#2563EB', '#1D4ED8']}
                 label={t('import_data')}
                 value={t('import_desc')}
                 badgeText="RESTORE"
@@ -1149,15 +1313,14 @@ export default function SettingsScreen() {
                 onPress={() => setShowImportModal(true)}
               />
               <SettingsRow
-                icon="trash-outline"
-                iconBg="#FEE2E2"
-                iconColor="#DC2626"
+                icon="trash"
+                gradientColors={['#F43F5E', '#BE123C']}
                 label={t('delete_all_data')}
                 labelColor="#DC2626"
                 value={t('delete_all_desc')}
                 badgeText="RESET"
-                badgeBg="#FEF2F2"
-                badgeColor="#DC2626"
+                badgeBg="#FFF1F2"
+                badgeColor="#E11D48"
                 onPress={() => setDeleteDataModalVisible(true)}
               />
             </View>
@@ -1165,10 +1328,15 @@ export default function SettingsScreen() {
 
           {/* Help & Support */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>{t('help_support')}</Text>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionTitleNoMargin}>{t('help_support')}</Text>
+            </View>
             <TouchableOpacity
               style={styles.supportCard}
-              onPress={() => setShowSupportModal(true)}
+              onPress={() => {
+                try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+                setShowSupportModal(true);
+              }}
               activeOpacity={0.85}
               accessibilityRole="button"
               accessibilityLabel={t('help_support')}
@@ -1176,9 +1344,14 @@ export default function SettingsScreen() {
               <View style={styles.supportCardContent}>
                 {/* Left: Branded Navy & Gold Icon */}
                 <View style={styles.supportIconWrapper}>
-                  <View style={styles.supportIconBg}>
+                  <LinearGradient
+                    colors={['#0F172A', '#1E293B']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.supportIconBg}
+                  >
                     <Ionicons name="headset" size={22} color="#FFD740" />
-                  </View>
+                  </LinearGradient>
                   <View style={styles.supportStatusDot} />
                 </View>
 
@@ -1206,10 +1379,12 @@ export default function SettingsScreen() {
 
           {/* Rate & Review Card */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Rate & Review</Text>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionTitleNoMargin}>Rate & Review</Text>
+            </View>
             <TouchableOpacity
               style={styles.reviewCard}
-              onPress={() => setShowReviewModal(true)}
+              onPress={handleOpenPlayStoreReview}
               activeOpacity={0.85}
               accessibilityRole="button"
               accessibilityLabel="Rate on Google Play"
@@ -1217,16 +1392,21 @@ export default function SettingsScreen() {
               <View style={styles.supportCardContent}>
                 {/* Left: Gold Star Icon */}
                 <View style={styles.supportIconWrapper}>
-                  <View style={[styles.supportIconBg, { backgroundColor: '#FEF3C7' }]}>
-                    <Ionicons name="star" size={24} color="#D97706" />
-                  </View>
+                  <LinearGradient
+                    colors={['#F59E0B', '#D97706']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.supportIconBg}
+                  >
+                    <Ionicons name="star" size={24} color="#FFFFFF" />
+                  </LinearGradient>
                 </View>
 
                 {/* Center: Title, Subtitle, Rating Tag */}
                 <View style={styles.supportTextWrap}>
                   <View style={styles.supportTitleRow}>
                     <Text style={styles.supportCardTitle}>Rate on Google Play</Text>
-                    <View style={[styles.supportLiveBadge, { backgroundColor: '#FEF3C7' }]}>
+                    <View style={[styles.supportLiveBadge, { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }]}>
                       <Text style={[styles.supportLiveText, { color: '#B45309' }]}>⭐ 5.0 RATING</Text>
                     </View>
                   </View>
@@ -1245,19 +1425,19 @@ export default function SettingsScreen() {
 
           {/* Legal */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>{t('legal')}</Text>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionTitleNoMargin}>{t('legal')}</Text>
+            </View>
             <View style={styles.infoCard}>
               <SettingsRow
-                icon="document-text-outline"
-                iconBg="#F1F5F9"
-                iconColor="#475569"
+                icon="document-text"
+                gradientColors={['#64748B', '#475569']}
                 label={t('terms_conditions')}
                 onPress={() => setLegalDoc('terms')}
               />
               <SettingsRow
-                icon="shield-checkmark-outline"
-                iconBg="#ECFDF5"
-                iconColor="#059669"
+                icon="shield-checkmark"
+                gradientColors={['#0D9488', '#0F766E']}
                 label={t('privacy_policy')}
                 onPress={() => setLegalDoc('privacy')}
               />
@@ -1266,38 +1446,57 @@ export default function SettingsScreen() {
 
           {/* Danger Zone */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>{t('danger_zone')}</Text>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionTitleNoMargin}>{t('danger_zone')}</Text>
+            </View>
             <View style={styles.dangerCard}>
               {/* Logout */}
               <TouchableOpacity
                 style={styles.dangerRow}
-                onPress={() => setLogoutModalVisible(true)}
+                onPress={() => {
+                  try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+                  setLogoutModalVisible(true);
+                }}
                 activeOpacity={0.7}
                 accessibilityRole="button"
                 accessibilityLabel={t('log_out')}
               >
-                <View style={styles.dangerIconWrap}>
-                  <Ionicons name="log-out-outline" size={20} color="#64748B" />
-                </View>
+                <LinearGradient
+                  colors={['#64748B', '#475569']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.infoIconGradient}
+                >
+                  <Ionicons name="log-out" size={20} color="#FFFFFF" />
+                </LinearGradient>
                 <View style={styles.dangerTextWrap}>
                   <Text style={styles.dangerRowLabel}>{t('log_out')}</Text>
                   <Text style={styles.dangerRowSub}>{t('logout_msg')}</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={16} color="#CBD5E1" />
               </TouchableOpacity>
-
             </View>
 
             {/* Standalone Delete Account Button */}
             <TouchableOpacity
               style={styles.deleteAccountBtn}
-              onPress={() => setDeleteAccountModalVisible(true)}
-              activeOpacity={0.8}
+              onPress={() => {
+                try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch {}
+                setDeleteAccountModalVisible(true);
+              }}
+              activeOpacity={0.85}
               accessibilityRole="button"
               accessibilityLabel={t('delete_my_account')}
             >
-              <Ionicons name="warning-outline" size={20} color="#FFFFFF" style={{ marginRight: 8 }} />
-              <Text style={styles.deleteAccountBtnText}>{t('delete_my_account')}</Text>
+              <LinearGradient
+                colors={['#EF4444', '#DC2626']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.deleteAccountGradient}
+              >
+                <Ionicons name="warning" size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
+                <Text style={styles.deleteAccountBtnText}>{t('delete_my_account')}</Text>
+              </LinearGradient>
             </TouchableOpacity>
           </View>
 
@@ -1325,9 +1524,8 @@ export default function SettingsScreen() {
         visible={showUpiModal}
         onClose={() => setShowUpiModal(false)}
         title="My UPI ID"
-        icon="card-outline"
-        iconBg="#EFF6FF"
-        iconColor="#2563EB"
+        icon="qr-code"
+        gradientColors={['#8B5CF6', '#6366F1']}
         autoHeight
       >
         <Text style={styles.modalIntroText}>
@@ -1361,9 +1559,8 @@ export default function SettingsScreen() {
         visible={showStartingBalanceModal}
         onClose={() => setShowStartingBalanceModal(false)}
         title={t('update_starting_balance')}
-        icon="wallet-outline"
-        iconBg="#FEF3C7"
-        iconColor="#B45309"
+        icon="wallet"
+        gradientColors={['#10B981', '#059669']}
         autoHeight
       >
         <Text style={styles.modalIntroText}>
@@ -1397,8 +1594,7 @@ export default function SettingsScreen() {
         onClose={() => setShowExportModal(false)}
         title={t('export_data')}
         icon="cloud-download"
-        iconBg="#ECFDF5"
-        iconColor="#10B981"
+        gradientColors={['#059669', '#047857']}
         autoHeight={false}
       >
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
@@ -1407,7 +1603,7 @@ export default function SettingsScreen() {
           </Text>
 
           {/* EXPORT PERIOD SELECTION PILLS */}
-          <Text style={styles.statementSectionLabel}>EXPORT SCOPE</Text>
+          <Text style={styles.statementSectionLabel}>{t('export_scope')}</Text>
           <View style={styles.statementPeriodPillRow}>
             <TouchableOpacity
               style={[
@@ -1424,7 +1620,7 @@ export default function SettingsScreen() {
                 style={{ marginRight: 6 }}
               />
               <Text style={[styles.statementPeriodBtnText, exportPeriodMode === 'all' && styles.statementPeriodBtnTextActive]}>
-                All History (पूरा डेटा)
+                {t('all_history')}
               </Text>
             </TouchableOpacity>
 
@@ -1443,15 +1639,15 @@ export default function SettingsScreen() {
                 style={{ marginRight: 6 }}
               />
               <Text style={[styles.statementPeriodBtnText, exportPeriodMode === 'month' && styles.statementPeriodBtnTextActive]}>
-                Specific Month
+                {t('specific_month')}
               </Text>
             </TouchableOpacity>
           </View>
 
           {/* MONTH SELECTOR (When 'month' is active) */}
-          {exportPeriodMode === 'month' ? (
+          {exportPeriodMode === 'month' && (
             <View style={{ marginBottom: 14 }}>
-              <Text style={styles.statementSubLabel}>SELECT MONTH:</Text>
+              <Text style={styles.statementSubLabel}>{t('select_month_label')}</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 4 }}>
                 {exportAvailableMonths.map((m) => {
                   const isSelected = exportMonth === m;
@@ -1474,16 +1670,36 @@ export default function SettingsScreen() {
                 })}
               </ScrollView>
             </View>
-          ) : (
-            <View style={{ backgroundColor: '#F0FDF4', borderRadius: 12, padding: 8, marginBottom: 14, borderWidth: 1, borderColor: '#BBF7D0' }}>
-              <Text style={{ fontSize: 11.5, color: '#15803D', fontWeight: '700' }}>
-                ✓ {totalExportTxsCount > 0 ? `${totalExportTxsCount} total transactions ready to export across all time.` : 'All historical transactions will be exported together.'}
-              </Text>
-            </View>
           )}
 
+          {/* LIVE STATUS CARD */}
+          <View style={[
+            styles.exportStatusCard,
+            selectedMonthExportTxsCount === 0 && styles.exportStatusCardEmpty
+          ]}>
+            <Ionicons
+              name={selectedMonthExportTxsCount > 0 ? "checkmark-circle" : "alert-circle"}
+              size={18}
+              color={selectedMonthExportTxsCount > 0 ? "#15803D" : "#D97706"}
+              style={{ marginRight: 8 }}
+            />
+            <Text style={[
+              styles.exportStatusText,
+              selectedMonthExportTxsCount === 0 && styles.exportStatusTextEmpty
+            ]}>
+              {exportPeriodMode === 'all'
+                ? (totalExportTxsCount > 0
+                    ? t('all_data_ready_msg').replace('{count}', String(totalExportTxsCount))
+                    : t('all_history_ready_generic'))
+                : (selectedMonthExportTxsCount > 0
+                    ? t('month_data_ready_msg').replace('{count}', String(selectedMonthExportTxsCount)).replace('{month}', formatMonthDisplay(exportMonth))
+                    : t('no_month_data_msg').replace('{month}', formatMonthDisplay(exportMonth)))
+              }
+            </Text>
+          </View>
+
           {/* FORMAT SELECTION */}
-          <Text style={styles.statementSectionLabel}>FILE FORMAT</Text>
+          <Text style={styles.statementSectionLabel}>{t('file_format')}</Text>
           {(['json', 'csv'] as const).map(format => {
             const isActive = exportFormat === format;
             const meta =
@@ -1539,9 +1755,9 @@ export default function SettingsScreen() {
           })}
 
           <TouchableOpacity
-            style={[styles.primaryBtn, isExporting && styles.btnDisabled]}
+            style={[styles.primaryBtn, (isExporting || selectedMonthExportTxsCount === 0) && styles.btnDisabled]}
             onPress={() => handleExport(exportFormat)}
-            disabled={isExporting}
+            disabled={isExporting || selectedMonthExportTxsCount === 0}
             activeOpacity={0.8}
             accessibilityRole="button"
           >
@@ -1551,7 +1767,9 @@ export default function SettingsScreen() {
               <>
                 <Ionicons name="download-outline" size={20} color="#1C1C1E" style={styles.btnIcon} />
                 <Text style={styles.primaryBtnText}>
-                  {t('download_backup')} ({exportPeriodMode === 'all' ? 'All Data' : formatMonthDisplay(exportMonth)}) (.{exportFormat})
+                  {selectedMonthExportTxsCount === 0
+                    ? t('no_txs_found')
+                    : `${t('download_backup')} (${selectedMonthExportTxsCount}) (${exportPeriodMode === 'all' ? t('all_data') : formatMonthDisplay(exportMonth)}) (.${exportFormat})`}
                 </Text>
               </>
             )}
@@ -1569,17 +1787,16 @@ export default function SettingsScreen() {
         onClose={() => setShowStatementModal(false)}
         title={t('statement_pdf')}
         icon="document-text"
-        iconBg="#FEF2F2"
-        iconColor="#DC2626"
+        gradientColors={['#EF4444', '#DC2626']}
         autoHeight={false}
       >
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
           <Text style={styles.modalIntroText}>
-            Select your statement duration to export a certified passbook PDF with official Rupeo branding & Google Play Store download info.
+            {t('statement_intro')}
           </Text>
 
           {/* PERIOD SELECTION PILLS */}
-          <Text style={styles.statementSectionLabel}>STATEMENT PERIOD</Text>
+          <Text style={styles.statementSectionLabel}>{t('statement_period')}</Text>
           <View style={styles.statementPeriodPillRow}>
             <TouchableOpacity
               style={[
@@ -1596,7 +1813,7 @@ export default function SettingsScreen() {
                 style={{ marginRight: 6 }}
               />
               <Text style={[styles.statementPeriodBtnText, statementPeriodMode === 'all' && styles.statementPeriodBtnTextActive]}>
-                All Transactions
+                {t('all_transactions_period')}
               </Text>
             </TouchableOpacity>
 
@@ -1615,7 +1832,7 @@ export default function SettingsScreen() {
                 style={{ marginRight: 6 }}
               />
               <Text style={[styles.statementPeriodBtnText, statementPeriodMode === 'month' && styles.statementPeriodBtnTextActive]}>
-                Specific Month
+                {t('specific_month')}
               </Text>
             </TouchableOpacity>
           </View>
@@ -1623,7 +1840,7 @@ export default function SettingsScreen() {
           {/* MONTH SELECTOR (When 'month' is active) */}
           {statementPeriodMode === 'month' && (
             <View style={{ marginBottom: 14 }}>
-              <Text style={styles.statementSubLabel}>SELECT MONTH:</Text>
+              <Text style={styles.statementSubLabel}>{t('select_month_label')}</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 4 }}>
                 {availableMonths.map((m) => {
                   const isSelected = statementMonth === m;
@@ -1649,11 +1866,11 @@ export default function SettingsScreen() {
           )}
 
           {/* TRANSACTION TYPE FILTER PILLS */}
-          <Text style={styles.statementSectionLabel}>TRANSACTION TYPE</Text>
+          <Text style={styles.statementSectionLabel}>{t('transaction_type')}</Text>
           <View style={styles.statementFilterPillRow}>
             {(['all', 'debit', 'credit'] as const).map((typeKey) => {
               const isSelected = statementTypeFilter === typeKey;
-              const typeLabel = typeKey === 'all' ? 'All Records' : typeKey === 'debit' ? 'Expenses Only' : 'Income Only';
+              const typeLabel = typeKey === 'all' ? t('all_records') : typeKey === 'debit' ? t('expenses_only') : t('income_only');
               const dotColor = typeKey === 'all' ? '#64748B' : typeKey === 'debit' ? '#DC2626' : '#16A34A';
               return (
                 <TouchableOpacity
@@ -1679,33 +1896,33 @@ export default function SettingsScreen() {
             <View style={styles.statementPreviewHeader}>
               <View>
                 <Text style={styles.previewTitle}>
-                  {statementPeriodMode === 'all' ? 'All Transactions (Full Lifetime)' : formatMonthDisplay(statementMonth)}
+                  {statementPeriodMode === 'all' ? t('all_transactions_period') : formatMonthDisplay(statementMonth)}
                 </Text>
                 <Text style={styles.previewCountText}>
-                  {previewStats.count} {previewStats.count === 1 ? 'Transaction' : 'Transactions'} included in PDF
+                  {t('txs_included_in_pdf').replace('{count}', String(previewStats.count))}
                 </Text>
               </View>
               <View style={styles.previewBadge}>
                 <Ionicons name="document-text" size={12} color="#DC2626" style={{ marginRight: 4 }} />
-                <Text style={styles.previewBadgeText}>PDF READY</Text>
+                <Text style={styles.previewBadgeText}>{t('pdf_ready')}</Text>
               </View>
             </View>
 
             <View style={styles.previewStatsRow}>
               <View style={styles.previewStatItem}>
-                <Text style={styles.previewStatLabel}>INCOME</Text>
+                <Text style={styles.previewStatLabel}>{t('income_only').toUpperCase()}</Text>
                 <Text style={[styles.previewStatVal, { color: '#16A34A' }]}>
                   +{curr}{previewStats.income.toLocaleString('en-IN')}
                 </Text>
               </View>
               <View style={styles.previewStatItem}>
-                <Text style={styles.previewStatLabel}>EXPENSE</Text>
+                <Text style={styles.previewStatLabel}>{t('expenses_only').toUpperCase()}</Text>
                 <Text style={[styles.previewStatVal, { color: '#DC2626' }]}>
                   -{curr}{previewStats.expense.toLocaleString('en-IN')}
                 </Text>
               </View>
               <View style={styles.previewStatItem}>
-                <Text style={styles.previewStatLabel}>NET FLOW</Text>
+                <Text style={styles.previewStatLabel}>{t('net_flow')}</Text>
                 <Text style={[styles.previewStatVal, { color: previewStats.net >= 0 ? '#2563EB' : '#DC2626' }]}>
                   {previewStats.net >= 0 ? '+' : ''}{curr}{previewStats.net.toLocaleString('en-IN')}
                 </Text>
@@ -1717,15 +1934,15 @@ export default function SettingsScreen() {
           <View style={styles.statementPerksCard}>
             <View style={styles.perkRow}>
               <Ionicons name="checkmark-circle" size={15} color="#16A34A" style={{ marginRight: 6 }} />
-              <Text style={styles.perkText}>Rupeo official emblem & verified account header</Text>
+              <Text style={styles.perkText}>{t('perk_header')}</Text>
             </View>
             <View style={styles.perkRow}>
               <Ionicons name="checkmark-circle" size={15} color="#16A34A" style={{ marginRight: 6 }} />
-              <Text style={styles.perkText}>Complete itemized ledger with date, category & payment mode</Text>
+              <Text style={styles.perkText}>{t('perk_ledger')}</Text>
             </View>
             <View style={styles.perkRow}>
               <Ionicons name="checkmark-circle" size={15} color="#16A34A" style={{ marginRight: 6 }} />
-              <Text style={styles.perkText}>Google Play Store download badge & certified passbook footer</Text>
+              <Text style={styles.perkText}>{t('perk_footer')}</Text>
             </View>
           </View>
 
@@ -1742,7 +1959,7 @@ export default function SettingsScreen() {
               <>
                 <Ionicons name="download-outline" size={18} color="#1C1C1E" style={styles.btnIcon} />
                 <Text style={styles.primaryBtnText}>
-                  {previewStats.count === 0 ? 'No Transactions Found' : `Download PDF Statement (${previewStats.count})`}
+                  {previewStats.count === 0 ? t('no_txs_found') : `${t('download_pdf_statement')} (${previewStats.count})`}
                 </Text>
               </>
             )}
@@ -1763,8 +1980,7 @@ export default function SettingsScreen() {
         }}
         title={t('import_data')}
         icon="cloud-upload"
-        iconBg="#EFF6FF"
-        iconColor="#3B82F6"
+        gradientColors={['#2563EB', '#1D4ED8']}
         autoHeight
       >
         <Text style={styles.modalIntroText}>
@@ -2482,11 +2698,104 @@ const styles = StyleSheet.create({
     position: 'relative',
     marginRight: 14,
   },
+  headerAppBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  headerAppBadgeText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  userNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  userVipBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+    borderRadius: 8,
+  },
+  userVipBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  activeDotPulse: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: '#10B981',
+  },
+  infoIconGradient: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  prefRowCard: {
+    padding: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    shadowColor: '#64748B',
+    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  prefHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  prefSelectorWrap: {
+    marginTop: 12,
+  },
+  currencySelectorBtnModern: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  deleteAccountGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+  },
   supportIconBg: {
     width: 48,
     height: 48,
     borderRadius: 16,
-    backgroundColor: '#0F172A',
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#0F172A',
@@ -2674,14 +2983,10 @@ const styles = StyleSheet.create({
   },
 
   deleteAccountBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#E63946',
-    borderRadius: 16,
-    paddingVertical: 16,
-    marginTop: 20,
-    shadowColor: '#E63946',
+    borderRadius: 18,
+    overflow: 'hidden',
+    marginTop: 16,
+    shadowColor: '#EF4444',
     shadowOpacity: 0.25,
     shadowOffset: { width: 0, height: 4 },
     shadowRadius: 10,
@@ -3346,5 +3651,143 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#15803D',
     flex: 1,
+  },
+  exportStatusCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0FDF4',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+  },
+  exportStatusCardEmpty: {
+    backgroundColor: '#FFFBEB',
+    borderColor: '#FDE68A',
+  },
+  exportStatusText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#15803D',
+    fontWeight: '700',
+    lineHeight: 16,
+  },
+  exportStatusTextEmpty: {
+    color: '#B45309',
+  },
+  // Udhar Dashboard Sync Card Styles
+  udharPrefCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 18,
+    padding: 14,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    marginVertical: 4,
+  },
+  udharPrefCardActive: {
+    backgroundColor: '#F5F7FF',
+    borderColor: '#C7D2FE',
+    shadowColor: '#6366F1',
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 3 },
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  udharPrefHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  udharIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  udharIconCircleActive: {
+    backgroundColor: '#EEF2FF',
+    borderColor: '#C7D2FE',
+  },
+  udhar3dImg: {
+    width: 32,
+    height: 32,
+  },
+  udharPrefTitle: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: '#0F172A',
+    letterSpacing: -0.2,
+  },
+  udharPrefSub: {
+    fontSize: 11.5,
+    color: '#64748B',
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  udharBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  udharBadgeActive: {
+    backgroundColor: '#EEF2FF',
+  },
+  udharBadgeInactive: {
+    backgroundColor: '#E2E8F0',
+  },
+  udharDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    marginRight: 4,
+  },
+  udharDotActive: {
+    backgroundColor: '#4F46E5',
+  },
+  udharDotInactive: {
+    backgroundColor: '#64748B',
+  },
+  udharBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  udharBadgeTextActive: {
+    color: '#4F46E5',
+  },
+  udharBadgeTextInactive: {
+    color: '#64748B',
+  },
+  udharNoteBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  udharNoteBoxActive: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#C7D2FE',
+  },
+  udharNoteText: {
+    flex: 1,
+    fontSize: 11,
+    color: '#64748B',
+    lineHeight: 15,
+    fontWeight: '600',
+  },
+  udharNoteTextActive: {
+    color: '#4338CA',
+    fontWeight: '700',
   },
 });

@@ -1,4 +1,5 @@
-import { db } from './firebase';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { auth, db } from './firebase';
 import {
   collection,
   doc,
@@ -17,6 +18,7 @@ import {
   onSnapshot,
   arrayUnion,
   increment,
+  limit,
 } from 'firebase/firestore';
 import { formatTime12Hour, getLocalDateString, getLocalMonthString } from './dateUtils';
 import {
@@ -31,6 +33,8 @@ import {
 } from './offlineSync';
 import { syncWidgetWithTransactions } from './widgetSync';
 import { flushUdharSyncQueue } from './udharStorage';
+import { formatCurrency } from './formatCurrency';
+import { warn, error } from '@/lib/logger';
 
 export {
   getOfflineTransactions,
@@ -48,6 +52,28 @@ export interface CategoryItem {
   color: string;
   isCustom?: boolean;
   type?: 'debit' | 'credit' | 'all';
+}
+
+export interface Transaction {
+  id?: string;
+  date: string;
+  time?: string;
+  amount: number;
+  type: 'debit' | 'credit' | string;
+  merchant_name?: string | null;
+  category: string;
+  description?: string | null;
+  utr?: string | null;
+  ref_no?: string | null;
+  payment_mode?: string;
+  receipt_image?: string | null;
+  receiptImage?: string | null;
+  balance_after?: number | null;
+  source?: string;
+  source_statement_id?: number | null;
+  is_manually_edited?: number | boolean;
+  created_at?: number | string;
+  [key: string]: unknown;
 }
 
 export const KNOWN_INCOME_CATEGORY_NAMES = new Set([
@@ -167,7 +193,7 @@ export function invalidateAllUserCache(userId?: string) {
 }
 
 // Transaction Listeners for Instant Cross-Component and Background Sync Updates
-type TxListener = (txs: any[]) => void;
+type TxListener = (txs: Transaction[]) => void;
 const txListeners = new Set<TxListener>();
 
 export function subscribeTransactions(listener: TxListener): () => void {
@@ -177,12 +203,12 @@ export function subscribeTransactions(listener: TxListener): () => void {
   };
 }
 
-export function notifyTransactionsListeners(txs: any[]) {
+export function notifyTransactionsListeners(txs: Transaction[]) {
   txListeners.forEach((listener) => {
     try {
       listener(txs);
     } catch (e) {
-      console.warn('Tx listener error:', e);
+      warn('Tx listener error:', e);
     }
   });
 }
@@ -289,7 +315,7 @@ export async function insertTransaction(userId: string, tx: any, statementId?: n
         txMap.set(d.id, { id: d.id, ...d.data() });
       }
     } catch {
-      // offline fallback
+      // Intentional: offline fallback to local persistent cache
     }
   }
 
@@ -302,7 +328,7 @@ export async function insertTransaction(userId: string, tx: any, statementId?: n
   notifyTransactionsListeners(updatedLocal);
 
   // Sync with Android widget
-  syncWidgetWithTransactions(userId, updatedLocal).catch(() => {});
+  syncWidgetWithTransactions(userId, updatedLocal).catch(() => { });
 
   // 3. Queue offline sync action for Firebase
   await enqueueSyncAction(userId, {
@@ -363,7 +389,7 @@ export async function updateTransaction(userId: string, txId: string, txData: an
   notifyTransactionsListeners(updatedLocal);
 
   // Sync with Android widgets
-  syncWidgetWithTransactions(userId).catch(() => {});
+  syncWidgetWithTransactions(userId).catch(() => { });
 
   // 2. Queue offline sync action
   await enqueueSyncAction(userId, {
@@ -399,7 +425,7 @@ export async function getTransactionById(userId: string, txId: string): Promise<
       return { id: snap.id, ...snap.data() };
     }
   } catch (err) {
-    console.warn('getTransactionById offline fallback caught:', err);
+    warn('getTransactionById offline fallback caught:', err);
   }
 
   return null;
@@ -586,7 +612,7 @@ export async function getAllTransactions(userId: string, forceRefresh = false): 
         return sortedRemote;
       }
     } catch (err) {
-      console.warn('forceRefresh remote sync error:', err);
+      warn('forceRefresh remote sync error:', err);
     }
   }
 
@@ -617,7 +643,7 @@ export async function getAllTransactions(userId: string, forceRefresh = false): 
     notifyTransactionsListeners(sorted);
     return sorted;
   } catch (err) {
-    console.warn('getAllTransactions offline fallback:', err);
+    warn('getAllTransactions offline fallback:', err);
     return [];
   }
 }
@@ -651,7 +677,7 @@ export async function deleteTransaction(userId: string, txId: string) {
   notifyTransactionsListeners(updatedLocal);
 
   // Sync with Android widget
-  syncWidgetWithTransactions(userId, updatedLocal).catch(() => {});
+  syncWidgetWithTransactions(userId, updatedLocal).catch(() => { });
 
   // 2. Queue offline sync action
   await enqueueSyncAction(userId, {
@@ -672,7 +698,7 @@ export async function deleteAllTransactions(userId: string) {
   notifyTransactionsListeners([]);
 
   // Sync with Android widget
-  syncWidgetWithTransactions(userId, []).catch(() => {});
+  syncWidgetWithTransactions(userId, []).catch(() => { });
 
   // 2. Delete from Firestore in background
   try {
@@ -694,7 +720,7 @@ export async function deleteAllTransactions(userId: string) {
       await batch.commit();
     }
   } catch (err) {
-    console.warn('deleteAllTransactions remote error:', err);
+    warn('deleteAllTransactions remote error:', err);
   }
 
   invalidateTransactionsCache(userId);
@@ -767,7 +793,7 @@ export async function getUserCategories(userId: string, forceRefresh = false): P
     memoryCache.categories.set(userId, { data: merged, timestamp: now });
     return merged;
   } catch (err) {
-    console.warn('Could not load categories; using defaults:', err);
+    warn('Could not load categories; using defaults:', err);
     return sanitizeAndDeduplicateCategories(defaultCategories);
   }
 }
@@ -835,7 +861,7 @@ export async function syncUserOfflineData(userId: string): Promise<void> {
       memoryCache.transactions.set(userId, { data: sorted, timestamp: Date.now() });
     }
   } catch (err) {
-    console.warn('syncUserOfflineData caught:', err);
+    warn('syncUserOfflineData caught:', err);
   }
 }
 
@@ -901,10 +927,24 @@ export interface RecurringBill {
   nextDueDate: string;    // YYYY-MM-DD
   notes?: string;
   autoReminderDays?: number; // default 3 days
+  reminderDays?: number;
   reminderEnabled?: boolean;
   receiptImage?: string;  // Last payment proof screenshot
   status?: 'due_soon' | 'due_today' | 'overdue' | 'paid';
+  iconKey?: string;       // Optional Ionicons icon name for custom / auto-generated icon
+  regionCode?: string;    // Optional region code preset (e.g. 'INR', 'USD')
   created_at?: any;
+}
+
+export interface CustomBillProvider {
+  id?: string;
+  name: string;
+  normalizedName: string;
+  iconKey: string;
+  color: string;
+  category: string;
+  group?: 'sim' | 'daily' | 'ott' | 'wifi' | 'utility' | 'other';
+  createdAt?: any;
 }
 
 export function calculateNextMonthlyDueDate(dueDay: number, baseDate = new Date()): string {
@@ -951,7 +991,7 @@ export async function getRecurringBills(userId: string, forceRefresh = false): P
     memoryCache.recurringBills.set(userId, { data: sorted, timestamp: now });
     return sorted;
   } catch (err) {
-    console.warn('Error fetching recurring bills:', err);
+    warn('Error fetching recurring bills:', err);
     return [];
   }
 }
@@ -1001,37 +1041,160 @@ export async function saveRecurringBill(userId: string, bill: RecurringBill): Pr
   }
 
   invalidateBillsCache(userId);
-  syncWidgetWithTransactions(userId).catch(() => {});
+  syncWidgetWithTransactions(userId).catch(() => { });
   return resId;
 }
 
 export async function deleteRecurringBill(userId: string, billId: string) {
   if (!userId || !billId) return;
-  await deleteDoc(doc(db, `users/${userId}/recurring_bills`, billId));
+  await deleteDoc(doc(db, `users/${userId}/recurring_bills/${billId}`));
   invalidateBillsCache(userId);
-  syncWidgetWithTransactions(userId).catch(() => {});
+  syncWidgetWithTransactions(userId).catch(() => { });
+}
+
+// ==================== CUSTOM BILL PROVIDERS ====================
+
+const CUSTOM_PROVIDERS_KEY = (userId: string) => `@rupeo_custom_bill_providers_${userId}`;
+
+export async function getCustomBillProviders(userId: string, forceRefresh = false): Promise<CustomBillProvider[]> {
+  if (!userId) return [];
+  const now = Date.now();
+  const cached = memoryCache.recurringBills.get(`custom_providers_${userId}`);
+  if (!forceRefresh && cached && (now - cached.timestamp < BILLS_CACHE_TTL_MS)) {
+    return cached.data;
+  }
+
+  // 1. Check local offline storage
+  try {
+    const raw = await AsyncStorage.getItem(CUSTOM_PROVIDERS_KEY(userId));
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && !forceRefresh) {
+        memoryCache.recurringBills.set(`custom_providers_${userId}`, { data: parsed, timestamp: now });
+        return parsed;
+      }
+    }
+  } catch (e) {
+    warn('Error reading offline custom bill providers:', e);
+  }
+
+  // 2. Query Firestore if online
+  try {
+    const providersRef = collection(db, `users/${userId}/custom_bill_providers`);
+    const snap = await getDocs(providersRef);
+    const list: CustomBillProvider[] = snap.docs.map(d => ({ id: d.id, ...d.data() } as CustomBillProvider));
+    list.sort((a, b) => {
+      const aT = a.createdAt?.seconds || 0;
+      const bT = b.createdAt?.seconds || 0;
+      return bT - aT;
+    });
+
+    const capped = list.slice(0, 30);
+    await AsyncStorage.setItem(CUSTOM_PROVIDERS_KEY(userId), JSON.stringify(capped));
+    memoryCache.recurringBills.set(`custom_providers_${userId}`, { data: capped, timestamp: now });
+    return capped;
+  } catch (err) {
+    warn('Error fetching custom bill providers:', err);
+    try {
+      const raw = await AsyncStorage.getItem(CUSTOM_PROVIDERS_KEY(userId));
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  }
+}
+
+export async function saveCustomBillProvider(userId: string, provider: CustomBillProvider): Promise<CustomBillProvider> {
+  if (!userId) throw new Error('User required');
+
+  const existing = await getCustomBillProviders(userId, true);
+  if (existing.length >= 30 && !provider.id) {
+    throw new Error('Maximum limit of 30 custom providers reached');
+  }
+
+  const providersRef = collection(db, `users/${userId}/custom_bill_providers`);
+  let docId = provider.id;
+
+  const payload: any = {
+    name: provider.name.trim(),
+    normalizedName: provider.normalizedName || provider.name.trim().toLowerCase(),
+    iconKey: provider.iconKey || 'receipt-outline',
+    color: provider.color || '#4F46E5',
+    category: provider.category || 'Bills',
+    group: provider.group || 'other',
+    updatedAt: serverTimestamp(),
+  };
+
+  if (docId) {
+    await updateDoc(doc(db, `users/${userId}/custom_bill_providers`, docId), payload);
+  } else {
+    payload.createdAt = serverTimestamp();
+    const newDoc = await addDoc(providersRef, payload);
+    docId = newDoc.id;
+  }
+
+  const savedItem: CustomBillProvider = {
+    ...payload,
+    id: docId,
+  };
+
+  // Update local cache
+  const updatedList = [
+    savedItem,
+    ...existing.filter(p => p.id !== docId),
+  ].slice(0, 30);
+
+  await AsyncStorage.setItem(CUSTOM_PROVIDERS_KEY(userId), JSON.stringify(updatedList));
+  memoryCache.recurringBills.set(`custom_providers_${userId}`, { data: updatedList, timestamp: Date.now() });
+
+  return savedItem;
+}
+
+export async function deleteCustomBillProvider(userId: string, providerId: string): Promise<void> {
+  if (!userId || !providerId) return;
+
+  try {
+    await deleteDoc(doc(db, `users/${userId}/custom_bill_providers`, providerId));
+  } catch (err) {
+    warn('Error deleting custom bill provider remotely:', err);
+  }
+
+  const existing = await getCustomBillProviders(userId, false);
+  const filtered = existing.filter(p => p.id !== providerId);
+
+  await AsyncStorage.setItem(CUSTOM_PROVIDERS_KEY(userId), JSON.stringify(filtered));
+  memoryCache.recurringBills.set(`custom_providers_${userId}`, { data: filtered, timestamp: Date.now() });
 }
 
 export async function payRecurringBill(
   userId: string,
   bill: RecurringBill,
   paymentMode = 'UPI',
-  receiptImage?: string
+  receiptImage?: string,
+  paidAmount?: number,
+  notes?: string,
+  paidDate?: string,
+  currencyCode?: string
 ) {
   if (!userId || !bill.id) return;
-  const todayStr = getLocalDateString();
+  const todayStr = paidDate || getLocalDateString();
   const now = new Date();
   const timeStr = formatTime12Hour(now);
+  const finalAmount = typeof paidAmount === 'number' && paidAmount > 0 ? paidAmount : bill.amount;
 
   // 1. Record the expense transaction with attached proof screenshot
+  const txnDesc = notes
+    ? `${notes} (Bill Payment: ${bill.title})`
+    : (bill.notes ? `${bill.notes} (Bill Payment)` : `Recurring Payment: ${bill.title}`);
+
   await insertTransaction(userId, {
     date: todayStr,
     time: timeStr,
-    amount: bill.amount,
+    amount: finalAmount,
     type: 'debit',
     merchant_name: bill.title,
     category: bill.category || 'Bills',
-    description: bill.notes ? `${bill.notes} (Bill Payment)` : `Recurring Payment: ${bill.title}`,
+    description: txnDesc,
     payment_mode: paymentMode,
     receipt_image: receiptImage || bill.receiptImage || null,
   });
@@ -1058,9 +1221,10 @@ export async function payRecurringBill(
   });
 
   // 4. Create in-app success notification
+  const displayAmount = currencyCode ? formatCurrency(finalAmount, currencyCode) : `₹${finalAmount.toLocaleString('en-IN')}`;
   await createNotification(userId, {
     title: `Payment Recorded: ${bill.title} ✅`,
-    message: `Payment of ₹${bill.amount.toLocaleString('en-IN')} marked as paid. Next due date is ${nextDate}.`,
+    message: `Payment of ${displayAmount} marked as paid. Next due date is ${nextDate}.`,
     type: 'reminder',
   });
 
@@ -1133,13 +1297,13 @@ export async function checkBillReminders(userId: string) {
               billId: bill.id,
             });
           } catch (notifErr) {
-            console.warn('Could not fire local push for bill reminder:', notifErr);
+            warn('Could not fire local push for bill reminder:', notifErr);
           }
         }
       }
     }
   } catch (err) {
-    console.warn('checkBillReminders error:', err);
+    warn('checkBillReminders error:', err);
   }
 }
 
@@ -1163,7 +1327,7 @@ export async function getCategoryBudgets(userId: string): Promise<Record<string,
     });
     return budgetMap;
   } catch (err) {
-    console.warn('Error fetching category budgets:', err);
+    warn('Error fetching category budgets:', err);
     return {};
   }
 }
@@ -1176,14 +1340,14 @@ export async function saveCategoryBudget(userId: string, category: string, amoun
     amount: Number(amount) || 0,
     updated_at: serverTimestamp(),
   }, { merge: true });
-  syncWidgetWithTransactions(userId).catch(() => {});
+  syncWidgetWithTransactions(userId).catch(() => { });
 }
 
 export async function deleteCategoryBudget(userId: string, category: string) {
   if (!userId || !category) return;
   const docRef = doc(db, `users/${userId}/category_budgets`, category);
   await deleteDoc(docRef);
-  syncWidgetWithTransactions(userId).catch(() => {});
+  syncWidgetWithTransactions(userId).catch(() => { });
 }
 
 // ==================== NOTIFICATIONS ====================
@@ -1253,7 +1417,7 @@ export async function getUserNotifications(userId: string, forceRefresh = false)
     memoryCache.notifications.set(userId, { data: list, timestamp: now });
     return list;
   } catch (err) {
-    console.warn('Error fetching notifications:', err);
+    warn('Error fetching notifications:', err);
     return [];
   }
 }
@@ -1333,7 +1497,7 @@ export async function markNotificationAsRead(userId: string, notificationId: str
     await setDoc(docRef, { isRead: true }, { merge: true });
     invalidateNotificationsCache(userId);
   } catch (err) {
-    console.warn('Error marking notification as read:', err);
+    warn('Error marking notification as read:', err);
   }
 }
 
@@ -1358,7 +1522,7 @@ export async function markNotificationsAsRead(userId: string) {
         count++;
       });
     } catch {
-      // ignore admin query issues if offline
+      // Intentional: ignore admin query issues if offline
     }
 
     if (count > 0) {
@@ -1366,7 +1530,7 @@ export async function markNotificationsAsRead(userId: string) {
     }
     invalidateNotificationsCache(userId);
   } catch (err) {
-    console.warn('Error marking notifications as read:', err);
+    warn('Error marking notifications as read:', err);
   }
 }
 
@@ -1375,7 +1539,7 @@ export async function deleteNotification(userId: string, notificationId: string)
   try {
     await deleteDoc(doc(db, `users/${userId}/notifications`, notificationId));
   } catch (err) {
-    console.warn('Error deleting notification:', err);
+    warn('Error deleting notification:', err);
   }
 }
 
@@ -1389,7 +1553,7 @@ export async function deleteAllNotifications(userId: string) {
     });
     await batch.commit();
   } catch (err) {
-    console.warn('Error deleting all notifications:', err);
+    warn('Error deleting all notifications:', err);
   }
 }
 
@@ -1418,7 +1582,7 @@ export async function checkAndTriggerBudgetAlert(userId: string) {
       await sendBudgetAlert(0, curr, monthSpend, budget, undefined, userId);
     }
   } catch (err) {
-    console.warn('checkAndTriggerBudgetAlert error:', err);
+    warn('checkAndTriggerBudgetAlert error:', err);
   }
 }
 
@@ -1533,12 +1697,14 @@ export async function getUserSettings(userId: string): Promise<UserSettings | nu
           isPremium: userData.is_premium || userData.settings.isPremium || false,
           premiumPlan: userData.premium_plan || userData.settings.premiumPlan,
         };
-        setDoc(docRef, legacySettings, { merge: true }).catch(() => { });
+        // Omit premium fields from client write to avoid permission-denied in firestore.rules
+        const { isPremium: _p, premiumPlan: _pp, ...safeLegacy } = legacySettings;
+        setDoc(docRef, safeLegacy, { merge: true }).catch(() => { });
         return legacySettings;
       }
     }
   } catch (err) {
-    console.warn('Could not load user settings; using defaults:', err);
+    warn('Could not load user settings; using defaults:', err);
   }
 
   return null;
@@ -1546,6 +1712,8 @@ export async function getUserSettings(userId: string): Promise<UserSettings | nu
 
 export async function saveUserSettings(userId: string, settings: UserSettings) {
   if (!userId) return;
+  // Note: isPremium, premiumPlan, and premiumActivatedAt are server-managed
+  // and deliberately omitted from client writes to comply with firestore.rules
   const normalized: UserSettings = {
     language: settings.language || 'English',
     currency: settings.currency === 'INR' ? '₹' : (settings.currency || '₹'),
@@ -1555,14 +1723,11 @@ export async function saveUserSettings(userId: string, settings: UserSettings) {
     ...(settings.voiceLocale ? { voiceLocale: settings.voiceLocale } : {}),
     ...(settings.voicePermissionOnStartup !== undefined ? { voicePermissionOnStartup: settings.voicePermissionOnStartup } : {}),
     ...(settings.enableWidget !== undefined ? { enableWidget: settings.enableWidget } : {}),
-    ...(settings.isPremium !== undefined ? { isPremium: settings.isPremium } : {}),
-    ...(settings.premiumPlan ? { premiumPlan: settings.premiumPlan } : {}),
-    ...(settings.premiumActivatedAt ? { premiumActivatedAt: settings.premiumActivatedAt } : {}),
     ...(settings.upiId !== undefined ? { upiId: settings.upiId } : {}),
   };
   const docRef = doc(db, `users/${userId}/settings/preferences`);
   await setDoc(docRef, normalized, { merge: true });
-  syncWidgetWithTransactions(userId).catch(() => {});
+  syncWidgetWithTransactions(userId).catch(() => { });
 }
 
 export async function setPremiumStatus(
@@ -1571,28 +1736,9 @@ export async function setPremiumStatus(
   plan: string = 'lifetime'
 ) {
   if (!userId) return;
-  const now = new Date().toISOString();
-  const docRef = doc(db, `users/${userId}/settings/preferences`);
-  await setDoc(
-    docRef,
-    {
-      isPremium,
-      premiumPlan: plan,
-      premiumActivatedAt: now,
-    },
-    { merge: true }
-  );
-
-  // Also update user doc root for easy indexing
-  await setDoc(
-    doc(db, 'users', userId),
-    {
-      is_premium: isPremium,
-      premium_plan: plan,
-      premium_activated_at: now,
-    },
-    { merge: true }
-  );
+  // Client writes to is_premium/isPremium are blocked by firestore.rules.
+  // Premium status is managed by server edge functions (verify-subscription, redeem-coupon, rtdn-webhook).
+  warn('[database] setPremiumStatus called on client. Premium status is server-managed.');
 }
 
 export async function recordPremiumPayment(
@@ -1644,7 +1790,7 @@ export async function recordPremiumPayment(
       ...cleanData,
     });
   } catch (err) {
-    console.warn('Could not record global payment:', err);
+    warn('Could not record global payment:', err);
   }
 
   // 3. Increment coupon usage if used
@@ -1652,10 +1798,49 @@ export async function recordPremiumPayment(
     redeemCoupon(paymentData.couponCode, userId).catch(() => { });
   }
 
-  // 4. Activate premium status for user
-  await setPremiumStatus(userId, true, paymentData.plan);
-
   return docRes.id;
+}
+
+/**
+ * Redeem a 100% free / promo coupon via server Edge Function.
+ * The server verifies the Firebase ID token and writes verified premium status to Firestore.
+ */
+export async function redeemFreeCouponOnServer(
+  code: string,
+  plan?: string,
+): Promise<{ success: boolean; plan: string; message?: string }> {
+  const cleanCode = code.trim().toUpperCase();
+  const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || process.env.EXPO_PUBLIC_SUPABASE_KEY;
+  const endpoint = supabaseUrl
+    ? `${supabaseUrl}/functions/v1/redeem-coupon`
+    : 'https://us-central1-paisewaise-e545e.cloudfunctions.net/redeemCoupon';
+
+  const idToken = await auth?.currentUser?.getIdToken();
+  if (!idToken) {
+    throw new Error('User is not authenticated');
+  }
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${idToken}`,
+  };
+  if (supabaseAnonKey) {
+    headers['apikey'] = supabaseAnonKey;
+  }
+
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ code: cleanCode, plan }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data?.error || `Failed to redeem coupon (HTTP ${res.status})`);
+  }
+
+  return data;
 }
 
 // ==================== COUPON SYSTEM ====================
@@ -1663,6 +1848,7 @@ export async function recordPremiumPayment(
 export interface CouponItem {
   id?: string;
   code: string;
+  codeUpper?: string;
   type?: 'flat' | 'percent' | 'free';
   discountPercent?: number; // e.g. 50 for 50%
   discountAmount?: number; // e.g. 100 for ₹100 flat off
@@ -1682,6 +1868,7 @@ export interface CouponItem {
  */
 export function parseCouponDoc(id: string, d: any, fallbackCode: string): CouponItem {
   const code = String(d.code || d.coupon_code || fallbackCode).trim().toUpperCase();
+  const codeUpper = String(d.codeUpper || code).trim().toUpperCase();
   const type = d.couponType || d.type;
 
   // 1. Extract flat discount amount (₹)
@@ -1742,6 +1929,7 @@ export function parseCouponDoc(id: string, d: any, fallbackCode: string): Coupon
   return {
     id,
     code,
+    codeUpper,
     type: isFree ? 'free' : discountAmount ? 'flat' : 'percent',
     discountAmount: isFree ? undefined : discountAmount,
     discountPercent: isFree ? (discountPercent === 100 ? 100 : undefined) : discountPercent,
@@ -1778,16 +1966,35 @@ export async function validateCoupon(
   try {
     const couponsRef = collection(db, 'coupons');
 
-    // 1. Check exact code in Firestore
-    const q1 = query(couponsRef, where('code', '==', cleanCode));
-    const snap1 = await getDocs(q1);
-
-    if (!snap1.empty) {
-      matchedCoupon = parseCouponDoc(snap1.docs[0].id, snap1.docs[0].data(), cleanCode);
+    // 1. Indexed lookup by normalized codeUpper (O(1), case-insensitive)
+    const qUpper = query(couponsRef, where('codeUpper', '==', cleanCode), limit(1));
+    const snapUpper = await getDocs(qUpper);
+    if (!snapUpper.empty) {
+      matchedCoupon = parseCouponDoc(snapUpper.docs[0].id, snapUpper.docs[0].data(), cleanCode);
     }
 
-    // 2. Case-insensitive fallback lookup across Firestore coupons
+    // 2. Direct exact code query fallback (for existing coupons with code stored in original casing)
     if (!matchedCoupon) {
+      const qCode = query(couponsRef, where('code', '==', cleanCode), limit(1));
+      const snapCode = await getDocs(qCode);
+      if (!snapCode.empty) {
+        matchedCoupon = parseCouponDoc(snapCode.docs[0].id, snapCode.docs[0].data(), cleanCode);
+      }
+    }
+
+    // 3. Direct document ID lookup (for coupons where doc ID is the code itself)
+    if (!matchedCoupon) {
+      const directDoc = await getDoc(doc(db, 'coupons', cleanCode));
+      if (directDoc.exists()) {
+        matchedCoupon = parseCouponDoc(directDoc.id, directDoc.data(), cleanCode);
+      }
+    }
+
+    // 4. Temporary legacy collection scan fallback
+    // TEMPORARY FALLBACK: Set to false once scripts/backfill-coupon-codeupper.js is run
+    // in production. When false, avoids full collection scans and public coupon dumps.
+    const ENABLE_LEGACY_COUPON_COLLECTION_SCAN = true;
+    if (!matchedCoupon && ENABLE_LEGACY_COUPON_COLLECTION_SCAN) {
       const snapAll = await getDocs(couponsRef);
       for (const docItem of snapAll.docs) {
         const d = docItem.data();
@@ -1799,7 +2006,7 @@ export async function validateCoupon(
       }
     }
   } catch (firestoreErr) {
-    console.warn('Firestore coupon fetch error:', firestoreErr);
+    warn('Firestore coupon fetch error:', firestoreErr);
     return { valid: false, discount: 0, finalAmount: currentAmount, error: 'Could not connect to verify coupon. Please check network.' };
   }
 
@@ -1880,18 +2087,37 @@ export async function redeemCoupon(code: string, userId: string) {
   const cleanCode = code.trim().toUpperCase();
   try {
     const couponsRef = collection(db, 'coupons');
-    const q = query(couponsRef, where('code', '==', cleanCode));
-    const snap = await getDocs(q);
-    if (!snap.empty) {
-      const docSnap = snap.docs[0];
-      await updateDoc(doc(db, 'coupons', docSnap.id), {
+    let docId: string | null = null;
+
+    // 1. Check indexed codeUpper
+    const qUpper = query(couponsRef, where('codeUpper', '==', cleanCode), limit(1));
+    const snapUpper = await getDocs(qUpper);
+    if (!snapUpper.empty) {
+      docId = snapUpper.docs[0].id;
+    } else {
+      // 2. Check code field
+      const qCode = query(couponsRef, where('code', '==', cleanCode), limit(1));
+      const snapCode = await getDocs(qCode);
+      if (!snapCode.empty) {
+        docId = snapCode.docs[0].id;
+      } else {
+        // 3. Check direct doc ID
+        const directSnap = await getDoc(doc(db, 'coupons', cleanCode));
+        if (directSnap.exists()) {
+          docId = directSnap.id;
+        }
+      }
+    }
+
+    if (docId) {
+      await updateDoc(doc(db, 'coupons', docId), {
         usedCount: increment(1),
         used_count: increment(1),
         ...(userId ? { redeemedUsers: arrayUnion(userId) } : {}),
       });
     }
   } catch (err) {
-    console.warn('Redeem coupon record error:', err);
+    warn('Redeem coupon record error:', err);
   }
 }
 
@@ -1903,7 +2129,7 @@ export async function getAllCoupons(): Promise<CouponItem[]> {
     const snap = await getDocs(collection(db, 'coupons'));
     return snap.docs.map(d => parseCouponDoc(d.id, d.data(), d.id));
   } catch (err) {
-    console.warn('getAllCoupons error:', err);
+    warn('getAllCoupons error:', err);
     return [];
   }
 }
@@ -1917,15 +2143,17 @@ export function listenToCoupons(callback: (coupons: CouponItem[]) => void): () =
       callback(list);
     },
     (err) => {
-      console.warn('listenToCoupons error:', err);
+      warn('listenToCoupons error:', err);
     }
   );
 }
 
 export async function createCoupon(coupon: Omit<CouponItem, 'id' | 'usedCount'>) {
   if (!db) throw new Error('Database not initialized');
+  const cleanCode = coupon.code.trim().toUpperCase();
   const clean: any = {
-    code: coupon.code.trim().toUpperCase(),
+    code: cleanCode,
+    codeUpper: cleanCode,
     plan: coupon.plan || 'all',
     usedCount: 0,
     isActive: true,
@@ -1970,40 +2198,54 @@ export async function deleteCoupon(couponId: string) {
   await deleteDoc(doc(db, 'coupons', couponId));
 }
 
-export async function getAllPaidUsers(): Promise<any[]> {
+export interface PaidUser {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  plan: string;
+  activatedAt: string;
+}
+
+export interface PaymentRecord {
+  id: string;
+  timestamp?: string;
+  [key: string]: unknown;
+}
+
+export async function getAllPaidUsers(): Promise<PaidUser[]> {
   try {
-    const snap = await getDocs(collection(db, 'users'));
-    const paidUsers: any[] = [];
+    const q = query(collection(db, 'users'), where('is_premium', '==', true));
+    const snap = await getDocs(q);
+    const paidUsers: PaidUser[] = [];
     snap.forEach(d => {
       const data = d.data();
-      if (data.is_premium) {
-        paidUsers.push({
-          id: d.id,
-          name: data.name || data.displayName || 'Rupeo User',
-          email: data.email || 'No email',
-          phone: data.phone || '',
-          plan: data.premium_plan || 'lifetime',
-          activatedAt: data.premium_activated_at || data.created_at || '',
-        });
-      }
+      paidUsers.push({
+        id: d.id,
+        name: data.name || data.displayName || 'Rupeo User',
+        email: data.email || 'No email',
+        phone: data.phone || '',
+        plan: data.premium_plan || 'lifetime',
+        activatedAt: data.premium_activated_at || data.created_at || '',
+      });
     });
     return paidUsers;
   } catch (e) {
-    console.warn('Error fetching paid users:', e);
+    warn('Error fetching paid users:', e);
     return [];
   }
 }
 
-export async function getAllPayments(): Promise<any[]> {
+export async function getAllPayments(): Promise<PaymentRecord[]> {
   try {
     const snap = await getDocs(collection(db, 'payments'));
-    const payments: any[] = [];
+    const payments: PaymentRecord[] = [];
     snap.forEach(d => {
       payments.push({ id: d.id, ...d.data() });
     });
     return payments.sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime());
   } catch (e) {
-    console.warn('Error fetching payments:', e);
+    warn('Error fetching payments:', e);
     return [];
   }
 }
@@ -2066,7 +2308,7 @@ export function subscribeUserSupportMessages(
         callback(messages);
       },
       (err) => {
-        console.warn('subscribeUserSupportMessages error with orderBy, falling back:', err);
+        warn('subscribeUserSupportMessages error with orderBy, falling back:', err);
         // Fallback query without orderBy in case compound index is pending
         const fallbackQ = query(
           collection(db, 'support_messages'),
@@ -2088,14 +2330,14 @@ export function subscribeUserSupportMessages(
             callback(messages);
           },
           (fallbackErr) => {
-            console.error('subscribeUserSupportMessages fallback failed:', fallbackErr);
+            error('subscribeUserSupportMessages fallback failed:', fallbackErr);
             callback([]);
           }
         );
       }
     );
   } catch (err) {
-    console.error('Failed to subscribe to user support messages:', err);
+    error('Failed to subscribe to user support messages:', err);
     callback([]);
     return () => { };
   }

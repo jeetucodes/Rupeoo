@@ -6,6 +6,7 @@ import { createNotification } from './database';
 import { getLocalDateString } from './dateUtils';
 import { db } from './firebase';
 import { doc, serverTimestamp, setDoc, collection, query, where, onSnapshot } from 'firebase/firestore';
+import { warn } from '@/lib/logger';
 
 // Configure how notifications behave when the app is in the foreground
 Notifications.setNotificationHandler({
@@ -94,13 +95,13 @@ export async function requestNotificationPermissions(): Promise<boolean> {
     if (isGranted) {
       // Automatically schedule daily routines & periodic notifications once permission is granted
       setupPeriodicSmartNotifications().catch(err =>
-        console.warn('Error setting up periodic smart notifications:', err)
+        warn('Error setting up periodic smart notifications:', err)
       );
     }
 
     return isGranted;
   } catch (error) {
-    console.warn('requestNotificationPermissions error:', error);
+    warn('requestNotificationPermissions error:', error);
     return false;
   }
 }
@@ -157,7 +158,7 @@ export function startRealtimeNotificationWatcher(userId?: string) {
       }
       await AsyncStorage.setItem(DELIVERED_PUSH_KEY, JSON.stringify(deliveredList));
     } catch (e) {
-      console.warn('Error handling incoming push notification:', e);
+      warn('Error handling incoming push notification:', e);
     }
   };
 
@@ -173,10 +174,10 @@ export function startRealtimeNotificationWatcher(userId?: string) {
           handleIncomingNotification(change.doc.id, change.doc.data());
         }
       });
-    }, (err) => console.warn('Admin notification watcher error:', err));
+    }, (err) => warn('Admin notification watcher error:', err));
     unsubs.push(unsubAdmin);
   } catch (e) {
-    console.warn('Could not attach admin notification listener:', e);
+    warn('Could not attach admin notification listener:', e);
   }
 
   // 2. Watch personal user notifications collection if logged in
@@ -194,10 +195,10 @@ export function startRealtimeNotificationWatcher(userId?: string) {
             }
           }
         });
-      }, (err) => console.warn('User notification watcher error:', err));
+      }, (err) => warn('User notification watcher error:', err));
       unsubs.push(unsubUser);
     } catch (e) {
-      console.warn('Could not attach user notification listener:', e);
+      warn('Could not attach user notification listener:', e);
     }
   }
 
@@ -219,7 +220,7 @@ export async function registerDeviceForPushNotifications(userId: string): Promis
     try {
       deviceToken = await Notifications.getDevicePushTokenAsync();
     } catch (e) {
-      console.warn('getDevicePushTokenAsync error:', e);
+      warn('getDevicePushTokenAsync error:', e);
     }
 
     let expoPushToken = null;
@@ -229,7 +230,7 @@ export async function registerDeviceForPushNotifications(userId: string): Promis
       });
       expoPushToken = exp.data;
     } catch (e) {
-      console.warn('getExpoPushTokenAsync error:', e);
+      warn('getExpoPushTokenAsync error:', e);
     }
 
     const storedDeviceId = await AsyncStorage.getItem('@rupeo_push_device_id');
@@ -257,7 +258,7 @@ export async function registerDeviceForPushNotifications(userId: string): Promis
 
     return deviceId;
   } catch (error) {
-    console.warn('Could not register push device:', error);
+    warn('Could not register push device:', error);
     return null;
   }
 }
@@ -302,13 +303,13 @@ export async function sendWelcomeNotification(userId?: string) {
         message: body,
         type: 'system',
         silentPush: true,
-      }).catch(e => console.warn('Could not save welcome notification to DB:', e));
+      }).catch(e => warn('Could not save welcome notification to DB:', e));
     }
 
     // Mark as scheduled in local storage
     await AsyncStorage.setItem(WELCOME_NOTIF_KEY, 'true');
   } catch (error) {
-    console.warn('sendWelcomeNotification error:', error);
+    warn('sendWelcomeNotification error:', error);
   }
 }
 
@@ -398,7 +399,7 @@ export async function setupPeriodicSmartNotifications(forceRefresh = false) {
 
     await AsyncStorage.setItem(LAST_SCHEDULE_TIMESTAMP_KEY, now.toString());
   } catch (error) {
-    console.warn('setupPeriodicSmartNotifications error:', error);
+    warn('setupPeriodicSmartNotifications error:', error);
   }
 }
 
@@ -430,10 +431,10 @@ export async function sendTestNotification(userId?: string) {
         message: body,
         type: 'system',
         silentPush: true,
-      }).catch(e => console.warn('Could not save test notification to DB:', e));
+      }).catch(e => warn('Could not save test notification to DB:', e));
     }
   } catch (error) {
-    console.warn('sendTestNotification error:', error);
+    warn('sendTestNotification error:', error);
   }
 }
 
@@ -521,10 +522,10 @@ export async function scheduleBillReminder(
         message: notifBody,
         type: 'reminder',
         silentPush: true,
-      }).catch(e => console.warn('Could not save bill reminder to DB:', e));
+      }).catch(e => warn('Could not save bill reminder to DB:', e));
     }
   } catch (error) {
-    console.warn('scheduleBillReminder error:', error);
+    warn('scheduleBillReminder error:', error);
   }
 }
 
@@ -594,13 +595,13 @@ export async function sendBudgetAlert(
         message: body,
         type: 'budget',
         silentPush: true,
-      }).catch(e => console.warn('Could not save budget alert to DB:', e));
+      }).catch(e => warn('Could not save budget alert to DB:', e));
     }
 
     // 3. Mark as sent for this month
     await AsyncStorage.setItem(alertKey, 'true');
   } catch (error) {
-    console.warn('sendBudgetAlert error:', error);
+    warn('sendBudgetAlert error:', error);
   }
 }
 
@@ -628,6 +629,6 @@ export async function sendLocalPushNotification(
       trigger: null,
     });
   } catch (error) {
-    console.warn('sendLocalPushNotification error:', error);
+    warn('sendLocalPushNotification error:', error);
   }
 }

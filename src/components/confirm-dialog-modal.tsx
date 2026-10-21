@@ -16,7 +16,7 @@ interface ConfirmDialogModalProps {
   confirmText?: string;
   cancelText?: string;
   type?: 'danger' | 'warning' | 'info';
-  icon?: string;
+  icon?: keyof typeof Ionicons.glyphMap;
   loading?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
@@ -35,7 +35,7 @@ export function ConfirmDialogModal({
   onCancel,
 }: ConfirmDialogModalProps) {
   const isDanger = type === 'danger';
-  const iconName = (icon || (isDanger ? 'trash-outline' : type === 'warning' ? 'alert-circle-outline' : 'information-circle-outline')) as any;
+  const iconName: keyof typeof Ionicons.glyphMap = icon || (isDanger ? 'trash-outline' : type === 'warning' ? 'alert-circle-outline' : 'information-circle-outline');
   const iconColor = isDanger ? '#EF4444' : type === 'warning' ? '#F59E0B' : '#2563EB';
   const iconBg = isDanger ? '#FEE2E2' : type === 'warning' ? '#FEF3C7' : '#EFF6FF';
 

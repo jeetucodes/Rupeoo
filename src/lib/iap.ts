@@ -32,7 +32,6 @@ import { Platform } from 'react-native';
 import {
   doc,
   setDoc,
-  updateDoc,
   serverTimestamp,
   collection,
   query,
@@ -41,7 +40,8 @@ import {
   orderBy,
   limit,
 } from 'firebase/firestore';
-import { db } from './firebase';
+import { auth, db } from './firebase';
+import { log, warn, error } from '@/lib/logger';
 
 // ─── Product / Plan constants ────────────────────────────────────────────────
 
@@ -157,10 +157,10 @@ export async function initIAP(): Promise<boolean> {
     await initConnection();
     _connected = true;
     _setupListeners();
-    console.log('[IAP] ✅ Connected to Google Play Billing');
+    log('[IAP] ✅ Connected to Google Play Billing');
     return true;
   } catch (err) {
-    console.error('[IAP] initConnection error:', err);
+    error('[IAP] initConnection error:', err);
     _connected = false;
     return false;
   }
@@ -179,10 +179,14 @@ export async function destroyIAP(): Promise<void> {
   _onPurchaseError = null;
 
   if (_connected) {
-    try { await endConnection(); } catch (_) {}
+    try {
+      await endConnection();
+    } catch (_) {
+      // Safe cleanup: endConnection throws if Google Play Billing is already disconnected
+    }
     _connected = false;
   }
-  console.log('[IAP] Connection destroyed');
+  log('[IAP] Connection destroyed');
 }
 
 // ─── Purchase Listeners ───────────────────────────────────────────────────────
@@ -192,12 +196,12 @@ function _setupListeners() {
   _errorListener?.remove();
 
   _purchaseListener = purchaseUpdatedListener((purchase: Purchase) => {
-    console.log('[IAP] purchaseUpdated:', purchase.productId, purchase.transactionDate);
+    log('[IAP] purchaseUpdated:', purchase.productId, purchase.transactionDate);
     _onPurchaseSuccess?.(purchase);
   });
 
   _errorListener = purchaseErrorListener((error: PurchaseError) => {
-    console.warn('[IAP] purchaseError:', error.code, error.message);
+    warn('[IAP] purchaseError:', error.code, error.message);
     _onPurchaseError?.(error);
   });
 }
@@ -232,7 +236,7 @@ export async function getSubscriptionPlans(): Promise<SubscriptionPlan[]> {
     const products = await fetchProducts({ skus: [PRODUCT_ID], type: 'subs' });
 
     if (!products || products.length === 0) {
-      console.warn('[IAP] No products returned — using fallback prices');
+      warn('[IAP] No products returned — using fallback prices');
       return _fallbackPlans();
     }
 
@@ -242,11 +246,11 @@ export async function getSubscriptionPlans(): Promise<SubscriptionPlan[]> {
     ) as ProductSubscriptionAndroid | undefined;
 
     if (!sub?.subscriptionOffers?.length) {
-      console.warn('[IAP] subscriptionOffers missing — using fallback prices');
+      warn('[IAP] subscriptionOffers missing — using fallback prices');
       return _fallbackPlans();
     }
 
-    console.log('[IAP] subscriptionOffers count:', sub.subscriptionOffers.length);
+    log('[IAP] subscriptionOffers count:', sub.subscriptionOffers.length);
 
     const plans: SubscriptionPlan[] = PLANS.map((planConfig) => {
       // Match the base plan offer (no offerId = it IS the base plan, not a promo)
@@ -274,10 +278,10 @@ export async function getSubscriptionPlans(): Promise<SubscriptionPlan[]> {
       };
     });
 
-    console.log('[IAP] Plans fetched:', plans.map((p) => `${p.planId}=${p.price}`).join(', '));
+    log('[IAP] Plans fetched:', plans.map((p) => `${p.planId}=${p.price}`).join(', '));
     return plans;
   } catch (err) {
-    console.error('[IAP] fetchProducts error:', err);
+    error('[IAP] fetchProducts error:', err);
     return _fallbackPlans();
   }
 }
@@ -379,11 +383,11 @@ export async function verifyAndActivatePurchase(
   // ── Step 1: Acknowledge ────────────────────────────────────────────────────
   try {
     await finishTransaction({ purchase, isConsumable: false });
-    console.log('[IAP] ✅ Transaction acknowledged:', purchase.id);
+    log('[IAP] ✅ Transaction acknowledged:', purchase.id);
   } catch (ackErr: any) {
     // Already acknowledged purchases throw a specific error — safe to ignore
     if (!String(ackErr?.message).includes('already')) {
-      console.error('[IAP] finishTransaction error:', ackErr);
+      error('[IAP] finishTransaction error:', ackErr);
     }
   }
 
@@ -413,43 +417,47 @@ export async function verifyAndActivatePurchase(
       };
 
       await setDoc(subDocRef, record, { merge: true });
-      console.log('[IAP] ✅ Subscription record saved:', basePlanId, purchaseToken.substring(0, 20));
+      log('[IAP] ✅ Subscription record saved:', basePlanId, purchaseToken.substring(0, 20));
 
-      // ── Step 4: Update top-level user doc ───────────────────────────────────
-      await updateDoc(doc(db, 'users', userId), {
-        is_premium: true,
-        premium_plan: basePlanId,
-        premium_product_id: purchase.productId,
-        premium_purchase_token: purchaseToken,
-        premium_purchase_date: serverTimestamp(),
-        updated_at: serverTimestamp(),
-      });
-      console.log('[IAP] ✅ User doc updated: is_premium=true, plan=', basePlanId);
-
-      // ── Step 5: Server-side verification (Supabase Edge Function) ─────────
+      // ── Step 4: Server-side verification (Supabase Edge Function or Firebase Cloud Function) ──
+      // The server verifies the purchase and writes premium status to Firestore users/{uid}
       const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
-      const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
-      if (supabaseUrl && supabaseAnonKey && purchaseToken) {
-        fetch(`${supabaseUrl}/functions/v1/verify-subscription`, {
+      const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || process.env.EXPO_PUBLIC_SUPABASE_KEY;
+      const endpoint = supabaseUrl
+        ? `${supabaseUrl}/functions/v1/verify-subscription`
+        : 'https://us-central1-paisewaise-e545e.cloudfunctions.net/verifySubscription';
+
+      if (purchaseToken) {
+        const idToken = await auth?.currentUser?.getIdToken();
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken || ''}`,
+        };
+        if (supabaseAnonKey) {
+          headers['apikey'] = supabaseAnonKey;
+        }
+
+        const res = await fetch(endpoint, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'apikey': supabaseAnonKey,
-            'Authorization': `Bearer ${supabaseAnonKey}`,
-          },
+          headers,
           body: JSON.stringify({
             purchase_token: purchaseToken,
             product_id: purchase.productId,
             base_plan_id: basePlanId,
-            user_id: userId,
           }),
-        })
-          .then((r) => r.json())
-          .then((res) => console.log('[IAP] Server verification result:', res))
-          .catch((err) => console.warn('[IAP] Edge function verify error (non-fatal):', err));
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          error('[IAP] Server verification failed:', res.status, errData);
+          throw new Error(errData?.error || `Server verification failed (HTTP ${res.status})`);
+        }
+
+        const verifyResult = await res.json();
+        log('[IAP] Server verification result:', verifyResult);
       }
     } catch (fsErr) {
-      console.error('[IAP] Firestore save error:', fsErr);
+      error('[IAP] Purchase activation error:', fsErr);
       throw fsErr;
     }
   }
@@ -474,15 +482,15 @@ export async function restorePurchases(userId: string): Promise<Purchase | null>
       .sort((a, b) => b.transactionDate - a.transactionDate)[0];
 
     if (activeSub) {
-      console.log('[IAP] Restoring subscription:', activeSub.productId, activeSub.currentPlanId);
+      log('[IAP] Restoring subscription:', activeSub.productId, activeSub.currentPlanId);
       await verifyAndActivatePurchase(activeSub, userId);
       return activeSub;
     }
 
-    console.log('[IAP] No active subscriptions to restore');
+    log('[IAP] No active subscriptions to restore');
     return null;
   } catch (err) {
-    console.error('[IAP] restorePurchases error:', err);
+    error('[IAP] restorePurchases error:', err);
     return null;
   }
 }
@@ -509,8 +517,15 @@ export async function getActiveSubscription(userId: string): Promise<{
     if (snap.empty) return null;
     const d = snap.docs[0].data();
     return { basePlanId: d.base_plan_id, purchaseToken: d.purchase_token };
-  } catch (err) {
-    console.warn('[IAP] getActiveSubscription error:', err);
+  } catch (err: any) {
+    if (err?.code === 'failed-precondition' || String(err?.message || '').includes('failed-precondition')) {
+      warn(
+        '[IAP] getActiveSubscription failed-precondition: Missing Firestore composite index for subscriptions (status == active, purchase_date desc). Deploy firestore.indexes.json to resolve.',
+        err
+      );
+    } else {
+      warn('[IAP] getActiveSubscription error:', err);
+    }
     return null;
   }
 }

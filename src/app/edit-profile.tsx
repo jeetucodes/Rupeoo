@@ -32,6 +32,7 @@ import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { ALL_CURRENCIES } from '@/lib/currencies';
 import { CurrencySelectorModal } from '@/components/CurrencySelectorModal';
 import { VipAvatar } from '@/components/VipAvatar';
+import { warn, error } from '@/lib/logger';
 
 // ---------------------------------------------------------------------------
 // FieldRow — Clean modern labeled input field
@@ -141,7 +142,7 @@ export default function EditProfileScreen() {
           if (d.photoURL !== undefined) setPhotoURL(d.photoURL);
         }
       } catch (err) {
-        console.error('Error fetching user profile data:', err);
+        error('Error fetching user profile data:', err);
       }
     }
     loadUserData();
@@ -170,7 +171,7 @@ export default function EditProfileScreen() {
           ? `data:image/jpeg;base64,${manipResult.base64}`
           : manipResult.uri || sourceUri;
       } catch (e) {
-        console.warn('Image compression note:', e);
+        warn('Image compression note:', e);
       }
 
       // Upload to cloud storage
@@ -183,12 +184,12 @@ export default function EditProfileScreen() {
           text2: 'Tap "Save Changes" to apply to your profile.',
         });
       }
-    } catch (err: any) {
-      console.error('Error uploading avatar:', err);
+    } catch (err: unknown) {
+      error('Error uploading avatar:', err);
       Toast.show({
         type: 'error',
         text1: 'Upload Notice',
-        text2: err.message || 'Could not upload image.',
+        text2: err instanceof Error ? err.message : 'Could not upload image.',
       });
     } finally {
       setUploadingImage(false);
@@ -215,8 +216,8 @@ export default function EditProfileScreen() {
       if (!result.canceled && result.assets?.[0]?.uri) {
         await processAndUpload(result.assets[0].uri);
       }
-    } catch (err: any) {
-      Toast.show({ type: 'error', text1: 'Gallery Error', text2: err.message || 'Failed to pick image' });
+    } catch (err: unknown) {
+      Toast.show({ type: 'error', text1: 'Gallery Error', text2: err instanceof Error ? err.message : 'Failed to pick image' });
     }
   };
 
@@ -237,8 +238,8 @@ export default function EditProfileScreen() {
       if (!result.canceled && result.assets?.[0]?.uri) {
         await processAndUpload(result.assets[0].uri);
       }
-    } catch (err: any) {
-      Toast.show({ type: 'error', text1: 'Camera Error', text2: err.message || 'Failed to capture photo' });
+    } catch (err: unknown) {
+      Toast.show({ type: 'error', text1: 'Camera Error', text2: err instanceof Error ? err.message : 'Failed to capture photo' });
     }
   };
 
@@ -280,7 +281,7 @@ export default function EditProfileScreen() {
           );
           if (compressed.base64) safePhotoURL = `data:image/jpeg;base64,${compressed.base64}`;
         } catch (e) {
-          console.warn('Avatar compression notice:', e);
+          warn('Avatar compression notice:', e);
         }
       }
 
@@ -291,7 +292,7 @@ export default function EditProfileScreen() {
           photoURL: safePhotoURL && !safePhotoURL.startsWith('data:') ? safePhotoURL : null,
         });
       } catch (authErr) {
-        console.warn('Firebase Auth updateProfile non-fatal:', authErr);
+        warn('Firebase Auth updateProfile non-fatal:', authErr);
       }
 
       // Update Firestore user document
@@ -329,9 +330,9 @@ export default function EditProfileScreen() {
       });
 
       setTimeout(() => safeGoBack(router), 1200);
-    } catch (err: any) {
+    } catch (err: unknown) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
-      Toast.show({ type: 'error', text1: 'Save Failed', text2: err.message || 'Could not update profile.' });
+      Toast.show({ type: 'error', text1: 'Save Failed', text2: err instanceof Error ? err.message : 'Could not update profile.' });
     } finally {
       setLoading(false);
     }

@@ -29,6 +29,7 @@ import {
 } from '@/lib/statementCalculator';
 import { UdharEntry, FriendContact } from '@/lib/udharStorage';
 import { shareImageAndText } from '@/lib/shareHelper';
+import { warn, error } from '@/lib/logger';
 
 export interface ShareStatementModalProps {
   visible: boolean;
@@ -134,7 +135,7 @@ export const ShareStatementModal: React.FC<ShareStatementModalProps> = ({
       });
       return uri;
     } catch (err) {
-      console.error('Error capturing statement card:', err);
+      error('Error capturing statement card:', err);
       return null;
     }
   };
@@ -184,7 +185,7 @@ export const ShareStatementModal: React.FC<ShareStatementModalProps> = ({
         dialogTitle: `Rupeo Khata Statement (${formatIndianCurrency(statementData.remainingDue)})`,
       });
     } catch (err: any) {
-      console.error('Share image error:', err);
+      error('Share image error:', err);
       Toast.show({ type: 'error', text1: 'Share Failed', text2: err?.message || 'Could not share image.' });
     } finally {
       setIsGeneratingImage(false);
@@ -219,7 +220,7 @@ export const ShareStatementModal: React.FC<ShareStatementModalProps> = ({
           });
           imageSrc = `data:image/png;base64,${base64Data}`;
         } catch (readErr) {
-          console.warn('Could not read image as base64, using uri:', readErr);
+          warn('Could not read image as base64, using uri:', readErr);
           imageSrc = capturedUri;
         }
       }
@@ -348,12 +349,16 @@ export const ShareStatementModal: React.FC<ShareStatementModalProps> = ({
             iframe.contentWindow?.focus();
             iframe.contentWindow?.print();
           } catch (e) {
-            console.warn('Iframe print error:', e);
+            warn('Iframe print error:', e);
           } finally {
             setTimeout(() => {
               try {
-                document.body.removeChild(iframe);
-              } catch {}
+                if (typeof document !== 'undefined' && document.body?.contains(iframe)) {
+                  document.body.removeChild(iframe);
+                }
+              } catch {
+                // Iframe may have already been unmounted or removed
+              }
             }, 3000);
           }
         }, 350);
@@ -372,7 +377,9 @@ export const ShareStatementModal: React.FC<ShareStatementModalProps> = ({
 
       try {
         await FileSystem.copyAsync({ from: printResult.uri, to: targetUri });
-      } catch {}
+      } catch (copyErr) {
+        warn('Could not copy PDF to targetUri, falling back to printResult URI:', copyErr);
+      }
 
       const finalPdfUri = (await FileSystem.getInfoAsync(targetUri)).exists ? targetUri : printResult.uri;
 
@@ -384,7 +391,7 @@ export const ShareStatementModal: React.FC<ShareStatementModalProps> = ({
         });
       }
     } catch (err: any) {
-      console.error('Share PDF error:', err);
+      error('Share PDF error:', err);
       Toast.show({ type: 'error', text1: 'PDF Failed', text2: err?.message || 'Could not export PDF statement.' });
     } finally {
       setIsGeneratingPdf(false);
@@ -432,7 +439,7 @@ export const ShareStatementModal: React.FC<ShareStatementModalProps> = ({
           await NativeModules.RupeoShare.shareToWhatsApp(capturedUri, whatsappMessage, formattedPhone || undefined);
           return;
         } catch (waNativeErr) {
-          console.warn('Native shareToWhatsApp failed, fallback:', waNativeErr);
+          warn('Native shareToWhatsApp failed, fallback:', waNativeErr);
         }
       }
 
@@ -456,7 +463,7 @@ export const ShareStatementModal: React.FC<ShareStatementModalProps> = ({
 
       await Linking.openURL(waWebUrl);
     } catch (err: any) {
-      console.error('WhatsApp share error:', err);
+      error('WhatsApp share error:', err);
       Toast.show({
         type: 'error',
         text1: 'WhatsApp Share Failed',

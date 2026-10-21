@@ -72,6 +72,7 @@ import { triggerTransactionVibration } from '@/lib/sound';
 import { Image as ExpoImage } from 'expo-image';
 import { ShareStatementModal } from '@/components/ShareStatementModal';
 import { RUPEO_QR_LOGO_DATA_URI } from '@/constants/qrLogo';
+import { warn, error } from '@/lib/logger';
 
 const UDHAR_ICONS = {
   ledger: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Ledger.png',
@@ -277,7 +278,7 @@ export default function UdharScreen() {
       setTotalToPay(res.totalToPay);
       setNetBalance(res.netBalance);
     } catch (err) {
-      console.warn('Failed to load udhar data:', err);
+      warn('Failed to load udhar data:', err);
     } finally {
       setLoading(false);
     }
@@ -312,7 +313,7 @@ export default function UdharScreen() {
         await deleteTransaction(userId, badTx.id).catch(() => {});
       }
     } catch (err) {
-      console.warn('Could not cleanup erroneous interest debit transactions:', err);
+      warn('Could not cleanup erroneous interest debit transactions:', err);
     }
   }, []);
 
@@ -375,7 +376,7 @@ export default function UdharScreen() {
 
         setFriendEntries(entries);
       } catch (err) {
-        console.warn('Failed to load friend entries:', err);
+        warn('Failed to load friend entries:', err);
       } finally {
         setIsLoadingEntries(false);
       }
@@ -550,7 +551,7 @@ export default function UdharScreen() {
             }
           }
         } catch (androidErr) {
-          console.warn('Android permissions check error:', androidErr);
+          warn('Android permissions check error:', androidErr);
         }
       }
 
@@ -564,7 +565,7 @@ export default function UdharScreen() {
             }
           }
         } catch (permErr) {
-          console.warn('LegacyContacts permission error:', permErr);
+          warn('LegacyContacts permission error:', permErr);
         }
       }
 
@@ -601,13 +602,13 @@ export default function UdharScreen() {
           return;
         }
       } catch (pickerErr) {
-        console.warn('Native contact picker unavailable, opening contact list browser:', pickerErr);
+        warn('Native contact picker unavailable, opening contact list browser:', pickerErr);
       }
 
       // 4. Fallback: open in-app contact list browser
       await openContactListPicker();
     } catch (err: any) {
-      console.error('Contact pick error:', err);
+      error('Contact pick error:', err);
       Alert.alert('Contacts Error', err?.message || 'Could not access contacts.');
     } finally {
       setIsImportingContact(false);
@@ -643,7 +644,7 @@ export default function UdharScreen() {
       }
       setDeviceContacts(list);
     } catch (err: any) {
-      console.error('Failed to load contacts list:', err);
+      error('Failed to load contacts list:', err);
       Toast.show({
         type: 'error',
         text1: 'Failed to Load Contacts',
@@ -768,7 +769,7 @@ export default function UdharScreen() {
           });
           if (id) createdTxId = id;
         } catch (txErr) {
-          console.warn('Could not insert transaction to main list:', txErr);
+          warn('Could not insert transaction to main list:', txErr);
         }
       }
 
@@ -950,7 +951,7 @@ export default function UdharScreen() {
           });
           if (id) createdTxId = id;
         } catch (txErr) {
-          console.warn('Could not insert settlement transaction:', txErr);
+          warn('Could not insert settlement transaction:', txErr);
         }
       }
 
@@ -1421,7 +1422,7 @@ export default function UdharScreen() {
         message: shareText,
       });
     } catch (err: any) {
-      console.warn('Error sharing QR payment request:', err);
+      warn('Error sharing QR payment request:', err);
       Toast.show({
         type: 'error',
         text1: 'Share Failed',
@@ -1455,7 +1456,7 @@ export default function UdharScreen() {
       const webUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(msgText)}`;
       await Linking.openURL(webUrl);
     } catch (err) {
-      console.warn('WhatsApp share error, falling back to Share:', err);
+      warn('WhatsApp share error, falling back to Share:', err);
       try {
         await Share.share({
           title: `Payment Reminder - ${curr}${parsedRequestAmount.toFixed(2)}`,
@@ -2242,7 +2243,7 @@ export default function UdharScreen() {
             <View style={styles.topNavTitleWrap}>
               <View style={styles.topNavTitleRow}>
                 <ExpoImage
-                  source={{ uri: UDHAR_ICONS.ledger }}
+                  source={require('@/assets/images/3D_frinds-icon.png')}
                   style={{ width: 24, height: 24, marginRight: 6 }}
                   contentFit="contain"
                   cachePolicy="memory-disk"
@@ -2572,7 +2573,7 @@ export default function UdharScreen() {
               <View style={styles.emptyContainer}>
                 <View style={styles.emptyIconCircle}>
                   <ExpoImage
-                    source={{ uri: UDHAR_ICONS.ledger }}
+                    source={require('@/assets/images/3D_frinds-icon.png')}
                     style={{ width: 44, height: 44 }}
                     contentFit="contain"
                     cachePolicy="memory-disk"

@@ -14,6 +14,7 @@ import { UpcomingBillsWidget } from './UpcomingBillsWidget';
 import { WeeklySpendingWidget } from './WeeklySpendingWidget';
 import { InsightWidget } from './InsightWidget';
 import { QuickActionsWidget } from './QuickActionsWidget';
+import { error } from '@/lib/logger';
 
 /**
  * Headless Android Widget Task Handler.
@@ -111,14 +112,17 @@ export async function widgetTaskHandler(props: WidgetTaskHandlerProps) {
             break;
         }
       } catch (renderError) {
-        console.error('[WidgetTaskHandler] Error rendering widget:', widgetName, renderError);
+        error('[WidgetTaskHandler] Error rendering widget:', widgetName, renderError);
         // Fallback: render safe UI, NEVER return nothing or leave blank
         try {
           renderWidget(<WidgetFallbackState message="Open Rupeo to sync" />);
-        } catch {}
+        } catch (fallbackError) {
+          // Native widget framework could not render fallback UI
+          error('[WidgetTaskHandler] Fallback widget render failed:', fallbackError);
+        }
       }
     }
   } catch (globalError) {
-    console.error('[WidgetTaskHandler] Global exception in task handler:', globalError);
+    error('[WidgetTaskHandler] Global exception in task handler:', globalError);
   }
 }

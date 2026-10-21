@@ -15,7 +15,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import Toast from 'react-native-toast-message';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -26,12 +26,14 @@ import {
   getUserCategories,
   getAllTransactions,
   CategoryItem,
+  Transaction,
   defaultCategories,
   KNOWN_INCOME_CATEGORY_NAMES,
 } from '@/lib/database';
 import { getLocalDateString, formatTime12Hour } from '@/lib/dateUtils';
 import { triggerTransactionVibration } from '@/lib/sound';
 import { syncWidgetWithTransactions } from '@/lib/widgetSync';
+import { error } from '@/lib/logger';
 
 interface QuickCategory {
   name: string;
@@ -96,7 +98,7 @@ export default function QuickAddScreen() {
   const [isSaving, setIsSaving] = useState(false);
 
   const [categories, setCategories] = useState<CategoryItem[]>(defaultCategories);
-  const [transactions, setTransactions] = useState<any[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const amountInputRef = useRef<TextInput>(null);
 
   // Auto-focus amount input on mount
@@ -275,12 +277,12 @@ export default function QuickAddScreen() {
       setTimeout(() => {
         handleClose();
       }, 250);
-    } catch (err: any) {
-      console.error('[QuickAdd] Save error:', err);
+    } catch (err: unknown) {
+      error('[QuickAdd] Save error:', err);
       Toast.show({
         type: 'error',
         text1: 'Failed to save',
-        text2: err?.message || 'Transaction could not be saved',
+        text2: err instanceof Error ? err.message : 'Transaction could not be saved',
       });
       setIsSaving(false);
     }
@@ -427,7 +429,7 @@ export default function QuickAddScreen() {
                           ]}
                         >
                           <Ionicons
-                            name={cat.icon as any}
+                            name={cat.icon as keyof typeof Ionicons.glyphMap}
                             size={18}
                             color={isSelected ? '#FFFFFF' : '#475569'}
                           />
@@ -475,7 +477,7 @@ export default function QuickAddScreen() {
               mode="date"
               display="default"
               maximumDate={new Date()}
-              onChange={(_event: any, dateVal?: Date) => {
+              onChange={(_event: DateTimePickerEvent, dateVal?: Date) => {
                 setShowDatePicker(false);
                 if (dateVal) {
                   setSelectedDate(getLocalDateString(dateVal));

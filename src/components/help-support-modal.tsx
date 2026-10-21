@@ -17,6 +17,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Toast from 'react-native-toast-message';
 import { submitSupportMessage, subscribeUserSupportMessages, SupportMessage } from '@/lib/database';
 import { useAuth } from '@/context/AuthContext';
+import { error } from '@/lib/logger';
 
 interface HelpSupportModalProps {
   visible: boolean;
@@ -133,7 +134,7 @@ export function HelpSupportModal({
         text2: 'Track updates & admin replies in the My Tickets tab.',
       });
     } catch (err: any) {
-      console.error('Support message submission failed:', err);
+      error('Support message submission failed:', err);
       Alert.alert('Submission Error', err?.message || 'Could not send message. Please try again.');
     } finally {
       setSubmitting(false);

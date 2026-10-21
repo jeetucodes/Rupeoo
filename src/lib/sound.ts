@@ -1,5 +1,6 @@
 import { Platform, Vibration } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import { warn } from '@/lib/logger';
 
 /**
  * Triggers a distinct, tactile vibration feedback when a transaction is saved/added.
@@ -32,7 +33,7 @@ export async function triggerTransactionVibration(): Promise<void> {
       navigator.vibrate([120, 60, 120]);
     }
   } catch (err) {
-    console.warn('Vibration error:', err);
+    warn('Vibration error:', err);
   }
 }
 
@@ -43,3 +44,67 @@ export async function triggerTransactionVibration(): Promise<void> {
 export async function playTransactionSuccessSound(): Promise<void> {
   return triggerTransactionVibration();
 }
+
+/**
+ * Triggers a crisp, responsive tactile vibration feedback for calculator keypresses.
+ * Uses Haptics.impactAsync(Medium) on iOS and Android, plus an immediate hardware
+ * vibration pulse (50ms) on Android & mobile browsers to guarantee tactile physical feedback.
+ */
+export function triggerCalculatorKeyVibration(): void {
+  try {
+    // 1. iOS: Responsive tactile medium impact
+    if (Platform.OS === 'ios') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+      return;
+    }
+
+    // 2. Android: Native impact + reliable hardware vibration click
+    if (Platform.OS === 'android') {
+      try {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+      } catch {}
+      Vibration.vibrate([0, 45]);
+      return;
+    }
+
+    // 3. Web / Fallback
+    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+      navigator.vibrate(45);
+    }
+  } catch {
+    try {
+      Vibration.vibrate(45);
+    } catch {}
+  }
+}
+
+/**
+ * Triggers a firmer tactile vibration feedback for key calculator actions
+ * such as Equals (=), Clear (C), or Apply Amount.
+ */
+export function triggerCalculatorActionVibration(): void {
+  try {
+    if (Platform.OS === 'ios') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      return;
+    }
+
+    if (Platform.OS === 'android') {
+      try {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
+      } catch {}
+      Vibration.vibrate([0, 60, 40, 60]);
+      return;
+    }
+
+    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+      navigator.vibrate([60, 40, 60]);
+    }
+  } catch {
+    try {
+      Vibration.vibrate(70);
+    } catch {}
+  }
+}
+
+

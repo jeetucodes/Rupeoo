@@ -4,6 +4,7 @@ import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from 'expo-document-picker';
 import { getAllTransactions, insertTransactionsBatch, normalizeDate } from './database';
 import { getLocalDateString } from './dateUtils';
+import { warn, error } from '@/lib/logger';
 
 export interface BackupTransaction {
   date: string;
@@ -40,7 +41,7 @@ export async function generateBackupData(
   try {
     txs = await getAllTransactions(userId, true);
   } catch (err) {
-    console.warn('generateBackupData forceRefresh fallback to local:', err);
+    warn('generateBackupData forceRefresh fallback to local:', err);
     txs = await getAllTransactions(userId, false);
   }
 
@@ -54,11 +55,14 @@ export async function generateBackupData(
 
   // If user selected a specific month, filter to that month; otherwise keep 100% of all data across all time
   if (options?.periodMode === 'month' && options?.monthStr) {
-    txs = txs.filter((t: any) => t.date && t.date.startsWith(options.monthStr!));
+    txs = txs.filter((t: any) => {
+      const norm = normalizeDate(t.date || '');
+      return norm.startsWith(options.monthStr!);
+    });
   }
 
   const sanitized: BackupTransaction[] = txs.map(t => ({
-    date: t.date || getLocalDateString(),
+    date: normalizeDate(t.date || '') || getLocalDateString(),
     amount: Number(t.amount) || 0,
     type: (t.type || 'debit') as 'debit' | 'credit',
     category: t.category || 'Others',
@@ -85,7 +89,7 @@ export async function generateBackupData(
     `"${(t.payment_mode || '').replace(/"/g, '""')}"`,
     `"${(t.time || '').replace(/"/g, '""')}"`,
   ].join(','));
-  const csvData = [headers.join(','), ...rows].join('\n');
+  const csvData = '\uFEFF' + [headers.join(','), ...rows].join('\n');
 
   return {
     count: sanitized.length,
@@ -142,9 +146,9 @@ export async function exportTransactions(
 
       return { success: true, count, filename, fileUri };
     }
-  } catch (error: any) {
-    console.error('Export error:', error);
-    return { success: false, count: 0, error: error.message || 'Failed to export' };
+  } catch (err: any) {
+      error('Export error:', err);
+      return { success: false, count: 0, error: err.message || 'Failed to export' };
   }
 }
 

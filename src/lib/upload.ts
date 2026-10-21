@@ -1,5 +1,6 @@
 import { storage } from '@/lib/firebase';
 import { ref, uploadString, getDownloadURL } from 'firebase/storage';
+import { warn } from '@/lib/logger';
 
 const CLOUDINARY_API_KEY = process.env.EXPO_PUBLIC_CLOUDINARY_API_KEY || '576483497684576';
 const CLOUDINARY_API_SECRET = process.env.EXPO_PUBLIC_CLOUDINARY_API_SECRET || 'IFhiNRCh2oCRk5XTE45rK_jDhv4';
@@ -112,10 +113,19 @@ export async function uploadImageToCloudinary(base64Data: string): Promise<strin
     }
   ).then(res => res.json());
 
-  const response: any = await withTimeout(request, 15000, 'Cloudinary upload timed out');
+  interface CloudinaryUploadResponse {
+    secure_url?: string;
+    url?: string;
+    error?: {
+      message?: string;
+    };
+  }
 
-  if (response?.secure_url || response?.url) {
-    return response.secure_url || response.url;
+  const response = (await withTimeout(request, 15000, 'Cloudinary upload timed out')) as CloudinaryUploadResponse;
+
+  const uploadUrl = response?.secure_url || response?.url;
+  if (uploadUrl) {
+    return uploadUrl;
   }
   
   throw new Error(response?.error?.message || 'Invalid response from Cloudinary');
@@ -160,8 +170,8 @@ export async function uploadImage(base64Data: string): Promise<string> {
     try {
       const cloudinaryUrl = await uploadImageToCloudinary(formattedData);
       if (cloudinaryUrl) return cloudinaryUrl;
-    } catch (cloudinaryErr: any) {
-      console.warn('Cloudinary upload error/timeout, continuing fallback:', cloudinaryErr?.message || cloudinaryErr);
+    } catch (cloudinaryErr: unknown) {
+      warn('Cloudinary upload error/timeout, continuing fallback:', cloudinaryErr instanceof Error ? cloudinaryErr.message : cloudinaryErr);
     }
   }
 
@@ -169,8 +179,8 @@ export async function uploadImage(base64Data: string): Promise<string> {
   try {
     const firebaseUrl = await uploadToFirebaseStorage(formattedData);
     if (firebaseUrl) return firebaseUrl;
-  } catch (firebaseErr: any) {
-    console.warn('Firebase Storage not reachable/timed out, using instant fallback:', firebaseErr?.message || firebaseErr);
+  } catch (firebaseErr: unknown) {
+    warn('Firebase Storage not reachable/timed out, using instant fallback:', firebaseErr instanceof Error ? firebaseErr.message : firebaseErr);
   }
 
   // 3. Instant Resilient Fallback: return formatted data URI directly so avatar saves immediately!

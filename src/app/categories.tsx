@@ -31,6 +31,7 @@ import {
 import { safeGoBack } from '@/lib/navigation';
 import { useTranslation } from '@/lib/i18n';
 import { ConfirmDialogModal } from '@/components/confirm-dialog-modal';
+import { error } from '@/lib/logger';
 
 const AVAILABLE_ICONS = [
   'rose',
@@ -148,7 +149,7 @@ export default function CategoriesScreen() {
       const list = await getUserCategories(user.uid);
       setCategories(list);
     } catch (err) {
-      console.error('Error fetching categories:', err);
+      error('Error fetching categories:', err);
     } finally {
       setLoading(false);
     }
@@ -200,7 +201,7 @@ export default function CategoriesScreen() {
       await fetchCategories();
       setShowModal(false);
     } catch (err) {
-      console.error(err);
+      error(err);
       Alert.alert('Error', 'Failed to save category.');
     } finally {
       setSaving(false);
@@ -213,7 +214,7 @@ export default function CategoriesScreen() {
       await deleteCustomCategory(user.uid, catId);
       await fetchCategories();
     } catch (err) {
-      console.error(err);
+      error(err);
       if (Platform.OS === 'web') {
         window.alert('Failed to delete category.');
       } else {

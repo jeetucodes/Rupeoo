@@ -2,7 +2,7 @@
   "expo": {
     "name": "Rupeo",
     "slug": "PaiseWaise",
-    "version": "2.1.6",
+    "version": "2.1.8",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "rupeo",
@@ -12,7 +12,9 @@
       "bundleIdentifier": "com.innovatexlabs.paisewaise",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSContactsUsageDescription": "Rupeo needs access to your contacts to quickly add friends and track loans."
+        "NSContactsUsageDescription": "Rupeo needs access to your contacts to quickly add friends and track loans.",
+        "NSSpeechRecognitionUsageDescription": "Allow $(PRODUCT_NAME) to use speech recognition.",
+        "NSMicrophoneUsageDescription": "Allow $(PRODUCT_NAME) to use the microphone."
       }
     },
     "android": {
@@ -20,14 +22,15 @@
         "backgroundColor": "#0F0F11",
         "foregroundImage": "./assets/images/icon.png"
       },
-      "versionCode": 32,
+      "versionCode": 35,
       "permissions": [
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.VIBRATE",
         "android.permission.RECEIVE_BOOT_COMPLETED",
         "android.permission.RECORD_AUDIO",
         "com.android.vending.BILLING",
-        "android.permission.READ_CONTACTS"
+        "android.permission.READ_CONTACTS",
+        "android.permission.WRITE_CONTACTS"
       ],
       "blockedPermissions": [
         "android.permission.READ_MEDIA_IMAGES",
@@ -257,9 +260,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "318513cc-7259-4286-bc06-00cf798b1cf9"
+        "projectId": "cb31241e-b1c9-4392-96a1-31db17645d8d"
       }
     },
-    "owner": "jeetucodes"
+    "owner": "jeetukeapp"
   }
 }

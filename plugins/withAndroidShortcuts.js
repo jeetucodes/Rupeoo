@@ -15,7 +15,7 @@ const withAndroidShortcuts = (config) => {
         'res'
       );
       const xmlDir = path.join(resDir, 'xml');
-
+ 
       if (!fs.existsSync(xmlDir)) {
         fs.mkdirSync(xmlDir, { recursive: true });
       }

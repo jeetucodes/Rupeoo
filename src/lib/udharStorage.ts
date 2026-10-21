@@ -12,6 +12,7 @@ import {
 } from 'firebase/firestore';
 import { checkIsOnline } from './offlineSync';
 import { syncWidgetWithTransactions } from './widgetSync';
+import { warn } from '@/lib/logger';
 
 export interface FriendContact {
   id: string;
@@ -190,6 +191,7 @@ export async function getSyncUdharToDashboardTx(userId?: string): Promise<boolea
     if (raw === null) return false;
     return raw === 'true';
   } catch {
+    // Intended fallback: if AsyncStorage is unreadable, default sync preference to false
     return false;
   }
 }
@@ -204,11 +206,11 @@ export async function setSyncUdharToDashboardTx(userId: string | undefined, sync
       try {
         await setDoc(doc(db, 'users', userId), { sync_udhar_to_dashboard: sync }, { merge: true });
       } catch (err) {
-        console.warn('Could not sync sync_udhar_to_dashboard to Firestore:', err);
+        warn('Could not sync sync_udhar_to_dashboard to Firestore:', err);
       }
     }
   } catch (err) {
-    console.warn('Failed to save sync_udhar_to_dashboard:', err);
+    warn('Failed to save sync_udhar_to_dashboard:', err);
   }
 }
 
@@ -222,6 +224,7 @@ export async function getShowUdharOnDashboard(userId?: string): Promise<boolean>
     if (raw === null) return true; // Default is ON (true)
     return raw === 'true';
   } catch {
+    // Intended fallback: if AsyncStorage is unreadable, default show on dashboard to true
     return true;
   }
 }
@@ -236,11 +239,11 @@ export async function setShowUdharOnDashboard(userId: string | undefined, show: 
       try {
         await setDoc(doc(db, 'users', userId), { show_udhar_on_dashboard: show }, { merge: true });
       } catch (err) {
-        console.warn('Could not sync show_udhar_on_dashboard to Firestore:', err);
+        warn('Could not sync show_udhar_on_dashboard to Firestore:', err);
       }
     }
   } catch (err) {
-    console.warn('Failed to save show_udhar_on_dashboard:', err);
+    warn('Failed to save show_udhar_on_dashboard:', err);
   }
 }
 
@@ -256,6 +259,7 @@ export async function getUdharSyncQueue(userId?: string): Promise<UdharSyncActio
     const list = JSON.parse(raw);
     return Array.isArray(list) ? list : [];
   } catch {
+    // Intended fallback: if queue cache is corrupt or unreadable, return empty queue
     return [];
   }
 }
@@ -279,7 +283,7 @@ export async function enqueueUdharSyncAction(
     };
     await AsyncStorage.setItem(getUdharSyncQueueKey(uid), JSON.stringify([...queue, item]));
   } catch (err) {
-    console.warn('[UdharSync] Failed to enqueue udhar sync action:', err);
+    warn('[UdharSync] Failed to enqueue udhar sync action:', err);
   }
 }
 
@@ -394,7 +398,7 @@ export async function flushUdharSyncQueue(userId?: string): Promise<{ success: n
           }
         }
       } catch (itemErr) {
-        console.warn(`[UdharSync] Sync failed for ${item.type} (${item.targetId}):`, itemErr);
+        warn(`[UdharSync] Sync failed for ${item.type} (${item.targetId}):`, itemErr);
         if (item.retryCount < 5) {
           remaining.push({ ...item, retryCount: item.retryCount + 1 });
         }
@@ -405,7 +409,7 @@ export async function flushUdharSyncQueue(userId?: string): Promise<{ success: n
     await AsyncStorage.setItem(getUdharSyncQueueKey(uid), JSON.stringify(remaining));
     return { success, failed };
   } catch (err) {
-    console.warn('[UdharSync] Queue flush error:', err);
+    warn('[UdharSync] Queue flush error:', err);
     return { success, failed };
   } finally {
     isUdharSyncing = false;
@@ -486,7 +490,7 @@ export async function syncFriendsFromCloud(userId?: string): Promise<FriendConta
     await AsyncStorage.setItem(getFriendsKey(uid), JSON.stringify(mergedList));
     return mergedList;
   } catch (err) {
-    console.warn('[UdharSync] Background friends sync failed, keeping local:', err);
+    warn('[UdharSync] Background friends sync failed, keeping local:', err);
     return friendsMemoryCache.get(uid) || [];
   }
 }
@@ -566,7 +570,7 @@ export async function syncEntriesFromCloud(userId?: string): Promise<UdharEntry[
     await AsyncStorage.setItem(getEntriesKey(uid), JSON.stringify(mergedList));
     return mergedList;
   } catch (err) {
-    console.warn('[UdharSync] Background entries sync failed, keeping local:', err);
+    warn('[UdharSync] Background entries sync failed, keeping local:', err);
     return entriesMemoryCache.get(uid) || [];
   }
 }
@@ -609,7 +613,7 @@ export async function preloadFriendsAndUdhar(userId?: string): Promise<void> {
       }, 300);
     }
   } catch (err) {
-    console.warn('[UdharSync] Preload error:', err);
+    warn('[UdharSync] Preload error:', err);
   }
 }
 
@@ -644,7 +648,7 @@ export async function getFriends(userId?: string): Promise<FriendContact[]> {
       }
     }
   } catch (err) {
-    console.warn('Error reading local friends cache:', err);
+    warn('Error reading local friends cache:', err);
   }
 
   // 3. Fallback to Cloud if local storage is completely empty
@@ -788,7 +792,7 @@ export async function getUdharEntries(userId?: string, friendId?: string): Promi
       }
     }
   } catch (err) {
-    console.warn('Error reading local udhar entries:', err);
+    warn('Error reading local udhar entries:', err);
   }
 
   // 3. Fallback to Cloud if local storage is completely empty
@@ -979,6 +983,6 @@ export async function saveLastUsedUpiId(userId: string | undefined, upiId: strin
       await AsyncStorage.setItem(getUpiKey(userId), upiId.trim());
     }
   } catch (err) {
-    console.warn('Error saving last used upi id:', err);
+    warn('Error saving last used upi id:', err);
   }
 }

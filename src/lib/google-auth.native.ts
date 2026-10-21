@@ -1,6 +1,7 @@
 import { GoogleAuthProvider, signInWithCredential, UserCredential } from 'firebase/auth';
 import { auth } from './firebase';
 import { Alert, Platform } from 'react-native';
+import { error } from '@/lib/logger';
 
 const GOOGLE_WEB_CLIENT_ID = '26927139619-8opf3vlb5mqj5em7j5aenp2i3bs15aml.apps.googleusercontent.com';
 let configured = false;
@@ -37,7 +38,7 @@ export async function promptGoogleSignIn(): Promise<UserCredential> {
   } catch (err: any) {
     const code = err?.code;
     const message = err?.message;
-    console.error('[GoogleAuth] Native Sign-In Error Details:', {
+    error('[GoogleAuth] Native Sign-In Error Details:', {
       code,
       message,
       nativeError: err,

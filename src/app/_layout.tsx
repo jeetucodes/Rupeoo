@@ -20,11 +20,15 @@ import { initializeAds } from '@/lib/ads';
 import Toast from 'react-native-toast-message';
 import { customToastConfig } from '@/components/custom-toast';
 import MaintenanceScreen from '@/components/MaintenanceScreen';
+import { useAppUpdate } from '@/lib/appUpdate';
+import { UpdateAvailableModal } from '@/components/UpdateAvailableModal';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Linking from 'expo-linking';
 import '@/widgets';
 import { syncWidgetWithTransactions } from '@/lib/widgetSync';
 import { preloadFriendsAndUdhar } from '@/lib/udharStorage';
+import { auth } from '@/lib/firebase';
+import { isVerificationRequired } from '@/lib/authVerification';
 
 interface ErrorBoundaryProps {
   children: React.ReactNode;
@@ -46,7 +50,7 @@ class RootErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error('RootErrorBoundary caught an unhandled error:', error, errorInfo);
+    logError('RootErrorBoundary caught an unhandled error:', error, errorInfo);
   }
 
   resetError = () => {
@@ -90,6 +94,7 @@ import {
   startRealtimeNotificationWatcher
 } from '@/lib/notifications';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { warn, error as logError } from '@/lib/logger';
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { user, loading, settings, appConfig } = useAuth();
@@ -119,7 +124,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
           if (granted) return registerDeviceForPushNotifications(user.uid);
           return null;
         })
-        .catch(error => console.warn('Push registration error:', error));
+        .catch(error => warn('Push registration error:', error));
     }
 
     return () => {
@@ -173,7 +178,8 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       currentSegment === 'login' ||
       currentSegment === 'forgot-password' ||
       currentSegment === 'starting-balance' ||
-      currentSegment === 'setup';
+      currentSegment === 'setup' ||
+      currentSegment === 'verify-email';
 
     if (!user && !isPublicRoute) {
       if (currentSegment === 'quick-add' || currentSegment === 'quick-add-voice' || currentSegment === 'add') {
@@ -181,6 +187,17 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       }
       router.replace('/login');
     } else if (user) {
+      // A9. Gate unverified email/password accounts created after VERIFICATION_CUTOFF
+      if (isVerificationRequired(auth?.currentUser)) {
+        if (currentSegment !== 'verify-email') {
+          router.replace('/verify-email');
+        }
+        return;
+      } else if (currentSegment === 'verify-email') {
+        router.replace(user.hasSetStartingBalance ? '/(tabs)/dashboard' : '/starting-balance');
+        return;
+      }
+
       // Sync widget with user's latest transaction summary
       syncWidgetWithTransactions(user.uid).catch(() => {});
 
@@ -222,7 +239,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
           }
         }
       } catch (err) {
-        console.warn('Deep link parse error:', err);
+        warn('Deep link parse error:', err);
       }
     };
 
@@ -237,9 +254,22 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   // Initialize Ads respecting Real-time Remote Admin Config
   useEffect(() => {
     if (!loading && appConfig) {
-      initializeAds(appConfig).catch((e) => console.warn('Ads init warning:', e));
+      initializeAds(appConfig).catch((e) => warn('Ads init warning:', e));
     }
   }, [loading, appConfig?.networkAdsEnabled, appConfig?.showAds, appConfig?.adMobTestMode]);
+
+  const currentSegment = segments[0] as string | undefined;
+  const isNormalScreen =
+    !loading &&
+    !appConfig?.maintenanceMode &&
+    currentSegment !== 'index' &&
+    currentSegment !== 'onboarding' &&
+    currentSegment !== 'setup';
+
+  const {
+    updateState,
+    dismissSoftUpdate,
+  } = useAppUpdate(appConfig, isNormalScreen);
 
   if (loading) {
     return null;
@@ -250,7 +280,18 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     return <MaintenanceScreen />;
   }
 
-  return <>{children}</>;
+  return (
+    <>
+      {children}
+      <UpdateAvailableModal
+        visible={updateState.mode !== 'NONE'}
+        mode={updateState.mode}
+        title={updateState.title}
+        message={updateState.message}
+        onDismiss={dismissSoftUpdate}
+      />
+    </>
+  );
 }
 
 export default function RootLayout() {
@@ -260,7 +301,7 @@ export default function RootLayout() {
   const isTransparentOverlay = currentSegment === 'quick-add-voice';
 
   useEffect(() => {
-    initDatabase().catch((e) => console.error('Database init error:', e));
+    initDatabase().catch((e) => logError('Database init error:', e));
     requestNotificationPermissions()
       .then((granted) => {
         if (granted) {
@@ -268,7 +309,7 @@ export default function RootLayout() {
           setupPeriodicSmartNotifications().catch(() => { });
         }
       })
-      .catch((e) => console.error('Notification permission error:', e));
+      .catch((e) => logError('Notification permission error:', e));
   }, []);
 
   return (

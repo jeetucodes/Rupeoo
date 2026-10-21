@@ -3,6 +3,7 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 import { FriendSummary, UdharEntry, getDynamicEntryAmount } from './udharStorage';
+import { warn, error } from '@/lib/logger';
 
 export interface GroupedEntryInvoiceData {
   parent: UdharEntry;
@@ -53,7 +54,9 @@ function formatDate(dateStr?: string): string {
         return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
       }
     }
-  } catch { }
+  } catch {
+    // Intentional: fall back to raw dateStr if parsing fails
+  }
   return dateStr;
 }
 
@@ -1087,7 +1090,7 @@ export async function generateInvoicePDFOnly(options: UdharInvoiceOptions): Prom
         });
         finalUri = targetUri;
       } catch (copyErr) {
-        console.warn('Could not copy PDF file to targetUri, using result.uri fallback:', copyErr);
+        warn('Could not copy PDF file to targetUri, using result.uri fallback:', copyErr);
         finalUri = result.uri;
       }
 
@@ -1096,7 +1099,7 @@ export async function generateInvoicePDFOnly(options: UdharInvoiceOptions): Prom
 
     return { success: false, error: 'Failed to generate PDF invoice file.' };
   } catch (err: any) {
-    console.error('Invoice PDF Generation error:', err);
+    error('Invoice PDF Generation error:', err);
     return { success: false, error: err?.message || 'Failed to print PDF.' };
   }
 }
@@ -1138,7 +1141,7 @@ export async function shareInvoiceDirectToWhatsApp(
           await NativeModules.RupeoShare.shareToWhatsApp(imageUri, text, formattedPhone || undefined);
           return { success: true };
         } catch (waErr) {
-          console.warn('Native shareToWhatsApp failed, fallback to shareImageAndText:', waErr);
+          warn('Native shareToWhatsApp failed, fallback to shareImageAndText:', waErr);
         }
       }
 
@@ -1151,7 +1154,7 @@ export async function shareInvoiceDirectToWhatsApp(
           );
           return { success: true };
         } catch (nativeErr) {
-          console.warn('Native shareImageAndText failed:', nativeErr);
+          warn('Native shareImageAndText failed:', nativeErr);
         }
       }
     }
@@ -1180,7 +1183,7 @@ export async function shareInvoiceDirectToWhatsApp(
 
     return { success: false, error: 'WhatsApp is not installed on this device.' };
   } catch (err: any) {
-    console.error('WhatsApp share error:', err);
+    error('WhatsApp share error:', err);
     return { success: false, error: err?.message || 'Could not open WhatsApp.' };
   }
 }

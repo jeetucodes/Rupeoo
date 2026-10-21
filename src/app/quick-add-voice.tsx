@@ -37,6 +37,7 @@ import { triggerTransactionVibration } from '@/lib/sound';
 import { parseVoiceTranscript, ParsedVoiceTransaction } from '@/lib/voiceParser';
 import { Colors } from '@/constants/theme';
 import CategoryIcon from '@/components/CategoryIcon';
+import { warn, error } from '@/lib/logger';
 
 type VoiceState =
   | 'listening'
@@ -182,7 +183,9 @@ export default function VoiceQuickAddScreen() {
 
     try {
       ExpoSpeechRecognitionModule?.abort?.();
-    } catch {}
+    } catch (_) {
+      // Intentional: abort throws if recognizer is not currently active
+    }
 
     if (isFromWidget) {
       if (Platform.OS === 'android') {
@@ -240,7 +243,7 @@ export default function VoiceQuickAddScreen() {
               time: timeStr,
             });
           } catch (udharErr) {
-            console.warn('[VoiceQuickAdd] Udhar sync error:', udharErr);
+            warn('[VoiceQuickAdd] Udhar sync error:', udharErr);
           }
         }
 
@@ -261,7 +264,7 @@ export default function VoiceQuickAddScreen() {
           });
         }, 1000);
       } catch (saveErr) {
-        console.error('[VoiceQuickAdd] Direct save error:', saveErr);
+        error('[VoiceQuickAdd] Direct save error:', saveErr);
         setState('direct_saved_confirm');
       }
     },
@@ -444,7 +447,9 @@ export default function VoiceQuickAddScreen() {
 
           try {
             webSpeechRef.current?.abort();
-          } catch (_) {}
+          } catch (_) {
+            // Intentional: abort throws InvalidStateError if instance is inactive
+          }
 
           const recognition = new SpeechRecognitionClass();
           webSpeechRef.current = recognition;
@@ -486,7 +491,9 @@ export default function VoiceQuickAddScreen() {
                   isCleaningUpRef.current = true;
                   try {
                     recognition.stop();
-                  } catch (_) {}
+                  } catch (_) {
+                    // Intentional: stop throws if instance is already stopped
+                  }
                   processTranscriptRef.current(captured);
                 }
               }, 1500);
@@ -518,7 +525,9 @@ export default function VoiceQuickAddScreen() {
             } else if (stateRef.current === 'listening' && !isCleaningUpRef.current) {
               try {
                 startWebInstance();
-              } catch (_) {}
+              } catch (_) {
+                // Intentional: ignore restart errors on page unmount
+              }
             }
           };
 
@@ -526,7 +535,7 @@ export default function VoiceQuickAddScreen() {
             recognition.start();
             triggerTransactionVibration();
           } catch (err: any) {
-            console.warn('[WebSpeech] start error:', err);
+            warn('[WebSpeech] start error:', err);
           }
         };
 
@@ -535,8 +544,10 @@ export default function VoiceQuickAddScreen() {
         silenceTimerRef.current = setTimeout(() => {
           if (stateRef.current === 'listening' && transcriptRef.current.trim().length === 0) {
             try {
-              webSpeechRef.current?.abort();
-            } catch (_) {}
+            webSpeechRef.current?.abort();
+          } catch (_) {
+            // Intentional: abort throws InvalidStateError if instance is inactive
+          }
             setIsListening(false);
             setErrorMessage(t('voice_no_speech'));
             setState('error');
@@ -578,7 +589,7 @@ export default function VoiceQuickAddScreen() {
         }
       }, 8000);
     } catch (err: any) {
-      console.warn('[VoiceQuickAdd] Start error:', err);
+      warn('[VoiceQuickAdd] Start error:', err);
       clearSilenceTimers();
       setIsListening(false);
       setErrorMessage(err?.message || 'Could not start speech recognition');
@@ -598,8 +609,10 @@ export default function VoiceQuickAddScreen() {
       if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
       if (Platform.OS === 'web') {
         try {
-          webSpeechRef.current?.abort();
-        } catch (_) {}
+            webSpeechRef.current?.abort();
+          } catch (_) {
+            // Intentional: abort throws InvalidStateError if instance is inactive
+          }
       } else {
         try {
           ExpoSpeechRecognitionModule?.abort?.();
@@ -625,7 +638,7 @@ export default function VoiceQuickAddScreen() {
           visibilityTime: 1800,
         });
       } catch (err) {
-        console.warn('[VoiceQuickAdd] Undo error:', err);
+        warn('[VoiceQuickAdd] Undo error:', err);
       }
     }
 

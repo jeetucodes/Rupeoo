@@ -9,6 +9,7 @@ import {
   InAppCustomAd,
 } from './customAds';
 import { CustomAdBanner } from '@/components/CustomAdBanner';
+import { log, warn } from '@/lib/logger';
 
 export * from './customAds';
 export { CustomAdBanner } from '@/components/CustomAdBanner';
@@ -50,7 +51,7 @@ const TEST_BANNER_ID = TestIds?.BANNER || 'ca-app-pub-3940256099942544/630097811
 export async function initializeAds(config?: AppConfig) {
   // If ads are killed or network ads are disabled, completely bypass SDK initialization
   if (config && (config.showAds === false || config.networkAdsEnabled === false)) {
-    console.log('AdMob disabled by config: Skipping Google Mobile Ads SDK initialization');
+    log('AdMob disabled by config: Skipping Google Mobile Ads SDK initialization');
     return;
   }
 
@@ -59,7 +60,7 @@ export async function initializeAds(config?: AppConfig) {
     await mobileAds().initialize();
     preloadTransactionSaveAd(Boolean(config?.adMobTestMode), config?.adMobInterstitialUnitId);
   } catch (e) {
-    console.warn('Google Mobile Ads initialization warning:', e);
+    warn('Google Mobile Ads initialization warning:', e);
   }
 }
 
@@ -79,12 +80,12 @@ export function preloadTransactionSaveAd(forceTest: boolean = false, customUnitI
     });
 
     interstitial.addAdEventListener(AdEventType.LOADED, () => {
-      console.log('✅ AdMob Interstitial loaded successfully with ID:', adUnitId);
+      log('✅ AdMob Interstitial loaded successfully with ID:', adUnitId);
       isInterstitialLoaded = true;
     });
 
     interstitial.addAdEventListener(AdEventType.CLOSED, () => {
-      console.log('AdMob Interstitial closed by user');
+      log('AdMob Interstitial closed by user');
       isInterstitialLoaded = false;
       const cb = onInterstitialClosedCallback;
       onInterstitialClosedCallback = null;
@@ -96,7 +97,7 @@ export function preloadTransactionSaveAd(forceTest: boolean = false, customUnitI
     });
 
     interstitial.addAdEventListener(AdEventType.ERROR, (error: any) => {
-      console.warn('AdMob Interstitial failed to load with unitId:', adUnitId, error);
+      warn('AdMob Interstitial failed to load with unitId:', adUnitId, error);
       isInterstitialLoaded = false;
       if (!forceTest) {
         // Fallback to Google's official test interstitial ID
@@ -106,7 +107,7 @@ export function preloadTransactionSaveAd(forceTest: boolean = false, customUnitI
 
     interstitial.load();
   } catch (e) {
-    console.warn('Could not create InterstitialAd instance:', e);
+    warn('Could not create InterstitialAd instance:', e);
   }
 }
 
@@ -148,7 +149,7 @@ export async function showTransactionSaveAd(
   expenseEntryCount += 1;
 
   if (expenseEntryCount % interval !== 0) {
-    console.log(`Transaction entry #${expenseEntryCount}: skipping interstitial (interval is ${interval})`);
+    log(`Transaction entry #${expenseEntryCount}: skipping interstitial (interval is ${interval})`);
     preloadTransactionSaveAd(Boolean(config?.adMobTestMode), config?.adMobInterstitialUnitId);
     dismiss();
     return;
@@ -160,12 +161,12 @@ export async function showTransactionSaveAd(
       onInterstitialClosedCallback = dismiss;
       await interstitial.show();
     } else {
-      console.log('Interstitial ad not ready yet, continuing flow');
+      log('Interstitial ad not ready yet, continuing flow');
       preloadTransactionSaveAd(Boolean(config?.adMobTestMode), config?.adMobInterstitialUnitId);
       dismiss();
     }
   } catch (e) {
-    console.warn('Error displaying Transaction Save Ad:', e);
+    warn('Error displaying Transaction Save Ad:', e);
     onInterstitialClosedCallback = null;
     dismiss();
     preloadTransactionSaveAd(Boolean(config?.adMobTestMode), config?.adMobInterstitialUnitId);
@@ -237,7 +238,7 @@ export function RupeoAdBanner({
               setAdmobError(false);
             }}
             onAdFailedToLoad={(error: any) => {
-              console.warn('AdMob Banner failed to load with unitId:', adUnitId, error);
+              warn('AdMob Banner failed to load with unitId:', adUnitId, error);
               if (!isTestMode) {
                 setUseTestAd(true);
               } else {

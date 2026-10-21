@@ -1,3 +1,4 @@
+import { log } from '@/lib/logger';
 import { Platform } from 'react-native';
 
 export { TodaySummaryWidget } from './TodaySummaryWidget';
@@ -19,8 +20,8 @@ if (Platform.OS === 'android') {
     const { registerWidgetTaskHandler } = require('react-native-android-widget');
     const { widgetTaskHandler } = require('./widget-task-handler');
     registerWidgetTaskHandler(widgetTaskHandler);
-    console.log('[Widget] registerWidgetTaskHandler initialized');
+    log('[Widget] registerWidgetTaskHandler initialized');
   } catch (err) {
-    console.log('[Widget] registerWidgetTaskHandler deferred or unavailable:', err);
+    log('[Widget] registerWidgetTaskHandler deferred or unavailable:', err);
   }
 }

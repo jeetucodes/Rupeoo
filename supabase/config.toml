@@ -1,0 +1,17 @@
+# Supabase Edge Functions configuration
+# verify_jwt = false allows the edge functions to receive custom Firebase ID tokens in Authorization header
+
+[functions.verify-subscription]
+verify_jwt = false
+
+[functions.redeem-coupon]
+verify_jwt = false
+
+[functions.rtdn-webhook]
+verify_jwt = false
+
+[functions.send-email-otp]
+verify_jwt = false
+
+[functions.verify-email-otp]
+verify_jwt = false

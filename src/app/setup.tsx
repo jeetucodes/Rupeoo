@@ -15,6 +15,7 @@ const LANGUAGES = [
 
 import { ALL_CURRENCIES } from '@/lib/currencies';
 import { CurrencySelectorModal } from '@/components/CurrencySelectorModal';
+import { error } from '@/lib/logger';
 
 export default function SetupScreen() {
   const router = useRouter();
@@ -47,8 +48,8 @@ export default function SetupScreen() {
       sendWelcomeNotification(user.uid).catch(() => {});
       setupPeriodicSmartNotifications().catch(() => {});
       router.replace('/starting-balance');
-    } catch (error) {
-      console.error(error);
+    } catch (err) {
+      error(err);
       Alert.alert('Error', 'Failed to save settings. Please try again.');
     } finally {
       setLoading(false);

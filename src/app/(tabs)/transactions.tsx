@@ -34,6 +34,7 @@ import PaymentModeIcon from '@/components/PaymentModeIcon';
 import CategoryIcon from '@/components/CategoryIcon';
 import Skeleton from '@/components/Skeleton';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { error } from '@/lib/logger';
 
 const formatAmount = (amount: number) => {
   return amount.toLocaleString('en-IN', {
@@ -342,7 +343,7 @@ export default function TransactionsScreen() {
       setAllTransactions(sortTransactionsRecentFirst(txs));
       setCategories(cats);
     } catch (e) {
-      console.error('Error loading transactions:', e);
+      error('Error loading transactions:', e);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -572,7 +573,9 @@ export default function TransactionsScreen() {
           try {
             const d = new Date(dateKey);
             label = d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
-          } catch { }
+          } catch {
+            // Intentional: fall back to raw dateKey if date string formatting fails
+          }
         }
         groups[dateKey] = { dateLabel: label, totalSpend: 0, items: [] };
       }
@@ -947,11 +950,11 @@ export default function TransactionsScreen() {
             <View style={styles.datePickerRow}>
               {Platform.OS === 'web' ? (
                 <>
-                  {/* @ts-ignore */}
+                  {/* @ts-ignore Web-only HTML input element */}
                   <input
                     type="date"
                     value={startDate}
-                    onChange={(e: any) => setStartDate(e.target.value)}
+                    onChange={(e: { target: { value: string } }) => setStartDate(e.target.value)}
                     style={{
                       flex: 1,
                       marginRight: 8,
@@ -967,11 +970,11 @@ export default function TransactionsScreen() {
                       fontFamily: 'inherit'
                     }}
                   />
-                  {/* @ts-ignore */}
+                  {/* @ts-ignore Web-only HTML input element */}
                   <input
                     type="date"
                     value={endDate}
-                    onChange={(e: any) => setEndDate(e.target.value)}
+                    onChange={(e: { target: { value: string } }) => setEndDate(e.target.value)}
                     style={{
                       flex: 1,
                       padding: '10px 12px',

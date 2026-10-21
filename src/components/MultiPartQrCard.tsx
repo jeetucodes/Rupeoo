@@ -20,6 +20,7 @@ import Toast from 'react-native-toast-message';
 import { SplitPart } from '@/lib/splitPayment';
 import BankLogo from '@/components/BankLogo';
 import { RUPEO_QR_LOGO_DATA_URI } from '@/constants/qrLogo';
+import { warn } from '@/lib/logger';
 
 interface MultiPartQrCardProps {
   part: SplitPart;
@@ -88,7 +89,7 @@ export const MultiPartQrCard: React.FC<MultiPartQrCardProps> = ({
         try {
           uri = await viewShotRef.current.capture();
         } catch (captureErr) {
-          console.warn('ViewShot capture failed:', captureErr);
+          warn('ViewShot capture failed:', captureErr);
         }
       }
 
@@ -114,7 +115,7 @@ export const MultiPartQrCard: React.FC<MultiPartQrCardProps> = ({
         position: 'top',
       });
     } catch (err: any) {
-      console.warn('Error saving QR code:', err);
+      warn('Error saving QR code:', err);
       Toast.show({
         type: 'error',
         text1: 'Save Failed',
@@ -149,7 +150,7 @@ export const MultiPartQrCard: React.FC<MultiPartQrCardProps> = ({
         });
       }
     } catch (err) {
-      console.warn('Error sharing QR:', err);
+      warn('Error sharing QR:', err);
     } finally {
       setIsSharing(false);
     }

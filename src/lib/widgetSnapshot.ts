@@ -8,6 +8,7 @@ import {
   getStartingBalanceProfile,
 } from '@/lib/database';
 import { getAllFriendsSummaries } from '@/lib/udharStorage';
+import { log, warn, error } from '@/lib/logger';
 
 export const WIDGET_SNAPSHOT_KEY = 'rupeo_widget_snapshot_v1';
 export const WIDGET_LOGGED_OUT_KEY = 'rupeo_widget_logged_out_v1';
@@ -82,7 +83,7 @@ export async function getWidgetSnapshot(): Promise<WidgetSnapshot | null> {
     if (!parsed || parsed.version !== 1) return null;
     return parsed as WidgetSnapshot;
   } catch (err) {
-    console.warn('[WidgetSnapshot] Error reading snapshot:', err);
+    warn('[WidgetSnapshot] Error reading snapshot:', err);
     return null;
   }
 }
@@ -154,14 +155,14 @@ export function getRenderSnapshot(snapshot: WidgetSnapshot | null): WidgetSnapsh
 export async function saveWidgetSnapshot(snapshot: WidgetSnapshot): Promise<boolean> {
   try {
     if (!snapshot || !snapshot.updatedAt || typeof snapshot.todaySpent !== 'number') {
-      console.warn('[WidgetSnapshot] Rejected invalid snapshot write');
+      warn('[WidgetSnapshot] Rejected invalid snapshot write');
       return false;
     }
     await AsyncStorage.setItem(WIDGET_SNAPSHOT_KEY, JSON.stringify(snapshot));
     await AsyncStorage.removeItem(WIDGET_LOGGED_OUT_KEY);
     return true;
   } catch (err) {
-    console.warn('[WidgetSnapshot] Error saving snapshot:', err);
+    warn('[WidgetSnapshot] Error saving snapshot:', err);
     return false;
   }
 }
@@ -174,7 +175,7 @@ export async function clearWidgetSnapshot(): Promise<void> {
     await AsyncStorage.removeItem(WIDGET_SNAPSHOT_KEY);
     await AsyncStorage.setItem(WIDGET_LOGGED_OUT_KEY, 'true');
   } catch (err) {
-    console.warn('[WidgetSnapshot] Error clearing snapshot:', err);
+    warn('[WidgetSnapshot] Error clearing snapshot:', err);
   }
 }
 
@@ -186,7 +187,7 @@ const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
  */
 export async function buildWidgetSnapshotFromApp(userId?: string): Promise<WidgetSnapshot | null> {
   if (!userId) {
-    console.log('[WidgetSnapshot] Skipping build: No userId provided');
+    log('[WidgetSnapshot] Skipping build: No userId provided');
     return null;
   }
 
@@ -386,7 +387,7 @@ export async function buildWidgetSnapshotFromApp(userId?: string): Promise<Widge
     await saveWidgetSnapshot(snapshot);
     return snapshot;
   } catch (err) {
-    console.error('[WidgetSnapshot] Failed to build widget snapshot:', err);
+    error('[WidgetSnapshot] Failed to build widget snapshot:', err);
     return null;
   }
 }

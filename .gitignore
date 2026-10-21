@@ -13,3 +13,9 @@ expo-env.d.ts
 android/
 ios/
 .git_clean/
+
+# Firebase service account credentials (NEVER commit)
+*serviceAccount*.json
+*service-account*.json
+service-account.json
+credentials.json

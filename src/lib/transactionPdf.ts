@@ -4,6 +4,7 @@ import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 import { formatTime12Hour } from './dateUtils';
 import type { ReceiptTheme } from './receiptTheme';
+import { warn, error } from '@/lib/logger';
 
 export type { ReceiptTheme };
 
@@ -47,7 +48,9 @@ function formatDisplayDate(rawDate?: string): string {
     if (!isNaN(d.getTime())) {
       return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
     }
-  } catch { }
+  } catch {
+    // Intentional: fall back to rawDate string if parsing fails
+  }
   return rawDate;
 }
 
@@ -1530,7 +1533,7 @@ export async function generateTransactionReceiptPdfOnly(
           });
           resolvedImageSrc = `data:image/jpeg;base64,${b64}`;
         } catch (e) {
-          console.warn('Could not read receipt image file as base64:', e);
+          warn('Could not read receipt image file as base64:', e);
           resolvedImageSrc = null;
         }
       } else {
@@ -1573,7 +1576,7 @@ export async function generateTransactionReceiptPdfOnly(
             iframe.contentWindow?.focus();
             iframe.contentWindow?.print();
           } catch (printErr) {
-            console.warn('Iframe print error:', printErr);
+            warn('Iframe print error:', printErr);
           } finally {
             setTimeout(() => {
               document.title = originalTitle;
@@ -1581,7 +1584,9 @@ export async function generateTransactionReceiptPdfOnly(
                 if (document.body.contains(iframe)) {
                   document.body.removeChild(iframe);
                 }
-              } catch { }
+              } catch {
+                // Iframe may have already been unmounted or removed
+              }
             }, 3000);
           }
         }, 350);
@@ -1613,7 +1618,7 @@ export async function generateTransactionReceiptPdfOnly(
           finalUri = targetUri;
         }
       } catch (copyErr) {
-        console.warn('Could not copy PDF file to targetUri, using result.uri fallback:', copyErr);
+        warn('Could not copy PDF file to targetUri, using result.uri fallback:', copyErr);
         finalUri = result.uri;
       }
 
@@ -1622,7 +1627,7 @@ export async function generateTransactionReceiptPdfOnly(
 
     return { success: false, error: 'Failed to generate PDF bill file.' };
   } catch (err: any) {
-    console.error('Transaction Receipt PDF Generation error:', err);
+    error('Transaction Receipt PDF Generation error:', err);
     return { success: false, error: err?.message || 'Failed to print PDF.' };
   }
 }
@@ -1649,7 +1654,7 @@ export async function shareTransactionReceiptPdf(
         return { success: true, uri: res.uri, filename: res.filename };
       }
     } catch (shareErr: any) {
-      console.warn('Sharing.shareAsync failed:', shareErr);
+      warn('Sharing.shareAsync failed:', shareErr);
       return { success: false, error: shareErr?.message || 'Failed to open share dialog.' };
     }
     return { success: true, uri: res.uri, filename: res.filename };
@@ -1688,7 +1693,7 @@ export async function downloadTransactionReceiptPdf(
         }
       }
     } catch (safErr) {
-      console.warn('SAF save failed, fallback to system share:', safErr);
+      warn('SAF save failed, fallback to system share:', safErr);
     }
   }
 
@@ -1702,7 +1707,7 @@ export async function downloadTransactionReceiptPdf(
       });
       return { success: true, uri: res.uri, filename: res.filename };
     } catch (shareErr: any) {
-      console.warn('Download fallback sharing failed:', shareErr);
+      warn('Download fallback sharing failed:', shareErr);
       return { success: false, error: shareErr?.message || 'Failed to save PDF.' };
     }
   }

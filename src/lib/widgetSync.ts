@@ -20,6 +20,7 @@ import { UpcomingBillsWidget } from '@/widgets/UpcomingBillsWidget';
 import { WeeklySpendingWidget } from '@/widgets/WeeklySpendingWidget';
 import { InsightWidget } from '@/widgets/InsightWidget';
 import { QuickActionsWidget } from '@/widgets/QuickActionsWidget';
+import { log, warn } from '@/lib/logger';
 
 export const REGISTERED_WIDGET_NAMES = [
   'TodaySummaryWidget',
@@ -114,7 +115,7 @@ export async function triggerWidgetUpdate(data?: any): Promise<void> {
       }
     }
   } catch (err) {
-    console.log('[WidgetSync] Native widget update skipped or unavailable:', err);
+    log('[WidgetSync] Native widget update skipped or unavailable:', err);
   }
 }
 
@@ -179,7 +180,7 @@ export async function syncWidgetWithTransactions(
 ): Promise<any> {
   if (Platform.OS !== 'android') return;
   if (!userId) {
-    console.log('[WidgetSync] Skipping sync: No userId provided');
+    log('[WidgetSync] Skipping sync: No userId provided');
     return;
   }
 
@@ -188,6 +189,6 @@ export async function syncWidgetWithTransactions(
     await triggerWidgetUpdate(snapshot);
     return snapshot;
   } catch (err) {
-    console.warn('[WidgetSync] Error syncing widget snapshot:', err);
+    warn('[WidgetSync] Error syncing widget snapshot:', err);
   }
 }

@@ -43,7 +43,8 @@ import {
   type PurchaseError,
 } from '@/lib/iap';
 import { useAuth } from '@/context/AuthContext';
-import { validateCoupon, redeemCoupon, CouponItem } from '@/lib/database';
+import { validateCoupon, redeemCoupon, CouponItem, redeemFreeCouponOnServer } from '@/lib/database';
+import { warn } from '@/lib/logger';
 
 // ─── Core Benefits ────────────────────────────────────────────────────────────
 
@@ -277,7 +278,7 @@ export default function PremiumScreen() {
           setSelectedPlan(activeSub.basePlanId);
         }
       } catch (err) {
-        console.warn('[premium] init warning:', err);
+        warn('[premium] init warning:', err);
       } finally {
         if (mounted) {
           setLoading(false);
@@ -502,10 +503,9 @@ export default function PremiumScreen() {
       // Check if truly 100% Free or Discount
       const isTrulyFree = Boolean(res.coupon?.isFree) && !res.coupon?.discountAmount;
       if (isTrulyFree || (res.coupon?.discountPercent === 100 && !res.coupon?.discountAmount)) {
-        // 100% Free Coupon -> Activate immediately
+        // 100% Free Coupon -> Activate immediately via server
         const planToActivate = res.coupon?.plan && res.coupon?.plan !== 'all' ? res.coupon.plan : 'lifetime';
-        await upgradeToPremium(planToActivate);
-        await redeemCoupon(clean, user.uid);
+        await redeemFreeCouponOnServer(clean, planToActivate);
         await refreshUser();
 
         setCouponSuccess(`🎉 Code "${clean}" applied! Pro unlocked (${planToActivate.toUpperCase()}).`);

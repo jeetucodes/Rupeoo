@@ -2,12 +2,23 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    // DO NOT DEPLOY until grandfather script has run and tokens refreshed.
     function signedIn() {
-      return request.auth != null;
+      return request.auth != null && (
+        request.auth.token.email_verified == true ||
+        request.auth.token.grandfathered == true ||
+        request.auth.token.firebase.sign_in_provider != 'password'
+      );
+    }
+
+    // Deny-all client rule for email_otps (Admin SDK bypasses security rules)
+    match /email_otps/{document=**} {
+      allow read, write: if false;
     }
 
     function isAdmin() {
       return signedIn() && (
+        request.auth.token.admin == true ||
         request.auth.token.email == 'admin@rupeo.app' ||
         request.auth.token.email == 'ya041304@gmail.com'
       );
@@ -31,7 +42,21 @@ service cloud.firestore {
 
     // Support Messages (submitted from Maintenance Screen or Help & Support in Settings)
     match /support_messages/{messageId} {
-      allow create: if true;
+      allow create: if isAdmin() || (
+        request.resource.data.keys().hasOnly([
+          'name', 'email', 'phone', 'topic', 'message', 'source', 'userId', 'status', 'createdAt', 'updatedAt'
+        ])
+        && request.resource.data.name is string && request.resource.data.name.size() <= 100
+        && request.resource.data.email is string && request.resource.data.email.size() <= 150
+        && request.resource.data.message is string && request.resource.data.message.size() <= 3000
+        && request.resource.data.source is string && request.resource.data.source.size() <= 50
+        && request.resource.data.status is string && request.resource.data.status in ['open', 'unread']
+        && request.resource.data.createdAt is string && request.resource.data.createdAt.size() <= 50
+        && request.resource.data.updatedAt is string && request.resource.data.updatedAt.size() <= 50
+        && (!('phone' in request.resource.data) || request.resource.data.phone == null || (request.resource.data.phone is string && request.resource.data.phone.size() <= 30))
+        && (!('topic' in request.resource.data) || request.resource.data.topic == null || (request.resource.data.topic is string && request.resource.data.topic.size() <= 100))
+        && (!('userId' in request.resource.data) || request.resource.data.userId == null || (request.resource.data.userId is string && request.resource.data.userId.size() <= 128))
+      );
       allow read: if isAdmin() || (signedIn() && resource.data.userId == request.auth.uid);
       allow update: if isAdmin() || (signedIn() && resource.data.userId == request.auth.uid);
       allow delete: if isAdmin();
@@ -71,8 +96,12 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read, write: if signedIn() && request.auth.uid == userId;
-      allow read: if isAdmin();
+      allow read: if (signedIn() && request.auth.uid == userId) || isAdmin();
+      allow delete: if signedIn() && request.auth.uid == userId;
+      allow create: if signedIn() && request.auth.uid == userId
+        && !request.resource.data.keys().hasAny(['is_premium', 'premium_plan', 'premium_activated_at']);
+      allow update: if signedIn() && request.auth.uid == userId
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['is_premium', 'premium_plan', 'premium_activated_at']);
 
       match /transactions/{transactionId} {
         allow read, write: if signedIn() && request.auth.uid == userId;
@@ -88,7 +117,12 @@ service cloud.firestore {
       }
 
       match /settings/{settingsId} {
-        allow read, write: if signedIn() && request.auth.uid == userId;
+        allow read: if signedIn() && request.auth.uid == userId;
+        allow delete: if signedIn() && request.auth.uid == userId;
+        allow create: if signedIn() && request.auth.uid == userId
+          && !request.resource.data.keys().hasAny(['isPremium', 'premiumPlan', 'premiumActivatedAt']);
+        allow update: if signedIn() && request.auth.uid == userId
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['isPremium', 'premiumPlan', 'premiumActivatedAt']);
       }
 
       match /categories/{categoryId} {
@@ -99,8 +133,13 @@ service cloud.firestore {
         allow read, write: if signedIn() && request.auth.uid == userId;
       }
 
+      match /{subcollection}/{docId} {
+        allow read: if signedIn() && request.auth.uid == userId;
+        allow write: if signedIn() && request.auth.uid == userId && subcollection != 'settings';
+      }
+
       match /{document=**} {
-        allow read, write: if signedIn() && request.auth.uid == userId;
+        allow read: if signedIn() && request.auth.uid == userId;
       }
     }
 
@@ -108,7 +147,10 @@ service cloud.firestore {
       allow read: if true;
       allow create, delete: if isAdmin();
       allow update: if isAdmin() || (
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['clicksCount', 'impressionsCount', 'updatedAt'])
+        signedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['clicksCount', 'impressionsCount', 'updatedAt'])
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['clicksCount']) || request.resource.data.clicksCount == resource.data.get('clicksCount', 0) + 1)
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['impressionsCount']) || request.resource.data.impressionsCount == resource.data.get('impressionsCount', 0) + 1)
       );
     }
   }

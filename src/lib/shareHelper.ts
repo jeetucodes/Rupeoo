@@ -1,5 +1,6 @@
 import { Platform, Share, NativeModules } from 'react-native';
 import * as Sharing from 'expo-sharing';
+import { warn } from '@/lib/logger';
 
 export interface ShareImageAndTextOptions {
   uri: string;
@@ -29,7 +30,7 @@ export async function shareImageAndText({
         await NativeModules.RupeoShare.shareImageAndText(uri, text || '', dTitle);
         return;
       } catch (nativeErr) {
-        console.warn('Native RupeoShare error, falling back:', nativeErr);
+        warn('Native RupeoShare error, falling back:', nativeErr);
       }
     }
   }
@@ -44,7 +45,7 @@ export async function shareImageAndText({
       });
       return;
     } catch (iosErr) {
-      console.warn('iOS share error, falling back to standard Sharing:', iosErr);
+      warn('iOS share error, falling back to standard Sharing:', iosErr);
     }
   }
 
@@ -58,7 +59,7 @@ export async function shareImageAndText({
       });
       return;
     } catch (expoSharingErr) {
-      console.warn('Expo sharing failed:', expoSharingErr);
+      warn('Expo sharing failed:', expoSharingErr);
     }
   }
 
@@ -70,11 +71,13 @@ export async function shareImageAndText({
         message: text,
       });
     } catch (shareErr) {
-      console.warn('Share.share failed (browser gesture or unsupported):', shareErr);
+      warn('Share.share failed (browser gesture or unsupported):', shareErr);
       if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
         try {
           await navigator.clipboard.writeText(text);
-        } catch {}
+        } catch (clipErr) {
+          warn('Clipboard writeText failed on web fallback:', clipErr);
+        }
       }
     }
   }

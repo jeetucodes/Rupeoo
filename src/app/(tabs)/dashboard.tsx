@@ -1,3 +1,5 @@
+import { BillFormSheet } from '@/components/bills/BillFormSheet';
+import { RecordPaymentModal } from '@/components/bills/RecordPaymentModal';
 import React, { useCallback, useMemo, useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -58,6 +60,7 @@ import { GooglePlayReviewModal } from '@/components/GooglePlayReviewModal';
 import VoiceTransactionModal from '@/components/VoiceTransactionModal';
 import { ThreeDCalendarIcon, ThreeDQRCodeIcon } from '@/components/ThreeDIcons';
 import { formatTime12Hour, getLocalDateString, getLocalMonthString, getRelativeDateString } from '@/lib/dateUtils';
+import { warn, error } from '@/lib/logger';
 
 const { width, height } = Dimensions.get('window');
 
@@ -107,13 +110,42 @@ export interface BrandProvider {
 }
 
 // ---------------------------------------------------------------------------
-// BrandLogo — styled brand icon for each provider in bill cards
+// BrandLogo â€” styled brand icon for each provider in bill cards
 // ---------------------------------------------------------------------------
-function BrandLogo({ id, color, size = 32 }: { id: string; color: string; size?: number }) {
+function BrandLogo({
+  id,
+  color,
+  size = 32,
+  iconKey,
+  badge,
+}: {
+  id: string;
+  color: string;
+  size?: number;
+  iconKey?: string;
+  badge?: string;
+}) {
   const s = size;
   const r = 0; // border radius scale
 
-  // ── JIO — dark blue circle with "Jio" text ──
+  if (iconKey) {
+    return (
+      <View style={[brandLogoStyles.base, { backgroundColor: color || '#2563EB', borderRadius: s * 0.3, width: s, height: s }]}>
+        <Ionicons name={iconKey as any} size={Math.round(s * 0.52)} color="#FFFFFF" />
+      </View>
+    );
+  }
+
+  if (id && id.startsWith('custom:')) {
+    const chars = Array.from(badge || '★').slice(0, 2).join('');
+    return (
+      <View style={[brandLogoStyles.base, { backgroundColor: color || '#2563EB', borderRadius: s * 0.3, width: s, height: s }]}>
+        <Text style={[brandLogoStyles.wordmark, { color: '#FFFFFF', fontSize: Math.round(s * 0.4), fontWeight: '800' }]}>{chars}</Text>
+      </View>
+    );
+  }
+
+  // â”€â”€ JIO â€” dark blue circle with "Jio" text â”€â”€
   if (id === 'jio' || id === 'jiofiber') {
     return (
       <View style={[brandLogoStyles.base, { backgroundColor: '#1239AC', borderRadius: s * 0.3, width: s, height: s }]}>
@@ -122,7 +154,7 @@ function BrandLogo({ id, color, size = 32 }: { id: string; color: string; size?:
     );
   }
 
-  // ── AIRTEL — white bg, red italic "a" ──
+  // â”€â”€ AIRTEL â€” white bg, red italic "a" â”€â”€
   if (id === 'airtel' || id === 'airtel_xstream') {
     return (
       <View style={[brandLogoStyles.base, { backgroundColor: '#FFFFFF', borderRadius: s * 0.3, width: s, height: s, borderWidth: 1.5, borderColor: '#ED1C2425' }]}>
@@ -131,7 +163,7 @@ function BrandLogo({ id, color, size = 32 }: { id: string; color: string; size?:
     );
   }
 
-  // ── VI — red rounded square "Vi!" ──
+  // â”€â”€ VI â€” red rounded square "Vi!" â”€â”€
   if (id === 'vi') {
     return (
       <View style={[brandLogoStyles.base, { backgroundColor: '#E60000', borderRadius: r, width: s, height: s }]}>
@@ -143,7 +175,7 @@ function BrandLogo({ id, color, size = 32 }: { id: string; color: string; size?:
     );
   }
 
-  // ── BSNL — grey circle with "BSNL" text ──
+  // â”€â”€ BSNL â€” grey circle with "BSNL" text â”€â”€
   if (id === 'bsnl') {
     return (
       <View style={[brandLogoStyles.base, { backgroundColor: '#FFFFFF', borderRadius: s * 0.3, width: s, height: s, borderWidth: 1.5, borderColor: '#E2E8F0' }]}>
@@ -152,7 +184,7 @@ function BrandLogo({ id, color, size = 32 }: { id: string; color: string; size?:
     );
   }
 
-  // ── NETFLIX — black rectangle with "N" ──
+  // â”€â”€ NETFLIX â€” black rectangle with "N" â”€â”€
   if (id === 'netflix') {
     return (
       <View style={[brandLogoStyles.base, { backgroundColor: '#000000', borderRadius: r, width: s, height: s }]}>
@@ -161,7 +193,7 @@ function BrandLogo({ id, color, size = 32 }: { id: string; color: string; size?:
     );
   }
 
-  // ── AMAZON PRIME ──
+  // â”€â”€ AMAZON PRIME â”€â”€
   if (id === 'prime') {
     return (
       <View style={[brandLogoStyles.base, { backgroundColor: '#00A8E1', borderRadius: r, width: s, height: s }]}>
@@ -170,16 +202,16 @@ function BrandLogo({ id, color, size = 32 }: { id: string; color: string; size?:
     );
   }
 
-  // ── HOTSTAR ──
+  // â”€â”€ HOTSTAR â”€â”€
   if (id === 'hotstar') {
     return (
       <View style={[brandLogoStyles.base, { backgroundColor: '#0C1E3C', borderRadius: r, width: s, height: s }]}>
-        <Text style={[brandLogoStyles.wordmark, { color: '#FFD700', fontSize: s * 0.4 }]}>★</Text>
+        <Text style={[brandLogoStyles.wordmark, { color: '#FFD700', fontSize: s * 0.4 }]}>â˜…</Text>
       </View>
     );
   }
 
-  // ── SPOTIFY ──
+  // â”€â”€ SPOTIFY â”€â”€
   if (id === 'spotify') {
     return (
       <View style={[brandLogoStyles.base, { backgroundColor: '#1DB954', borderRadius: s * 0.3, width: s, height: s }]}>
@@ -188,7 +220,7 @@ function BrandLogo({ id, color, size = 32 }: { id: string; color: string; size?:
     );
   }
 
-  // ── YOUTUBE ──
+  // â”€â”€ YOUTUBE â”€â”€
   if (id === 'youtube') {
     return (
       <View style={[brandLogoStyles.base, { backgroundColor: '#FF0000', borderRadius: r, width: s, height: s }]}>
@@ -197,7 +229,7 @@ function BrandLogo({ id, color, size = 32 }: { id: string; color: string; size?:
     );
   }
 
-  // ── APPLE ──
+  // â”€â”€ APPLE â”€â”€
   if (id === 'apple') {
     return (
       <View style={[brandLogoStyles.base, { backgroundColor: '#1C1C1E', borderRadius: r, width: s, height: s }]}>
@@ -206,7 +238,7 @@ function BrandLogo({ id, color, size = 32 }: { id: string; color: string; size?:
     );
   }
 
-  // ── ELECTRICITY ──
+  // â”€â”€ ELECTRICITY â”€â”€
   if (id === 'electricity') {
     return (
       <View style={[brandLogoStyles.base, { backgroundColor: '#F59E0B', borderRadius: r, width: s, height: s }]}>
@@ -215,7 +247,7 @@ function BrandLogo({ id, color, size = 32 }: { id: string; color: string; size?:
     );
   }
 
-  // ── GAS ──
+  // â”€â”€ GAS â”€â”€
   if (id === 'gas') {
     return (
       <View style={[brandLogoStyles.base, { backgroundColor: '#F97316', borderRadius: r, width: s, height: s }]}>
@@ -224,7 +256,7 @@ function BrandLogo({ id, color, size = 32 }: { id: string; color: string; size?:
     );
   }
 
-  // ── RENT ──
+  // â”€â”€ RENT â”€â”€
   if (id === 'rent') {
     return (
       <View style={[brandLogoStyles.base, { backgroundColor: '#10B981', borderRadius: r, width: s, height: s }]}>
@@ -233,7 +265,7 @@ function BrandLogo({ id, color, size = 32 }: { id: string; color: string; size?:
     );
   }
 
-  // ── EMI ──
+  // â”€â”€ EMI â”€â”€
   if (id === 'emi') {
     return (
       <View style={[brandLogoStyles.base, { backgroundColor: '#E11D48', borderRadius: r, width: s, height: s }]}>
@@ -242,7 +274,7 @@ function BrandLogo({ id, color, size = 32 }: { id: string; color: string; size?:
     );
   }
 
-  // ── GYM ──
+  // â”€â”€ GYM â”€â”€
   if (id === 'gym') {
     return (
       <View style={[brandLogoStyles.base, { backgroundColor: '#10B981', borderRadius: r, width: s, height: s }]}>
@@ -251,7 +283,7 @@ function BrandLogo({ id, color, size = 32 }: { id: string; color: string; size?:
     );
   }
 
-  // ── TIFFIN ──
+  // â”€â”€ TIFFIN â”€â”€
   if (id === 'tiffin') {
     return (
       <View style={[brandLogoStyles.base, { backgroundColor: '#F97316', borderRadius: r, width: s, height: s }]}>
@@ -260,7 +292,7 @@ function BrandLogo({ id, color, size = 32 }: { id: string; color: string; size?:
     );
   }
 
-  // ── MILK ──
+  // â”€â”€ MILK â”€â”€
   if (id === 'milk') {
     return (
       <View style={[brandLogoStyles.base, { backgroundColor: '#0284C7', borderRadius: r, width: s, height: s }]}>
@@ -269,7 +301,7 @@ function BrandLogo({ id, color, size = 32 }: { id: string; color: string; size?:
     );
   }
 
-  // ── DEFAULT fallback ──
+  // â”€â”€ DEFAULT fallback â”€â”€
   return (
     <View style={[brandLogoStyles.base, { backgroundColor: color, borderRadius: r, width: s, height: s }]}>
       <Ionicons name="receipt-outline" size={s * 0.4} color="#FFFFFF" />
@@ -351,7 +383,7 @@ export default function DashboardScreen() {
 
 
 
-  const curr = settings?.currency === 'INR' ? '₹' : (settings?.currency || '₹');
+  const curr = settings?.currency === 'INR' ? 'â‚¹' : (settings?.currency || 'â‚¹');
   const monthlyBudget = Number(settings?.monthlyBudget) || 0;
 
   const todayStr = useMemo(() => getLocalDateString(), []);
@@ -395,25 +427,9 @@ export default function DashboardScreen() {
 
   // Add Bill Modal State
   const [addBillModalVisible, setAddBillModalVisible] = useState(false);
-  const [selectedProviderId, setSelectedProviderId] = useState<string>('jio');
-  const [selectedGroupTab, setSelectedGroupTab] = useState<'sim' | 'daily' | 'ott' | 'wifi' | 'utility'>('sim');
-  const [billTitle, setBillTitle] = useState('Jio Mobile Recharge');
-  const [billAmount, setBillAmount] = useState('');
-  const [billType, setBillType] = useState<'monthly_date' | 'cycle_days'>('cycle_days');
-  const [billDueDay, setBillDueDay] = useState('30');
-  const [billRechargeDate, setBillRechargeDate] = useState(todayStr);
-  const [billCycleDays, setBillCycleDays] = useState('28');
-  const [billCategory, setBillCategory] = useState('Subscriptions');
-  const [billNotes, setBillNotes] = useState('');
-  const [isSavingBill, setIsSavingBill] = useState(false);
 
   // All Subscriptions Manager Modal State
   const [allBillsModalVisible, setAllBillsModalVisible] = useState(false);
-
-  // Calendar Picker Modal State
-  const [calendarModalVisible, setCalendarModalVisible] = useState(false);
-  const [calViewYear, setCalViewYear] = useState(new Date().getFullYear());
-  const [calViewMonth, setCalViewMonth] = useState(new Date().getMonth());
 
   // Pay Bill Modal State
   const [payModalVisible, setPayModalVisible] = useState(false);
@@ -513,7 +529,7 @@ export default function DashboardScreen() {
         }).catch(() => { });
       });
     } catch (err) {
-      console.error('Failed to load dashboard data', err);
+      error('Failed to load dashboard data', err);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -580,22 +596,32 @@ export default function DashboardScreen() {
     const diffDays = Math.round((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 
     if (diffDays < 0) {
-      return { label: `Overdue (${Math.abs(diffDays)}d)`, color: '#EF4444', daysLeft: diffDays, isDueSoon: true };
+      return { label: t('overdue_d_text').replace('{d}', String(Math.abs(diffDays))), color: '#EF4444', daysLeft: diffDays, isDueSoon: true };
     }
     if (diffDays === 0) {
-      return { label: 'Due Today 🚨', color: '#EF4444', daysLeft: 0, isDueSoon: true };
+      return { label: t('due_today_text'), color: '#EF4444', daysLeft: 0, isDueSoon: true };
     }
     if (diffDays <= 3) {
-      return { label: `Due in ${diffDays}d ⏰`, color: '#F59E0B', daysLeft: diffDays, isDueSoon: true };
+      return { label: t('due_in_d_alarm').replace('{d}', String(diffDays)), color: '#F59E0B', daysLeft: diffDays, isDueSoon: true };
     }
     if (diffDays <= 10) {
-      return { label: `Due in ${diffDays}d`, color: '#3B82F6', daysLeft: diffDays, isDueSoon: true };
+      return { label: t('due_in_d_text').replace('{d}', String(diffDays)), color: '#3B82F6', daysLeft: diffDays, isDueSoon: true };
     }
-    return { label: `Due in ${diffDays}d`, color: '#10B981', daysLeft: diffDays, isDueSoon: false };
+    return { label: t('due_in_d_text').replace('{d}', String(diffDays)), color: '#10B981', daysLeft: diffDays, isDueSoon: false };
   };
 
   // Helper to resolve Brand Meta for any bill
   const getBrandMetaForBill = (bill: RecurringBill) => {
+    if (bill.brandColor || bill.iconKey || bill.provider?.startsWith('custom:') || bill.provider === 'custom') {
+      return {
+        id: bill.provider || 'custom',
+        name: bill.title,
+        badge: bill.brandBadge || Array.from(bill.title).slice(0, 4).join('') || 'Bill',
+        color: bill.brandColor || '#6366F1',
+        bgColor: (bill.brandColor || '#6366F1') + '18',
+        icon: bill.iconKey || 'receipt',
+      };
+    }
     if (bill.provider) {
       const match = BRAND_PROVIDERS.find(p => p.id === bill.provider);
       if (match) return match;
@@ -736,88 +762,6 @@ export default function DashboardScreen() {
     return { icon: cat?.icon || 'receipt-outline', color: cat?.color || '#FF6B6B' };
   };
 
-  // Live calculation preview for modal
-  const livePreviewData = useMemo(() => {
-    if (billType === 'monthly_date') {
-      const day = parseInt(billDueDay) || 30;
-      const nextDue = calculateNextMonthlyDueDate(day);
-      const status = getBillDueStatus(nextDue);
-      return {
-        nextDue,
-        statusLabel: status.label,
-        statusColor: status.color,
-        desc: `Repeats every month on ${day}th`,
-      };
-    } else {
-      const cycle = parseInt(billCycleDays) || 28;
-      const nextDue = calculateNextCycleDueDate(cycle, billRechargeDate || todayStr);
-      const status = getBillDueStatus(nextDue);
-      return {
-        nextDue,
-        statusLabel: status.label,
-        statusColor: status.color,
-        desc: `${cycle} days validity cycle from ${billRechargeDate}`,
-      };
-    }
-  }, [billType, billDueDay, billCycleDays, billRechargeDate, todayStr]);
-
-  // Calendar Grid builder
-  const calendarDays = useMemo(() => {
-    const totalDays = new Date(calViewYear, calViewMonth + 1, 0).getDate();
-    const firstDayIndex = new Date(calViewYear, calViewMonth, 1).getDay(); // 0 is Sunday
-
-    const daysArr: { dayNumber: number | null; dateStr: string | null }[] = [];
-
-    // Empty cells before first day
-    for (let i = 0; i < firstDayIndex; i++) {
-      daysArr.push({ dayNumber: null, dateStr: null });
-    }
-
-    // Actual day cells
-    for (let d = 1; d <= totalDays; d++) {
-      const mStr = String(calViewMonth + 1).padStart(2, '0');
-      const dStr = String(d).padStart(2, '0');
-      daysArr.push({
-        dayNumber: d,
-        dateStr: `${calViewYear}-${mStr}-${dStr}`,
-      });
-    }
-
-    return daysArr;
-  }, [calViewYear, calViewMonth]);
-
-  const handlePrevMonth = () => {
-    if (calViewMonth === 0) {
-      setCalViewMonth(11);
-      setCalViewYear(prev => prev - 1);
-    } else {
-      setCalViewMonth(prev => prev - 1);
-    }
-  };
-
-  const handleNextMonth = () => {
-    if (calViewMonth === 11) {
-      setCalViewMonth(0);
-      setCalViewYear(prev => prev + 1);
-    } else {
-      setCalViewMonth(prev => prev + 1);
-    }
-  };
-
-  const handleSelectDateFromCalendar = (dateStr: string) => {
-    setBillRechargeDate(dateStr);
-    setCalendarModalVisible(false);
-  };
-
-  const handleSelectProvider = (p: BrandProvider) => {
-    setSelectedProviderId(p.id);
-    setBillTitle(p.name);
-    setBillType(p.type);
-    setBillCategory(p.category);
-    setBillDueDay(p.dueDay);
-    setBillCycleDays(p.cycleDays);
-  };
-
   // Pick receipt screenshot
   const pickReceiptForBill = async () => {
     try {
@@ -834,7 +778,7 @@ export default function DashboardScreen() {
         setPayReceiptImage(base64);
       }
     } catch (err) {
-      console.warn('Image picker error:', err);
+      warn('Image picker error:', err);
     }
   };
 
@@ -856,12 +800,12 @@ export default function DashboardScreen() {
       setBillToDelete(null);
       Toast.show({
         type: 'success',
-        text1: 'Reminder Removed ✅',
+        text1: 'Reminder Removed âœ…',
         text2: `"${billToDelete.title}" deleted successfully`,
       });
       loadData();
     } catch (err: any) {
-      console.error('Delete Reminder Error:', err);
+      error('Delete Reminder Error:', err);
       Toast.show({
         type: 'error',
         text1: 'Delete Failed',
@@ -869,68 +813,6 @@ export default function DashboardScreen() {
       });
     } finally {
       setIsDeletingBill(false);
-    }
-  };
-
-  // Save new recurring bill
-  const handleSaveBill = async () => {
-    if (!billTitle.trim()) {
-      Toast.show({ type: 'error', text1: 'Required', text2: 'Please enter a title (e.g. Jio Recharge)' });
-      return;
-    }
-    const amt = parseFloat(billAmount);
-    if (isNaN(amt) || amt <= 0) {
-      Toast.show({ type: 'error', text1: 'Required', text2: 'Please enter a valid amount' });
-      return;
-    }
-
-    try {
-      setIsSavingBill(true);
-      if (!user?.uid) return;
-
-      const providerObj = BRAND_PROVIDERS.find(p => p.id === selectedProviderId);
-
-      let nextDue = '';
-      if (billType === 'monthly_date') {
-        const dueDayNum = parseInt(billDueDay) || 30;
-        nextDue = calculateNextMonthlyDueDate(dueDayNum);
-      } else {
-        const cycleNum = parseInt(billCycleDays) || 28;
-        nextDue = calculateNextCycleDueDate(cycleNum, billRechargeDate || todayStr);
-      }
-
-      await saveRecurringBill(user.uid, {
-        title: billTitle.trim(),
-        amount: amt,
-        category: billCategory,
-        type: billType,
-        provider: selectedProviderId,
-        brandColor: providerObj?.color || '#0F172A',
-        brandBadge: providerObj?.badge || 'Bill',
-        dueDay: billType === 'monthly_date' ? parseInt(billDueDay) || 30 : undefined,
-        cycleDays: billType === 'cycle_days' ? parseInt(billCycleDays) || 28 : undefined,
-        startDate: billType === 'cycle_days' ? billRechargeDate : todayStr,
-        notes: billNotes.trim() || undefined,
-        nextDueDate: nextDue,
-      });
-
-      setAddBillModalVisible(false);
-      setBillTitle('Jio Mobile Recharge');
-      setBillAmount('');
-      setBillNotes('');
-      loadData();
-
-      // Schedule local push notification
-      import('@/lib/notifications').then(({ scheduleBillReminder }) => {
-        scheduleBillReminder(billTitle, amt, new Date(nextDue), curr).catch(console.error);
-      });
-
-      Toast.show({ type: 'success', text1: 'Reminder Saved', text2: 'Bill successfully added to your dashboard' });
-    } catch (err: any) {
-      console.error('Save bill error:', err);
-      Toast.show({ type: 'error', text1: 'Error', text2: err.message || 'Failed to save bill' });
-    } finally {
-      setIsSavingBill(false);
     }
   };
 
@@ -944,9 +826,9 @@ export default function DashboardScreen() {
       setSelectedBillToPay(null);
       setPayReceiptImage(null);
       loadData();
-      Toast.show({ type: 'success', text1: 'Success ✅', text2: `${selectedBillToPay.title} payment recorded & next renewal scheduled!` });
+      Toast.show({ type: 'success', text1: 'Success âœ…', text2: `${selectedBillToPay.title} payment recorded & next renewal scheduled!` });
     } catch (err: any) {
-      console.error('Record Payment error:', err);
+      error('Record Payment error:', err);
       Toast.show({ type: 'error', text1: 'Error', text2: err.message || 'Failed to record payment' });
     } finally {
       setIsPaying(false);
@@ -1097,11 +979,11 @@ export default function DashboardScreen() {
             style={StyleSheet.absoluteFill}
           />
 
-          {/* Header Row: Label Pill (✦ TOTAL BALANCE) & Action Controls */}
+          {/* Header Row: Label Pill (âœ¦ TOTAL BALANCE) & Action Controls */}
           <View style={styles.balanceTopRow}>
             <View style={styles.balanceLabelWrap}>
               <Text style={styles.balanceLabel}>
-                ✦ {t('total_balance').toUpperCase()}
+                {t('total_balance').toUpperCase()}
               </Text>
             </View>
 
@@ -1150,7 +1032,7 @@ export default function DashboardScreen() {
           {/* Main Balance Display */}
           <View style={styles.balanceAmountWrap}>
             <Text style={styles.balanceAmount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.5}>
-              {hideBalance ? '••••••••' : `${curr}${formatAmount(netBalance)}`}
+              {hideBalance ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : `${curr}${formatAmount(netBalance)}`}
             </Text>
           </View>
 
@@ -1182,7 +1064,7 @@ export default function DashboardScreen() {
           </View>
         </View>
 
-        {/* QUICK ACCESS: UPCOMING BILLS & SMART QR PAY */}
+        {/* QUICK ACCESS: UPCOMING BILLS & FRIENDS / UDHAR */}
         <View style={styles.quickTwoBtnsRow}>
           {/* 1. UPCOMING BILLS CARD */}
           <TouchableOpacity
@@ -1200,45 +1082,51 @@ export default function DashboardScreen() {
               </View>
             </View>
 
-            {/* Middle: Title & Subtitles */}
+            {/* Middle: Clean Title & Hero Amount */}
             <View style={styles.tileTextWrap}>
               <Text
                 style={styles.tileTitle}
                 numberOfLines={1}
                 adjustsFontSizeToFit
-                minimumFontScale={0.65}
+                minimumFontScale={0.8}
               >
                 {t('upcoming_bills')}
               </Text>
-              <Text style={styles.tileSubPrimaryRow} numberOfLines={1}>
-                <Text style={styles.tileSubPrefix}>Next </Text>
-                <Text style={styles.tileSubAmount}>
-                  {homeUpcomingBills.length > 0
-                    ? `${curr}${formatAmount(homeUpcomingBills[0].amount)}`
-                    : nextFutureBill
-                      ? `${curr}${formatAmount(nextFutureBill.amount)}`
-                      : '₹3,000.00'}
-                </Text>
+              <Text style={styles.tileHeroAmount} numberOfLines={1}>
+                {curr}{formatAmount((homeUpcomingBills[0] || nextFutureBill)?.amount || 0)}
               </Text>
-              <View style={styles.tileSubSecondaryRow}>
-                <Ionicons name="time-outline" size={12} color="#64748B" style={{ marginRight: 3 }} />
-                <Text style={styles.tileSubSecondary} numberOfLines={1}>
-                  {homeUpcomingBills.length > 0
-                    ? getBillDueStatus(homeUpcomingBills[0].nextDueDate).label
-                    : nextFutureBill
-                      ? getBillDueStatus(nextFutureBill.nextDueDate).label
-                      : 'Due in 15d'}
-                </Text>
-              </View>
             </View>
 
-            {/* Bottom: Pill Badge */}
-            <View style={styles.tilePaidBadge}>
-              <View style={styles.tilePaidDot} />
-              <Text style={styles.tilePaidBadgeText} numberOfLines={1}>
-                {recurringBills.length > 0 ? `${recurringBills.length} Active` : '3 Active'}
-              </Text>
-            </View>
+            {/* Bottom: Clean Single Pill Badge */}
+            {homeUpcomingBills.length > 0 || nextFutureBill ? (
+              (() => {
+                const dueStatus = getBillDueStatus((homeUpcomingBills[0] || nextFutureBill)!.nextDueDate);
+                const isUrgent = dueStatus.daysLeft <= 3;
+                return (
+                  <View style={[styles.tileStatusPill, isUrgent ? styles.tilePillUrgent : styles.tilePillNormal]}>
+                    <Ionicons
+                      name={isUrgent ? 'time' : 'calendar-outline'}
+                      size={11}
+                      color={isUrgent ? '#EA580C' : '#059669'}
+                      style={{ marginRight: 4 }}
+                    />
+                    <Text
+                      style={[styles.tileStatusPillText, { color: isUrgent ? '#EA580C' : '#059669' }]}
+                      numberOfLines={1}
+                    >
+                      {dueStatus.label.replace('⏰', '').trim()}
+                    </Text>
+                  </View>
+                );
+              })()
+            ) : (
+              <View style={[styles.tileStatusPill, styles.tilePillNormal]}>
+                <Ionicons name="checkmark-circle" size={11} color="#059669" style={{ marginRight: 4 }} />
+                <Text style={[styles.tileStatusPillText, { color: '#059669' }]} numberOfLines={1}>
+                  {t('all_clear_bills') || 'All clear'}
+                </Text>
+              </View>
+            )}
 
             {/* Right: 3D Calendar Scene */}
             <View
@@ -1260,47 +1148,72 @@ export default function DashboardScreen() {
             </View>
           </TouchableOpacity>
 
-          {/* 2. SMART QR PAY CARD */}
+          {/* 2. FRIENDS & UDHAR KHATA TILE */}
           <TouchableOpacity
             style={styles.quickActionTile}
-            onPress={() => router.push('/split-qr' as any)}
+            onPress={() => router.push('/udhar' as any)}
             activeOpacity={0.88}
           >
-            {/* Top: 3D QR Icon + Circular Chevron */}
+            {/* Top: Icon + Chevron */}
             <View style={styles.tileHeaderRow}>
-              <View style={styles.tile3dIconWrapQr}>
-                <ThreeDQRCodeIcon size={24} />
+              <View style={[styles.tile3dIconWrapQr, { backgroundColor: '#FFF7ED' }]}>
+                <Ionicons name="people" size={22} color="#F59E0B" />
               </View>
               <View style={styles.tileChevronBtn}>
                 <Ionicons name="chevron-forward" size={14} color="#334155" />
               </View>
             </View>
 
-            {/* Middle: Title & Subtitles */}
+            {/* Middle: Clean Title & Hero Amount */}
             <View style={styles.tileTextWrap}>
               <Text
                 style={styles.tileTitle}
                 numberOfLines={1}
                 adjustsFontSizeToFit
-                minimumFontScale={0.65}
+                minimumFontScale={0.8}
               >
-                {t('smart_qr_pay')}
+                {t('udhar_title')}
               </Text>
-              <Text style={styles.tileSubPrimaryQr} numberOfLines={1}>
-                Scan & Pay
-              </Text>
-              <Text style={styles.tileSubSecondaryQr} numberOfLines={1}>
-                Equal Split
+              <Text
+                style={[
+                  styles.tileHeroAmount,
+                  udharDues && udharDues.totalToReceive > 0 ? { color: '#16A34A' } : (udharDues && udharDues.totalToPay > 0 ? { color: '#DC2626' } : {})
+                ]}
+                numberOfLines={1}
+              >
+                {udharDues && udharDues.totalToReceive > 0
+                  ? `+${curr}${formatAmount(udharDues.totalToReceive)}`
+                  : udharDues && udharDues.totalToPay > 0
+                    ? `-${curr}${formatAmount(udharDues.totalToPay)}`
+                    : `${curr}0`}
               </Text>
             </View>
 
-            {/* Bottom: Pill Badge */}
-            <View style={styles.tileQrBadge}>
-              <Ionicons name="people" size={12} color="#4F46E5" />
-              <Text style={styles.tileQrBadgeText} numberOfLines={1}>Split Bills</Text>
-            </View>
+            {/* Bottom: Clean Single Pill Badge */}
+            {udharDues && udharDues.totalToReceive > 0 ? (
+              <View style={[styles.tileStatusPill, { backgroundColor: '#ECFDF5', borderColor: '#BBF7D0' }]}>
+                <Ionicons name="arrow-down-circle" size={11} color="#16A34A" style={{ marginRight: 4 }} />
+                <Text style={[styles.tileStatusPillText, { color: '#16A34A' }]} numberOfLines={1}>
+                  To Receive
+                </Text>
+              </View>
+            ) : udharDues && udharDues.totalToPay > 0 ? (
+              <View style={[styles.tileStatusPill, { backgroundColor: '#FEF2F2', borderColor: '#FECACA' }]}>
+                <Ionicons name="arrow-up-circle" size={11} color="#DC2626" style={{ marginRight: 4 }} />
+                <Text style={[styles.tileStatusPillText, { color: '#DC2626' }]} numberOfLines={1}>
+                  To Pay
+                </Text>
+              </View>
+            ) : (
+              <View style={[styles.tileStatusPill, { backgroundColor: '#FFF7ED', borderColor: '#FED7AA' }]}>
+                <Ionicons name="wallet-outline" size={11} color="#D97706" style={{ marginRight: 4 }} />
+                <Text style={[styles.tileStatusPillText, { color: '#D97706' }]} numberOfLines={1}>
+                  Khata
+                </Text>
+              </View>
+            )}
 
-            {/* Right: 3D QR Scene */}
+            {/* Right: Hero Image */}
             <View
               style={[
                 styles.tileHeroSceneWrapQr,
@@ -1312,7 +1225,7 @@ export default function DashboardScreen() {
               pointerEvents="none"
             >
               <ExpoImage
-                source={require('@/assets/images/3d_qr_card_loop.png')}
+                source={require('@/assets/images/3D_frinds-icon.png')}
                 style={{ width: heroImageSize, height: heroImageSize }}
                 contentFit="contain"
                 cachePolicy="memory-disk"
@@ -1321,34 +1234,43 @@ export default function DashboardScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* 3. FRIENDS & UDHAR KHATA CARD - ALWAYS VISIBLE */}
-        <TouchableOpacity
-          style={styles.udharBannerCard}
-          onPress={() => router.push('/udhar' as any)}
-          activeOpacity={0.88}
-        >
-          <View style={styles.udharIconYellowBox}>
-            <Ionicons name="people" size={24} color="#18181B" />
-          </View>
-
-          <View style={styles.udharBannerTextWrap}>
-            <View style={styles.udharBannerTitleRow}>
-              <Text style={styles.udharBannerTitle}>{t('udhar_title')}</Text>
-              <View style={styles.udharBannerBadge}>
-                <Text style={styles.udharBannerBadgeText}>KHATA</Text>
+        {/* SMART QR PAY CARD — commented out, preserved for future use */}
+          {/*
+          <TouchableOpacity
+            style={styles.quickActionTile}
+            onPress={() => router.push('/split-qr' as any)}
+            activeOpacity={0.88}
+          >
+            <View style={styles.tileHeaderRow}>
+              <View style={styles.tile3dIconWrapQr}>
+                <ThreeDQRCodeIcon size={24} />
+              </View>
+              <View style={styles.tileChevronBtn}>
+                <Ionicons name="chevron-forward" size={14} color="#334155" />
               </View>
             </View>
-            <Text style={styles.udharBannerSubtitle} numberOfLines={1}>
-              {udharDues && (udharDues.totalToReceive > 0 || udharDues.totalToPay > 0)
-                ? `${lang === 'Hindi' ? 'पाना' : 'To Get'}: ${curr}${udharDues.totalToReceive.toLocaleString('en-IN')} • ${lang === 'Hindi' ? 'देना' : 'To Give'}: ${curr}${udharDues.totalToPay.toLocaleString('en-IN')}`
-                : `To Get: ${curr}252 • To Give: ${curr}0`}
-            </Text>
-          </View>
+            <View style={styles.tileTextWrap}>
+              <Text style={styles.tileTitle} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>
+                {t('smart_qr_pay')}
+              </Text>
+              <Text style={styles.tileSubPrimaryQr} numberOfLines={1}>{t('scan_and_pay')}</Text>
+              <Text style={styles.tileSubSecondaryQr} numberOfLines={1}>{t('equal_split')}</Text>
+            </View>
+            <View style={styles.tileQrBadge}>
+              <Ionicons name="people" size={12} color="#4F46E5" />
+              <Text style={styles.tileQrBadgeText} numberOfLines={1}>{t('split_bills')}</Text>
+            </View>
+            <View style={[styles.tileHeroSceneWrapQr, { width: heroImageSize, height: heroImageSize }]} pointerEvents="none">
+              <ExpoImage source={require('@/assets/images/3d_qr_card_loop.png')} style={{ width: heroImageSize, height: heroImageSize }} contentFit="contain" cachePolicy="memory-disk" />
+            </View>
+          </TouchableOpacity>
+          */}
 
-          <View style={styles.udharBannerArrowCircle}>
-            <Ionicons name="chevron-forward" size={16} color="#3B82F6" />
-          </View>
+        {/* FRIENDS & UDHAR KHATA BANNER — commented out, preserved for future use
+        <TouchableOpacity style={styles.udharBannerCard} onPress={() => router.push('/udhar')} activeOpacity={0.88}>
+          ... udhar banner card code removed from view ...
         </TouchableOpacity>
+        */}
 
         {/* GOOGLE ADMOB HOME BANNER */}
         <HomeBannerAd />
@@ -1357,7 +1279,7 @@ export default function DashboardScreen() {
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionTitle}>{t('recent_transaction')}</Text>
           <TouchableOpacity onPress={() => router.push('/transactions')} activeOpacity={0.7}>
-            <Text style={styles.seeAllLink}>{t('see_all')} →</Text>
+            <Text style={styles.seeAllLink}>{t('see_all')}</Text>
           </TouchableOpacity>
         </View>
 
@@ -1396,7 +1318,7 @@ export default function DashboardScreen() {
                     </View>
                     <View style={styles.txSubRow}>
                       <Text style={styles.txDate}>{tx.date}</Text>
-                      {Boolean(tx.time) && <Text style={styles.txTime}> • {formatTime12Hour(tx.time)}</Text>}
+                      {Boolean(tx.time) && <Text style={styles.txTime}> â€¢ {formatTime12Hour(tx.time)}</Text>}
                       <View style={[styles.txModePill, { flexDirection: 'row', alignItems: 'center' }]}>
                         <PaymentModeIcon mode={tx.payment_mode || 'Cash'} size={11} color="#64748B" style={{ marginRight: 4 }} />
                         <Text style={styles.txModeText}>{tx.payment_mode || 'Cash'}</Text>
@@ -1454,7 +1376,7 @@ export default function DashboardScreen() {
               <View>
                 <Text style={styles.modalTitle}>All Subscriptions & Plans</Text>
                 <Text style={styles.modalSubtitle}>
-                  {recurringBills.length} Active Plans • {curr}{formatAmount(totalCommitment)} monthly
+                  {recurringBills.length} Active Plans â€¢ {curr}{formatAmount(totalCommitment)} monthly
                 </Text>
               </View>
               <TouchableOpacity onPress={() => setAllBillsModalVisible(false)} style={styles.modalCloseIconBtn}>
@@ -1471,37 +1393,38 @@ export default function DashboardScreen() {
                   return (
                     <View key={bill.id} style={styles.allPlansCard}>
                       <View style={styles.allPlansTop}>
-                        <BrandLogo id={brand.id} color={brand.color} />
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 }}>
+                          <BrandLogo id={brand.id} color={brand.color} size={34} iconKey={bill.iconKey} badge={bill.brandBadge} />
+                          <View style={{ marginLeft: 10, flex: 1 }}>
+                            <Text style={styles.allPlansTitle} numberOfLines={1}>{bill.title}</Text>
+                            <Text style={styles.allPlansSub} numberOfLines={1}>
+                              {bill.type === 'monthly_date'
+                                ? `Monthly on ${bill.dueDay}th`
+                                : `${bill.cycleDays} Days Validity Pack`}
+                            </Text>
+                          </View>
+                        </View>
 
-                        <View style={[styles.billStatusPill, { backgroundColor: status.color + '15' }]}>
-                          <Text style={[styles.billStatusText, { color: status.color }]}>{status.label}</Text>
+                        <View style={{ alignItems: 'flex-end' }}>
+                          <Text style={styles.allPlansAmount}>{curr}{formatAmount(bill.amount)}</Text>
+                          <View style={[styles.billStatusPill, { backgroundColor: status.color + '15', marginTop: 2 }]}>
+                            <Text style={[styles.billStatusText, { color: status.color }]}>{status.label}</Text>
+                          </View>
                         </View>
                       </View>
 
-                      <View style={styles.allPlansMiddle}>
-                        <View style={styles.allPlansMiddleTitle}>
-                          <Text style={styles.allPlansTitle}>{bill.title}</Text>
-                          <Text style={styles.allPlansSub}>
-                            {bill.type === 'monthly_date'
-                              ? `Monthly on ${bill.dueDay}th`
-                              : `${bill.cycleDays} Days Validity Pack`}
-                          </Text>
-                        </View>
-                        <Text style={styles.allPlansAmount}>{curr}{formatAmount(bill.amount)}</Text>
-                      </View>
-
-                      {/* Date details box */}
+                      {/* Date details box - Compact inline strip */}
                       <View style={styles.allPlansDatesBox}>
                         <View style={styles.allPlansDateCol}>
-                          <Text style={styles.allPlansDateLabel}>Started / Taken On</Text>
+                          <Text style={styles.allPlansDateLabel}>Started: </Text>
                           <Text style={styles.allPlansDateValue}>
                             {bill.startDate || bill.lastPaidDate || 'N/A'}
                           </Text>
                         </View>
                         <View style={styles.allPlansDateDivider} />
                         <View style={styles.allPlansDateCol}>
-                          <Text style={styles.allPlansDateLabel}>Next Due Date</Text>
-                          <Text style={[styles.allPlansDateValue, { color: status.color, fontWeight: '900' }]}>
+                          <Text style={styles.allPlansDateLabel}>Next Due: </Text>
+                          <Text style={[styles.allPlansDateValue, { color: status.color, fontWeight: '800' }]}>
                             {bill.nextDueDate}
                           </Text>
                         </View>
@@ -1519,7 +1442,7 @@ export default function DashboardScreen() {
                           }}
                           activeOpacity={0.8}
                         >
-                          <Ionicons name="checkmark-circle-outline" size={15} color="#0F172A" style={{ marginRight: 4 }} />
+                          <Ionicons name="checkmark-circle-outline" size={14} color="#0F172A" style={{ marginRight: 4 }} />
                           <Text style={styles.allPlansPayBtnText}>Pay & Proof</Text>
                         </TouchableOpacity>
 
@@ -1528,7 +1451,7 @@ export default function DashboardScreen() {
                           onPress={() => handleDeleteBill(bill)}
                           activeOpacity={0.7}
                         >
-                          <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                          <Ionicons name="trash-outline" size={15} color="#EF4444" />
                         </TouchableOpacity>
                       </View>
                     </View>
@@ -1558,526 +1481,27 @@ export default function DashboardScreen() {
         </View>
       </Modal>
 
-      {/* SIMPLIFIED & IMPROVED ADD BILL / RECHARGE MODAL */}
-      <Modal visible={addBillModalVisible} animationType="slide" transparent onRequestClose={() => setAddBillModalVisible(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            {/* Modal Header */}
-            <View style={styles.modalHeader}>
-              <View>
-                <Text style={styles.modalTitle}>Add Bill / Recharge Reminder</Text>
-                <Text style={styles.modalSubtitle}>Auto-reminders before due date or pack expiry</Text>
-              </View>
-              <TouchableOpacity onPress={() => setAddBillModalVisible(false)} style={styles.modalCloseIconBtn}>
-                <Ionicons name="close" size={20} color="#0F172A" />
-              </TouchableOpacity>
-            </View>
+      {/* SIMPLIFIED SHARED BILL FORM SHEET */}
+      <BillFormSheet
+        visible={addBillModalVisible}
+        onClose={() => setAddBillModalVisible(false)}
+        onSaveSuccess={() => {
+          loadData(true);
+        }}
+      />
 
-            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 520 }}>
-              {/* Quick Presets Row */}
-              <Text style={styles.modalFieldLabel}>Quick Presets</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.presetsRow}>
-                {BRAND_PROVIDERS.map(p => {
-                  const isSelected = selectedProviderId === p.id;
-                  return (
-                    <TouchableOpacity
-                      key={p.id}
-                      style={[
-                        styles.providerChip,
-                        isSelected && { borderColor: p.color, backgroundColor: p.bgColor },
-                      ]}
-                      onPress={() => handleSelectProvider(p)}
-                      activeOpacity={0.7}
-                    >
-                      <View style={styles.providerIconCircle}>
-                        <BrandLogo id={p.id} color={p.color} />
-                      </View>
-                      <Text style={[styles.providerChipText, isSelected && { color: p.color, fontWeight: '900' }]}>
-                        {p.badge}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-
-              {/* Type Switcher Tabs */}
-              <View style={styles.modalTypeSwitch}>
-                <TouchableOpacity
-                  style={[styles.modalTypeBtn, billType === 'monthly_date' && styles.modalTypeBtnActive]}
-                  onPress={() => setBillType('monthly_date')}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons
-                    name="calendar-outline"
-                    size={14}
-                    color={billType === 'monthly_date' ? '#0F172A' : '#64748B'}
-                    style={{ marginRight: 6 }}
-                  />
-                  <Text style={[styles.modalTypeBtnText, billType === 'monthly_date' && styles.modalTypeBtnTextActive]}>
-                    Monthly Bill (Fixed Day)
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.modalTypeBtn, billType === 'cycle_days' && styles.modalTypeBtnActive]}
-                  onPress={() => setBillType('cycle_days')}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons
-                    name="phone-portrait-outline"
-                    size={14}
-                    color={billType === 'cycle_days' ? '#0F172A' : '#64748B'}
-                    style={{ marginRight: 6 }}
-                  />
-                  <Text style={[styles.modalTypeBtnText, billType === 'cycle_days' && styles.modalTypeBtnTextActive]}>
-                    Recharge Pack (Days)
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Form Input Group: Title & Amount */}
-              <View style={styles.inputRow2Col}>
-                <View style={{ flex: 1.35 }}>
-                  <Text style={styles.modalFieldLabel}>Bill / Service Name</Text>
-                  <TextInput
-                    style={[styles.modalInput, { color: '#0F172A' }]}
-                    placeholder="e.g. Jio Recharge, Flat Rent"
-                    placeholderTextColor="#94A3B8"
-                    value={billTitle}
-                    onChangeText={setBillTitle}
-                  />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.modalFieldLabel}>Amount ({curr})</Text>
-                  <TextInput
-                    style={[styles.modalInput, { color: '#0F172A' }]}
-                    placeholder="e.g. 299"
-                    placeholderTextColor="#94A3B8"
-                    keyboardType="numeric"
-                    value={billAmount}
-                    onChangeText={setBillAmount}
-                  />
-                </View>
-              </View>
-
-              {/* Quick Amount Suggestion Chips */}
-              <View style={styles.quickAmountRow}>
-                {['199', '299', '699', '1499', '5000', '10000'].map(amt => (
-                  <TouchableOpacity
-                    key={amt}
-                    style={[styles.quickAmountChip, billAmount === amt && styles.quickAmountChipActive]}
-                    onPress={() => setBillAmount(amt)}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={[styles.quickAmountChipText, billAmount === amt && styles.quickAmountChipTextActive]}>
-                      {curr}{amt}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              {/* DATE / CYCLE CONFIGURATION */}
-              {billType === 'monthly_date' ? (
-                <View style={styles.configBlock}>
-                  <Text style={styles.modalFieldLabel}>Due Day of Every Month</Text>
-
-                  {/* Quick Day Selector Pills */}
-                  <View style={styles.daySelectorGrid}>
-                    {[1, 5, 10, 15, 20, 25, 28, 30].map(d => {
-                      const isSel = billDueDay === d.toString();
-                      return (
-                        <TouchableOpacity
-                          key={d}
-                          style={[styles.daySelectorPill, isSel && styles.daySelectorPillActive]}
-                          onPress={() => setBillDueDay(d.toString())}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={[styles.daySelectorPillText, isSel && styles.daySelectorPillTextActive]}>
-                            {d}th
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
-                    <Text style={styles.customDayLabel}>Custom Day:</Text>
-                    <TextInput
-                      style={[styles.customDayInput, { color: '#0F172A' }]}
-                      placeholder="30"
-                      placeholderTextColor="#94A3B8"
-                      keyboardType="number-pad"
-                      value={billDueDay}
-                      onChangeText={setBillDueDay}
-                      maxLength={2}
-                    />
-                    <Text style={styles.customDayHint}>of every month</Text>
-                  </View>
-                </View>
-              ) : (
-                <View style={styles.configBlock}>
-                  {/* Recharge Pack Validity */}
-                  <Text style={styles.modalFieldLabel}>Recharge Pack Validity</Text>
-                  <View style={styles.validityPillRow}>
-                    {RECHARGE_CYCLES.map(c => {
-                      const isSel = billCycleDays === c.days.toString();
-                      return (
-                        <TouchableOpacity
-                          key={c.days}
-                          style={[styles.validityPill, isSel && styles.validityPillActive]}
-                          onPress={() => setBillCycleDays(c.days.toString())}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={[styles.validityPillDays, isSel && styles.validityPillDaysActive]}>
-                            {c.days} Days
-                          </Text>
-                          <Text style={[styles.validityPillLabel, isSel && styles.validityPillLabelActive]}>
-                            {c.label.split('(')[1]?.replace(')', '') || ''}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-
-                  {/* Start Date Selector */}
-                  <Text style={[styles.modalFieldLabel, { marginTop: 12 }]}>Recharge Start Date</Text>
-                  <View style={styles.dateSelectorRow}>
-                    <TouchableOpacity
-                      style={[styles.dateOptionPill, billRechargeDate === todayStr && styles.dateOptionPillActive]}
-                      onPress={() => setBillRechargeDate(todayStr)}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons name="today-outline" size={13} color={billRechargeDate === todayStr ? '#0F172A' : '#64748B'} style={{ marginRight: 4 }} />
-                      <Text style={[styles.dateOptionText, billRechargeDate === todayStr && styles.dateOptionTextActive]}>
-                        Today
-                      </Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={[styles.dateOptionPill, billRechargeDate === getRelativeDateString(-1) && styles.dateOptionPillActive]}
-                      onPress={() => setBillRechargeDate(getRelativeDateString(-1))}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={[styles.dateOptionText, billRechargeDate === getRelativeDateString(-1) && styles.dateOptionTextActive]}>
-                        Yesterday
-                      </Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={[
-                        styles.dateOptionPill,
-                        billRechargeDate !== todayStr && billRechargeDate !== getRelativeDateString(-1) && styles.dateOptionPillActive,
-                        { flex: 1.2 }
-                      ]}
-                      onPress={() => {
-                        const selDate = new Date(billRechargeDate || Date.now());
-                        if (!isNaN(selDate.getTime())) {
-                          setCalViewYear(selDate.getFullYear());
-                          setCalViewMonth(selDate.getMonth());
-                        }
-                        setCalendarModalVisible(true);
-                      }}
-                      activeOpacity={0.8}
-                    >
-                      <Ionicons name="calendar-outline" size={13} color="#2563EB" style={{ marginRight: 4 }} />
-                      <Text style={[
-                        styles.dateOptionText,
-                        billRechargeDate !== todayStr && billRechargeDate !== getRelativeDateString(-1) && styles.dateOptionTextActive
-                      ]}>
-                        {billRechargeDate !== todayStr && billRechargeDate !== getRelativeDateString(-1) ? billRechargeDate : 'Pick Date 🗓️'}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              )}
-
-              {/* LIVE DUE SUMMARY BADGE */}
-              <View style={styles.liveSummaryCard}>
-                <View style={styles.liveSummaryLeft}>
-                  <View style={styles.liveSummaryIconWrap}>
-                    <Ionicons name="notifications-outline" size={16} color="#B45309" />
-                  </View>
-                  <View>
-                    <Text style={styles.liveSummaryLabel}>Next Renewal / Due Date</Text>
-                    <Text style={styles.liveSummaryDate}>{livePreviewData.nextDue}</Text>
-                  </View>
-                </View>
-                <View style={[styles.liveSummaryStatusPill, { backgroundColor: livePreviewData.statusColor + '20' }]}>
-                  <Text style={[styles.liveSummaryStatusText, { color: livePreviewData.statusColor }]}>
-                    {livePreviewData.statusLabel}
-                  </Text>
-                </View>
-              </View>
-
-              {/* Optional Notes */}
-              <Text style={styles.modalFieldLabel}>Notes (Optional)</Text>
-              <TextInput
-                style={[styles.modalInput, { marginBottom: 4, color: '#0F172A' }]}
-                placeholder="e.g. Landlord UPI ID, Jio 1.5GB/day plan"
-                placeholderTextColor="#94A3B8"
-                value={billNotes}
-                onChangeText={setBillNotes}
-              />
-            </ScrollView>
-
-            <TouchableOpacity
-              style={styles.modalSaveBtn}
-              onPress={handleSaveBill}
-              disabled={isSavingBill}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.modalSaveBtnText}>
-                {isSavingBill ? 'Saving Reminder...' : 'Set Reminder 🔔'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* INTERACTIVE CALENDAR DATE PICKER MODAL */}
-      <Modal visible={calendarModalVisible} animationType="fade" transparent onRequestClose={() => setCalendarModalVisible(false)}>
-        <View style={styles.calModalOverlay}>
-          <View style={styles.calModalCard}>
-            {/* Calendar Header with Month Browsing */}
-            <View style={styles.calHeader}>
-              <TouchableOpacity onPress={handlePrevMonth} style={styles.calNavBtn} activeOpacity={0.7}>
-                <Ionicons name="chevron-back" size={20} color="#0F172A" />
-              </TouchableOpacity>
-
-              <Text style={styles.calMonthYearTitle}>
-                {MONTH_NAMES[calViewMonth]} {calViewYear}
-              </Text>
-
-              <TouchableOpacity onPress={handleNextMonth} style={styles.calNavBtn} activeOpacity={0.7}>
-                <Ionicons name="chevron-forward" size={20} color="#0F172A" />
-              </TouchableOpacity>
-            </View>
-
-            {/* Quick Presets */}
-            <View style={styles.calQuickPresets}>
-              <TouchableOpacity
-                style={[styles.calQuickPill, billRechargeDate === todayStr && styles.calQuickPillActive]}
-                onPress={() => handleSelectDateFromCalendar(todayStr)}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.calQuickPillText, billRechargeDate === todayStr && styles.calQuickPillTextActive]}>
-                  Today
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.calQuickPill}
-                onPress={() => {
-                  const yDate = getRelativeDateString(-1);
-                  handleSelectDateFromCalendar(yDate);
-                }}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.calQuickPillText}>Yesterday</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.calQuickPill}
-                onPress={() => {
-                  const threeDaysAgo = getRelativeDateString(-3);
-                  handleSelectDateFromCalendar(threeDaysAgo);
-                }}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.calQuickPillText}>3 Days Ago</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Weekday headers */}
-            <View style={styles.calWeekdaysRow}>
-              {WEEKDAY_NAMES.map(w => (
-                <Text key={w} style={styles.calWeekdayText}>
-                  {w}
-                </Text>
-              ))}
-            </View>
-
-            {/* Calendar Days Grid */}
-            <View style={styles.calGrid}>
-              {calendarDays.map((item, idx) => {
-                if (!item.dayNumber || !item.dateStr) {
-                  return <View key={`empty-${idx}`} style={styles.calDayCellEmpty} />;
-                }
-
-                const isSelected = billRechargeDate === item.dateStr;
-                const isToday = todayStr === item.dateStr;
-
-                return (
-                  <TouchableOpacity
-                    key={item.dateStr}
-                    style={[
-                      styles.calDayCell,
-                      isToday && styles.calDayCellToday,
-                      isSelected && styles.calDayCellSelected,
-                    ]}
-                    onPress={() => handleSelectDateFromCalendar(item.dateStr!)}
-                    activeOpacity={0.7}
-                  >
-                    <Text
-                      style={[
-                        styles.calDayText,
-                        isToday && styles.calDayTextToday,
-                        isSelected && styles.calDayTextSelected,
-                      ]}
-                    >
-                      {item.dayNumber}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-
-            <TouchableOpacity
-              style={styles.calCloseBtn}
-              onPress={() => setCalendarModalVisible(false)}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.calCloseBtnText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* PAY BILL & ATTACH PROOF MODAL */}
-      <Modal visible={payModalVisible} animationType="slide" transparent onRequestClose={() => setPayModalVisible(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Record Payment & Proof</Text>
-              <TouchableOpacity onPress={() => setPayModalVisible(false)} style={styles.modalCloseIconBtn}>
-                <Ionicons name="close" size={20} color="#0F172A" />
-              </TouchableOpacity>
-            </View>
-
-            {selectedBillToPay && (
-              <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 420 }}>
-                <View style={styles.payBillInfoCard}>
-                  <Text style={styles.payBillInfoTitle}>{selectedBillToPay.title}</Text>
-                  <Text style={styles.payBillInfoAmount}>
-                    {curr}{formatAmount(selectedBillToPay.amount)}
-                  </Text>
-                  <Text style={styles.payBillInfoSub}>
-                    Marking as paid will record an expense & schedule next renewal.
-                  </Text>
-                </View>
-
-                {/* Payment Mode Selection */}
-                <Text style={styles.modalFieldLabel}>Payment Mode</Text>
-                <View style={{ flexDirection: 'row', gap: 6, marginBottom: 12 }}>
-                  {['UPI', 'Cash', 'Card', 'Bank'].map(mode => (
-                    <TouchableOpacity
-                      key={mode}
-                      style={[
-                        styles.payModeChip,
-                        payMode === mode && styles.payModeChipActive,
-                      ]}
-                      onPress={() => setPayMode(mode)}
-                      activeOpacity={0.7}
-                    >
-                      <Text
-                        style={[
-                          styles.payModeChipText,
-                          payMode === mode && styles.payModeChipTextActive,
-                        ]}
-                      >
-                        {mode}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                {/* Screenshot Attachment */}
-                <Text style={styles.modalFieldLabel}>Payment Screenshot (Proof)</Text>
-                {payReceiptImage ? (
-                  <View style={{ marginBottom: 12 }}>
-                    <View style={styles.proofPillCard}>
-                      <View style={styles.proofPillLeft}>
-                        <View style={styles.proofThumbWrap}>
-                          <Image source={{ uri: payReceiptImage }} style={styles.proofThumbnail} resizeMode="cover" />
-                          <View style={styles.proofZoomIcon}>
-                            <Ionicons name="expand" size={10} color="#FFFFFF" />
-                          </View>
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.proofPillTitle}>1 Screenshot Attached</Text>
-                          <Text style={styles.proofPillSub}>Payment proof ready to save</Text>
-                        </View>
-                      </View>
-
-                      <View style={styles.proofViewBadge}>
-                        <Ionicons name="checkmark-circle" size={14} color="#10B981" style={{ marginRight: 4 }} />
-                        <Text style={[styles.proofViewText, { color: '#10B981' }]}>Attached</Text>
-                      </View>
-                    </View>
-
-                    <View style={styles.proofActionRow}>
-                      <TouchableOpacity style={styles.changeProofBtn} onPress={pickReceiptForBill} activeOpacity={0.7}>
-                        <Ionicons name="swap-horizontal" size={14} color="#2563EB" style={{ marginRight: 4 }} />
-                        <Text style={styles.changeProofBtnText}>Replace Photo</Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={styles.removeProofBtn}
-                        onPress={() => setPayReceiptImage(null)}
-                        activeOpacity={0.7}
-                      >
-                        <Ionicons name="trash-outline" size={14} color="#EF4444" style={{ marginRight: 4 }} />
-                        <Text style={styles.removeProofBtnText}>Remove</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                ) : (
-                  <TouchableOpacity
-                    style={styles.payUploadBtn}
-                    onPress={pickReceiptForBill}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="image-outline" size={18} color="#2563EB" style={{ marginRight: 6 }} />
-                    <Text style={styles.payUploadBtnText}>Attach Payment Screenshot (Proof)</Text>
-                  </TouchableOpacity>
-                )}
-
-                {/* Delete reminder button inside pay modal */}
-                <TouchableOpacity
-                  style={styles.deleteInModalBtn}
-                  onPress={() => handleDeleteBill(selectedBillToPay)}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="trash-outline" size={14} color="#EF4444" style={{ marginRight: 4 }} />
-                  <Text style={styles.deleteInModalBtnText}>Remove this reminder</Text>
-                </TouchableOpacity>
-              </ScrollView>
-            )}
-
-            <TouchableOpacity
-              style={[styles.confirmPaidBtn, isPaying && { opacity: 0.6 }]}
-              onPress={handleMarkBillPaid}
-              disabled={isPaying}
-              activeOpacity={0.85}
-            >
-              {isPaying ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <>
-                  <View style={styles.confirmPaidIconWrap}>
-                    <Ionicons name="checkmark" size={18} color="#FFFFFF" />
-                  </View>
-                  <View style={styles.confirmPaidTextWrap}>
-                    <Text style={styles.confirmPaidTitle}>Confirm Paid</Text>
-                    <Text style={styles.confirmPaidSub}>Record & schedule next renewal</Text>
-                  </View>
-                  <Ionicons name="arrow-forward-circle" size={22} color="rgba(255,255,255,0.5)" />
-                </>
-              )}
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+      {/* IMPROVED RECORD PAYMENT & PROOF MODAL */}
+      <RecordPaymentModal
+        visible={payModalVisible && !!selectedBillToPay}
+        bill={selectedBillToPay}
+        onClose={() => {
+          setPayModalVisible(false);
+          setSelectedBillToPay(null);
+        }}
+        onSuccess={() => {
+          loadData();
+        }}
+      />
 
       {/* BEAUTIFUL CUSTOM CONFIRM DELETE MODAL */}
       <ConfirmDialogModal
@@ -2533,20 +1957,20 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FFFFFF',
     borderRadius: 22,
-    paddingHorizontal: 13,
-    paddingTop: 13,
-    paddingBottom: 13,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 14,
     borderWidth: 1,
     borderColor: '#F1F5F9',
     overflow: 'hidden',
     position: 'relative',
-    shadowColor: '#000000',
+    shadowColor: '#0F172A',
     shadowOpacity: 0.04,
     shadowOffset: { width: 0, height: 4 },
     shadowRadius: 10,
-    elevation: 3,
+    elevation: 2,
     justifyContent: 'space-between',
-    minHeight: 164,
+    minHeight: 154,
   },
   tileHeaderRow: {
     flexDirection: 'row',
@@ -2554,12 +1978,14 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   tileChevronBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: '#F8FAFC',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
   },
   tileCleanIconWrap: {
     width: 38,
@@ -2589,103 +2015,56 @@ const styles = StyleSheet.create({
     marginTop: 6,
     marginBottom: 6,
     zIndex: 2,
-    maxWidth: '64%',
+    maxWidth: '60%',
   },
   tileTitle: {
-    fontSize: 13.5,
-    fontWeight: '800',
-    color: '#0F172A',
-    letterSpacing: -0.3,
-  },
-  tileSubPrimaryRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    marginTop: 3,
-  },
-  tileSubPrefix: {
-    fontSize: 11.5,
-    fontWeight: '600',
-    color: '#64748B',
-  },
-  tileSubAmount: {
     fontSize: 14,
     fontWeight: '800',
     color: '#0F172A',
+    letterSpacing: -0.2,
   },
-  tileSubPrimaryQr: {
-    fontSize: 13,
-    fontWeight: '700',
+  tileHeroAmount: {
+    fontSize: 18,
+    fontWeight: '800',
     color: '#0F172A',
-    marginTop: 3,
+    letterSpacing: -0.3,
+    marginTop: 4,
   },
-  tileSubSecondaryRow: {
+  tileStatusPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 2,
+    paddingHorizontal: 8,
+    paddingVertical: 3.5,
+    borderRadius: 14,
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    zIndex: 2,
+    maxWidth: '65%',
   },
-  tileSubSecondary: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: '#64748B',
+  tilePillUrgent: {
+    backgroundColor: '#FFF7ED',
+    borderColor: '#FED7AA',
   },
-  tileSubSecondaryQr: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: '#64748B',
-    marginTop: 2,
-  },
-  tilePaidBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  tilePillNormal: {
     backgroundColor: '#ECFDF5',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 16,
-    alignSelf: 'flex-start',
-    zIndex: 2,
-    maxWidth: '65%',
+    borderColor: '#BBF7D0',
   },
-  tilePaidDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
-    backgroundColor: '#10B981',
-    marginRight: 5,
-  },
-  tilePaidBadgeText: {
-    color: '#059669',
-    fontSize: 10.5,
+  tileStatusPillText: {
+    fontSize: 11,
     fontWeight: '700',
-  },
-  tileQrBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#EEF2FF',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 16,
-    alignSelf: 'flex-start',
-    zIndex: 2,
-    maxWidth: '65%',
-  },
-  tileQrBadgeText: {
-    fontSize: 10.5,
-    fontWeight: '700',
-    color: '#4F46E5',
-    marginLeft: 4,
   },
   tileHeroSceneWrap: {
     position: 'absolute',
-    right: 2,
-    bottom: 4,
+    right: 0,
+    bottom: 0,
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 1,
   },
   tileHeroSceneWrapQr: {
     position: 'absolute',
-    right: 2,
-    bottom: 4,
+    right: 0,
+    bottom: 0,
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 1,
@@ -3040,7 +2419,7 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 10,
-    backgroundColor: '#EDE9FE',        // soft lavender — main face
+    backgroundColor: '#EDE9FE',        // soft lavender â€” main face
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1.5,
@@ -3494,9 +2873,9 @@ const styles = StyleSheet.create({
   },
   allPlansCard: {
     backgroundColor: '#F8FAFC',
-    borderRadius: 18,
-    padding: 14,
-    marginBottom: 12,
+    borderRadius: 14,
+    padding: 11,
+    marginBottom: 9,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     shadowColor: '#000000',
@@ -3541,9 +2920,10 @@ const styles = StyleSheet.create({
   allPlansDatesBox: {
     flexDirection: 'row',
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 10,
-    marginBottom: 10,
+    borderRadius: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    marginBottom: 8,
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
@@ -4303,7 +3683,7 @@ const styles = StyleSheet.create({
     color: '#FFD740',
   },
 
-  // Confirm Paid button — pay modal only
+  // Confirm Paid button â€” pay modal only
   confirmPaidBtn: {
     flexDirection: 'row',
     alignItems: 'center',

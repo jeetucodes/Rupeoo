@@ -1,5 +1,5 @@
 import React from 'react';
-import { View } from 'react-native';
+import { View, StyleProp, ImageStyle, ViewStyle, TextStyle } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -8,7 +8,7 @@ interface Props {
   iconName: string;
   color?: string;
   size?: number;
-  style?: any;
+  style?: StyleProp<ImageStyle | ViewStyle>;
 }
 
 const ONLINE_ICONS: Record<string, string> = {
@@ -140,7 +140,7 @@ function CategoryIconComponent({ categoryName, iconName, color = '#6B7280', size
     return (
       <ExpoImage
         source={{ uri: imageUrl }}
-        style={[{ width: size * 1.25, height: size * 1.25 }, style]}
+        style={[{ width: size * 1.25, height: size * 1.25 }, style as StyleProp<ImageStyle>]}
         contentFit="contain"
         cachePolicy="memory-disk"
         transition={100}
@@ -150,7 +150,7 @@ function CategoryIconComponent({ categoryName, iconName, color = '#6B7280', size
   }
 
   // Fallback to Ionicons for custom categories or if image fails to load
-  return <Ionicons name={(ICON_FALLBACKS[iconName] || iconName) as any} size={size} color={color} style={style} />;
+  return <Ionicons name={(ICON_FALLBACKS[iconName] || iconName) as any} size={size} color={color} style={style as StyleProp<TextStyle>} />;
 }
 
 export default React.memo(CategoryIconComponent);

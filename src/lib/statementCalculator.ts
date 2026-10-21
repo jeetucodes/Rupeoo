@@ -204,7 +204,9 @@ export function formatStatementDate(rawDate?: string | Date): string {
     if (!isNaN(dt.getTime())) {
       return dt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
     }
-  } catch {}
+  } catch {
+    // Intentional: fall back to String(rawDate) if date parsing fails
+  }
   return String(rawDate);
 }
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
+import { triggerCalculatorKeyVibration, triggerCalculatorActionVibration } from '@/lib/sound';
 
 interface TransactionCalculatorModalProps {
   visible: boolean;
@@ -33,13 +34,78 @@ export default function TransactionCalculatorModal({
   const [expression, setExpression] = useState('');
   const [previewResult, setPreviewResult] = useState('0');
 
-  // Trigger haptic feedback safely
-  const triggerHaptic = () => {
-    try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } catch {
-      // ignore on unsupported devices
+  const backspaceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const backspaceIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isContinuousDeletingRef = useRef(false);
+
+  const stopContinuousDelete = useCallback(() => {
+    if (backspaceTimerRef.current) {
+      clearTimeout(backspaceTimerRef.current);
+      backspaceTimerRef.current = null;
     }
+    if (backspaceIntervalRef.current) {
+      clearInterval(backspaceIntervalRef.current);
+      backspaceIntervalRef.current = null;
+    }
+  }, []);
+
+  const deleteOneChar = useCallback(() => {
+    setExpression(prev => {
+      if (prev.length <= 1) {
+        stopContinuousDelete();
+        return '';
+      }
+      return prev.slice(0, -1);
+    });
+    triggerCalculatorKeyVibration();
+  }, [stopContinuousDelete]);
+
+  // Clean up timers on unmount or when modal visibility changes
+  useEffect(() => {
+    return () => {
+      stopContinuousDelete();
+    };
+  }, [stopContinuousDelete]);
+
+  useEffect(() => {
+    if (!visible) {
+      stopContinuousDelete();
+    }
+  }, [visible, stopContinuousDelete]);
+
+
+
+  const handleBackspacePressIn = () => {
+    isContinuousDeletingRef.current = false;
+    stopContinuousDelete();
+
+    // After 350ms of holding, delete one by one rapidly
+    backspaceTimerRef.current = setTimeout(() => {
+      isContinuousDeletingRef.current = true;
+      deleteOneChar();
+      backspaceIntervalRef.current = setInterval(() => {
+        deleteOneChar();
+      }, 75);
+    }, 350);
+  };
+
+  const handleBackspacePressOut = () => {
+    stopContinuousDelete();
+  };
+
+  const handleBackspacePress = () => {
+    if (isContinuousDeletingRef.current) {
+      isContinuousDeletingRef.current = false;
+      return;
+    }
+    setExpression(prev => {
+      if (prev.length <= 1) {
+        stopContinuousDelete();
+        return '';
+      }
+      return prev.slice(0, -1);
+    });
+    triggerCalculatorKeyVibration();
   };
 
   // Safe expression evaluator without eval()
@@ -99,7 +165,12 @@ export default function TransactionCalculatorModal({
   }, [expression]);
 
   const handleKeyPress = (char: string) => {
-    triggerHaptic();
+    const isAction = char === 'C' || char === '=';
+    if (isAction) {
+      triggerCalculatorActionVibration();
+    } else {
+      triggerCalculatorKeyVibration();
+    }
 
     if (char === 'C') {
       setExpression('');
@@ -108,10 +179,7 @@ export default function TransactionCalculatorModal({
     }
 
     if (char === 'DEL') {
-      if (expression.length > 0) {
-        const next = expression.slice(0, -1);
-        setExpression(next);
-      }
+      deleteOneChar();
       return;
     }
 
@@ -164,7 +232,7 @@ export default function TransactionCalculatorModal({
   };
 
   const handleApply = () => {
-    triggerHaptic();
+    triggerCalculatorActionVibration();
     const finalVal = evaluateMathExpression(expression);
     const resultToApply = finalVal !== null ? finalVal : parseFloat(previewResult) || 0;
     if (resultToApply > 0) {
@@ -220,6 +288,7 @@ export default function TransactionCalculatorModal({
                 <View style={styles.row}>
                   <TouchableOpacity
                     style={[styles.keyBtn, styles.clearBtn]}
+                    delayPressIn={0}
                     onPress={() => handleKeyPress('C')}
                     activeOpacity={0.7}
                   >
@@ -227,13 +296,17 @@ export default function TransactionCalculatorModal({
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.keyBtn, styles.functionBtn]}
-                    onPress={() => handleKeyPress('DEL')}
+                    delayPressIn={0}
+                    onPress={handleBackspacePress}
+                    onPressIn={handleBackspacePressIn}
+                    onPressOut={handleBackspacePressOut}
                     activeOpacity={0.7}
                   >
                     <Ionicons name="backspace-outline" size={22} color="#0F172A" />
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.keyBtn, styles.functionBtn]}
+                    delayPressIn={0}
                     onPress={() => handleKeyPress('%')}
                     activeOpacity={0.7}
                   >
@@ -241,6 +314,7 @@ export default function TransactionCalculatorModal({
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.keyBtn, styles.operatorBtn, { backgroundColor: themeColor + '18' }]}
+                    delayPressIn={0}
                     onPress={() => handleKeyPress('÷')}
                     activeOpacity={0.7}
                   >
@@ -250,17 +324,33 @@ export default function TransactionCalculatorModal({
 
                 {/* Row 2 */}
                 <View style={styles.row}>
-                  <TouchableOpacity style={styles.keyBtn} onPress={() => handleKeyPress('7')} activeOpacity={0.7}>
+                  <TouchableOpacity
+                    style={styles.keyBtn}
+                    delayPressIn={0}
+                    onPress={() => handleKeyPress('7')}
+                    activeOpacity={0.7}
+                  >
                     <Text style={styles.numberBtnText}>7</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.keyBtn} onPress={() => handleKeyPress('8')} activeOpacity={0.7}>
+                  <TouchableOpacity
+                    style={styles.keyBtn}
+                    delayPressIn={0}
+                    onPress={() => handleKeyPress('8')}
+                    activeOpacity={0.7}
+                  >
                     <Text style={styles.numberBtnText}>8</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.keyBtn} onPress={() => handleKeyPress('9')} activeOpacity={0.7}>
+                  <TouchableOpacity
+                    style={styles.keyBtn}
+                    delayPressIn={0}
+                    onPress={() => handleKeyPress('9')}
+                    activeOpacity={0.7}
+                  >
                     <Text style={styles.numberBtnText}>9</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.keyBtn, styles.operatorBtn, { backgroundColor: themeColor + '18' }]}
+                    delayPressIn={0}
                     onPress={() => handleKeyPress('×')}
                     activeOpacity={0.7}
                   >
@@ -270,17 +360,33 @@ export default function TransactionCalculatorModal({
 
                 {/* Row 3 */}
                 <View style={styles.row}>
-                  <TouchableOpacity style={styles.keyBtn} onPress={() => handleKeyPress('4')} activeOpacity={0.7}>
+                  <TouchableOpacity
+                    style={styles.keyBtn}
+                    delayPressIn={0}
+                    onPress={() => handleKeyPress('4')}
+                    activeOpacity={0.7}
+                  >
                     <Text style={styles.numberBtnText}>4</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.keyBtn} onPress={() => handleKeyPress('5')} activeOpacity={0.7}>
+                  <TouchableOpacity
+                    style={styles.keyBtn}
+                    delayPressIn={0}
+                    onPress={() => handleKeyPress('5')}
+                    activeOpacity={0.7}
+                  >
                     <Text style={styles.numberBtnText}>5</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.keyBtn} onPress={() => handleKeyPress('6')} activeOpacity={0.7}>
+                  <TouchableOpacity
+                    style={styles.keyBtn}
+                    delayPressIn={0}
+                    onPress={() => handleKeyPress('6')}
+                    activeOpacity={0.7}
+                  >
                     <Text style={styles.numberBtnText}>6</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.keyBtn, styles.operatorBtn, { backgroundColor: themeColor + '18' }]}
+                    delayPressIn={0}
                     onPress={() => handleKeyPress('−')}
                     activeOpacity={0.7}
                   >
@@ -290,17 +396,33 @@ export default function TransactionCalculatorModal({
 
                 {/* Row 4 */}
                 <View style={styles.row}>
-                  <TouchableOpacity style={styles.keyBtn} onPress={() => handleKeyPress('1')} activeOpacity={0.7}>
+                  <TouchableOpacity
+                    style={styles.keyBtn}
+                    delayPressIn={0}
+                    onPress={() => handleKeyPress('1')}
+                    activeOpacity={0.7}
+                  >
                     <Text style={styles.numberBtnText}>1</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.keyBtn} onPress={() => handleKeyPress('2')} activeOpacity={0.7}>
+                  <TouchableOpacity
+                    style={styles.keyBtn}
+                    delayPressIn={0}
+                    onPress={() => handleKeyPress('2')}
+                    activeOpacity={0.7}
+                  >
                     <Text style={styles.numberBtnText}>2</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.keyBtn} onPress={() => handleKeyPress('3')} activeOpacity={0.7}>
+                  <TouchableOpacity
+                    style={styles.keyBtn}
+                    delayPressIn={0}
+                    onPress={() => handleKeyPress('3')}
+                    activeOpacity={0.7}
+                  >
                     <Text style={styles.numberBtnText}>3</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.keyBtn, styles.operatorBtn, { backgroundColor: themeColor + '18' }]}
+                    delayPressIn={0}
                     onPress={() => handleKeyPress('+')}
                     activeOpacity={0.7}
                   >
@@ -310,17 +432,33 @@ export default function TransactionCalculatorModal({
 
                 {/* Row 5 */}
                 <View style={styles.row}>
-                  <TouchableOpacity style={styles.keyBtn} onPress={() => handleKeyPress('00')} activeOpacity={0.7}>
+                  <TouchableOpacity
+                    style={styles.keyBtn}
+                    delayPressIn={0}
+                    onPress={() => handleKeyPress('00')}
+                    activeOpacity={0.7}
+                  >
                     <Text style={styles.numberBtnText}>00</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.keyBtn} onPress={() => handleKeyPress('0')} activeOpacity={0.7}>
+                  <TouchableOpacity
+                    style={styles.keyBtn}
+                    delayPressIn={0}
+                    onPress={() => handleKeyPress('0')}
+                    activeOpacity={0.7}
+                  >
                     <Text style={styles.numberBtnText}>0</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.keyBtn} onPress={() => handleKeyPress('.')} activeOpacity={0.7}>
+                  <TouchableOpacity
+                    style={styles.keyBtn}
+                    delayPressIn={0}
+                    onPress={() => handleKeyPress('.')}
+                    activeOpacity={0.7}
+                  >
                     <Text style={styles.numberBtnText}>.</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.keyBtn, styles.equalsBtn, { backgroundColor: themeColor }]}
+                    delayPressIn={0}
                     onPress={() => handleKeyPress('=')}
                     activeOpacity={0.7}
                   >
@@ -332,6 +470,7 @@ export default function TransactionCalculatorModal({
               {/* Action Button */}
               <TouchableOpacity
                 style={styles.applyBtn}
+                delayPressIn={0}
                 onPress={handleApply}
                 activeOpacity={0.88}
               >

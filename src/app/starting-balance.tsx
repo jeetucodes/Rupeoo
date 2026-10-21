@@ -9,12 +9,14 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  TextStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { saveStartingBalance } from '@/lib/database';
+import { error } from '@/lib/logger';
 
 export default function StartingBalanceScreen() {
   const router = useRouter();
@@ -29,8 +31,8 @@ export default function StartingBalanceScreen() {
       await saveStartingBalance(user.uid, value);
       await refreshUser();
       router.replace('/(tabs)/dashboard');
-    } catch (error) {
-      console.error('Could not save starting balance:', error);
+    } catch (err) {
+      error('Could not save starting balance:', err);
     } finally {
       setLoading(false);
     }
@@ -58,7 +60,7 @@ export default function StartingBalanceScreen() {
           <View style={styles.inputGroup}>
             <Text style={styles.currency}>₹</Text>
             <TextInput
-              style={[styles.input, Platform.OS === 'web' && { outlineStyle: 'none' } as any]}
+              style={[styles.input, Platform.OS === 'web' && ({ outlineStyle: 'none' } as unknown as TextStyle)]}
               value={amount}
               onChangeText={setAmount}
               placeholder="0"

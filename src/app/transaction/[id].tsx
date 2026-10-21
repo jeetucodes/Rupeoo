@@ -49,6 +49,7 @@ import Toast from 'react-native-toast-message';
 import Skeleton from '@/components/Skeleton';
 import ScannableBarcode from '@/components/ScannableBarcode';
 import ReceiptPaymentMethodBadge from '@/components/ReceiptPaymentMethodBadge';
+import { warn, error } from '@/lib/logger';
 
 function formatDisplayDate(rawDate?: string): string {
   if (!rawDate) {
@@ -73,7 +74,9 @@ function formatDisplayDate(rawDate?: string): string {
     if (!isNaN(d.getTime())) {
       return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
     }
-  } catch {}
+  } catch {
+    // Intentional: fall back to rawDate string if parsing fails
+  }
   return rawDate;
 }
 
@@ -309,7 +312,7 @@ export default function TransactionDetailScreen() {
           safeGoBack(router);
         }
       } catch (err) {
-        console.error('Error fetching transaction details:', err);
+        error('Error fetching transaction details:', err);
         Alert.alert('Error', 'Failed to load transaction details.');
       } finally {
         setLoading(false);
@@ -335,7 +338,7 @@ export default function TransactionDetailScreen() {
         setReceiptImage(base64Uri);
       }
     } catch (err) {
-      console.warn('Error picking image:', err);
+      warn('Error picking image:', err);
       Toast.show({ type: 'error', text1: 'Gallery Notice', text2: 'Could not open image library' });
     }
   };
@@ -364,7 +367,7 @@ export default function TransactionDetailScreen() {
       Toast.show({ type: 'success', text1: 'Saved', text2: 'Transaction updated successfully.' });
       safeGoBack(router);
     } catch (err) {
-      console.error('Error saving transaction:', err);
+      error('Error saving transaction:', err);
       Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to save changes.' });
     } finally {
       setSaving(false);
@@ -383,7 +386,7 @@ export default function TransactionDetailScreen() {
       setDeleteConfirmVisible(false);
       safeGoBack(router);
     } catch (err) {
-      console.error('Error deleting transaction:', err);
+      error('Error deleting transaction:', err);
       setDeleting(false);
     }
   };
@@ -429,7 +432,7 @@ export default function TransactionDetailScreen() {
         message: receiptText,
       });
     } catch (err) {
-      console.error('Error sharing receipt:', err);
+      error('Error sharing receipt:', err);
       Toast.show({ type: 'error', text1: 'Share Failed', text2: 'Could not share this receipt photo.' });
     } finally {
       setSharingImage(false);

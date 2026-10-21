@@ -26,6 +26,7 @@ const TAB_CONFIG = [
     name: 'dashboard',
     icon: 'home' as const,
     iconOutline: 'home-outline' as const,
+    labelKey: 'tab_home',
     label: 'Home',
     isFab: false,
   },
@@ -33,6 +34,7 @@ const TAB_CONFIG = [
     name: 'transactions',
     icon: 'receipt' as const,
     iconOutline: 'receipt-outline' as const,
+    labelKey: 'tab_history',
     label: 'History',
     isFab: false,
   },
@@ -40,6 +42,7 @@ const TAB_CONFIG = [
     name: 'add_action',
     icon: 'add' as const,
     iconOutline: 'add' as const,
+    labelKey: 'tab_add',
     label: 'Add',
     isFab: true,
   },
@@ -47,6 +50,7 @@ const TAB_CONFIG = [
     name: 'ai_insights',
     icon: 'bar-chart' as const,
     iconOutline: 'bar-chart-outline' as const,
+    labelKey: 'tab_reports',
     label: 'Reports',
     isFab: false,
   },
@@ -54,6 +58,7 @@ const TAB_CONFIG = [
     name: 'settings',
     icon: 'person' as const,
     iconOutline: 'person-outline' as const,
+    labelKey: 'tab_profile',
     label: 'Profile',
     isFab: false,
   },
@@ -109,7 +114,7 @@ const FabTabItem = memo(function FabTabItem({ onPress, isActive }: TabItemProps)
   );
 });
 
-const RegularTabItem = memo(function RegularTabItem({ config, isActive, onPress, onLongPress }: TabItemProps) {
+const RegularTabItem = memo(function RegularTabItem({ config, isActive, onPress, onLongPress, t }: TabItemProps) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const dotScale = useRef(new Animated.Value(isActive ? 1 : 0)).current;
   const bgOpacity = useRef(new Animated.Value(isActive ? 1 : 0)).current;
@@ -147,6 +152,8 @@ const RegularTabItem = memo(function RegularTabItem({ config, isActive, onPress,
     onPress();
   };
 
+  const displayLabel = t && (config as any).labelKey ? t((config as any).labelKey) : config.label;
+
   return (
     <TouchableOpacity
       onPress={handlePress}
@@ -154,7 +161,7 @@ const RegularTabItem = memo(function RegularTabItem({ config, isActive, onPress,
       activeOpacity={0.8}
       style={styles.tabItem}
       accessibilityRole="tab"
-      accessibilityLabel={config.label}
+      accessibilityLabel={displayLabel}
     >
       <Animated.View style={[styles.tabContent, { transform: [{ scale: scaleAnim }] }]}>
         {/* Active background pill */}
@@ -177,7 +184,7 @@ const RegularTabItem = memo(function RegularTabItem({ config, isActive, onPress,
           ]}
           numberOfLines={1}
         >
-          {config.label}
+          {displayLabel}
         </Text>
 
         {/* Active dot indicator */}
@@ -271,14 +278,14 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   );
 }
 
-const BAR_HEIGHT = 72;
+const BAR_HEIGHT = 70;
 const FAB_SIZE = 52;
 
 const styles = StyleSheet.create({
   tabBarWrapper: {
     position: 'absolute',
-    left: 16,
-    right: 16,
+    left: 12,
+    right: 12,
     shadowColor: '#1C1C1E',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.12,
@@ -293,7 +300,7 @@ const styles = StyleSheet.create({
     borderRadius: 32,
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 6,
+    paddingHorizontal: 8,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: 'rgba(226, 232, 240, 0.9)',
@@ -319,11 +326,11 @@ const styles = StyleSheet.create({
   tabContent: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 20,
+    paddingVertical: 5,
+    paddingHorizontal: 6,
+    borderRadius: 18,
     gap: 2,
-    minWidth: 52,
+    minWidth: 44,
   },
   activePill: {
     position: 'absolute',
@@ -331,11 +338,11 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    borderRadius: 20,
+    borderRadius: 18,
     backgroundColor: '#F0EFFF',
   },
   tabLabel: {
-    fontSize: 10,
+    fontSize: 9.5,
     letterSpacing: 0.1,
     textAlign: 'center',
   },
