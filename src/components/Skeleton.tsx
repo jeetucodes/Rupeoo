@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, ViewStyle, StyleProp, DimensionValue } from 'react-native';
+import { isLowEndDevice } from '@/lib/devicePerf';
 
 interface SkeletonProps {
   width?: DimensionValue;
@@ -16,9 +17,13 @@ export default function Skeleton({
   style,
   color = '#E2E8F0', // Default tailwind slate-200
 }: SkeletonProps) {
-  const opacityAnim = useRef(new Animated.Value(0.3)).current;
+  const opacityAnim = useRef(new Animated.Value(0.5)).current;
 
   useEffect(() => {
+    if (isLowEndDevice()) {
+      opacityAnim.setValue(0.5);
+      return;
+    }
     const pulse = Animated.loop(
       Animated.sequence([
         Animated.timing(opacityAnim, {

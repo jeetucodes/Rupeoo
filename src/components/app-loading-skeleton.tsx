@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Animated, Easing, StatusBar } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { isLowEndDevice } from '@/lib/devicePerf';
 
 export default function AppLoadingSkeleton() {
   const logoScale = useRef(new Animated.Value(0.82)).current;
@@ -64,16 +65,21 @@ export default function AppLoadingSkeleton() {
     const dot2Loop = createDotAnimation(dot2Anim, 160);
     const dot3Loop = createDotAnimation(dot3Anim, 320);
 
+    const isLowEnd = isLowEndDevice();
     entrance.start();
-    glow.start();
-    orbit.start();
+    if (!isLowEnd) {
+      glow.start();
+      orbit.start();
+    }
     dot1Loop.start();
     dot2Loop.start();
     dot3Loop.start();
 
     return () => {
-      glow.stop();
-      orbit.stop();
+      if (!isLowEnd) {
+        glow.stop();
+        orbit.stop();
+      }
       dot1Loop.stop();
       dot2Loop.stop();
       dot3Loop.stop();

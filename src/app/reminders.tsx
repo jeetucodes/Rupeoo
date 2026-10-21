@@ -27,7 +27,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
-import { BlurView } from 'expo-blur';
+import { isLowEndDevice } from '@/lib/devicePerf';
 import { useAuth } from '@/context/AuthContext';
 import { checkReminderLimit, FREE_REMINDER_LIMIT } from '@/lib/limits';
 import {
@@ -371,9 +371,13 @@ export default function RemindersScreen() {
   const [deleteBill, setDeleteBill] = useState<RecurringBill | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // FAB subtle pulse
+  // FAB subtle pulse (disabled on low-end devices to save idle ticks)
   const fabPulse = useRef(new Animated.Value(1)).current;
   useEffect(() => {
+    if (isLowEndDevice()) {
+      fabPulse.setValue(1);
+      return;
+    }
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(fabPulse, { toValue: 1.08, duration: 1200, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),

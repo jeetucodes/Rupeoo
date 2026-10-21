@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { isLowEndDevice } from '@/lib/devicePerf';
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -63,6 +64,10 @@ export default function AuthScreen() {
   const ambientMotion = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
+    if (isLowEndDevice()) {
+      ambientMotion.setValue(0);
+      return;
+    }
     const animation = Animated.loop(
       Animated.timing(ambientMotion, {
         toValue: 1,

@@ -19,6 +19,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { isLowEndDevice } from '@/lib/devicePerf';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
@@ -223,9 +224,13 @@ export default function AddExpenseScreen() {
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
   const [savedDetails, setSavedDetails] = useState({ amount: '', merchant: '', category: '', paymentMode: '' });
 
-  // Cursor blink animation
+  // Cursor blink animation (disabled on low-end devices to save idle ticks)
   const cursorOpacity = useRef(new Animated.Value(1)).current;
   useEffect(() => {
+    if (isLowEndDevice()) {
+      cursorOpacity.setValue(1);
+      return;
+    }
     const blink = Animated.loop(
       Animated.sequence([
         Animated.timing(cursorOpacity, { toValue: 0, duration: 500, useNativeDriver: true }),

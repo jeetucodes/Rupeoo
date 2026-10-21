@@ -30,6 +30,7 @@ import * as Sharing from 'expo-sharing';
 import { captureRef } from 'react-native-view-shot';
 import { shareImageAndText } from '@/lib/shareHelper';
 import { useAuth } from '@/context/AuthContext';
+import { isLowEndDevice } from '@/lib/devicePerf';
 import { RupeoAdBanner } from '@/lib/ads';
 import {
   getTransactionById,
@@ -169,7 +170,12 @@ export default function TransactionDetailScreen() {
   const amountBounceAnim = useRef(new Animated.Value(0.95)).current;
   const bgAnim = useRef(new Animated.Value(0)).current;
 
+  // Background ambient animation (paused on low-end devices)
   useEffect(() => {
+    if (isLowEndDevice()) {
+      bgAnim.setValue(0);
+      return;
+    }
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(bgAnim, {

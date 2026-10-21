@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
+import { isLowEndDevice } from '@/lib/devicePerf';
 import { useTranslation } from '@/lib/i18n';
 import { ALL_CURRENCIES, POPULAR_CURRENCIES, Currency } from '@/lib/currencies';
 
@@ -72,7 +73,11 @@ export function CurrencySelectorModal({
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <BlurView intensity={Platform.OS === 'ios' ? 20 : 100} style={StyleSheet.absoluteFill} tint="dark" />
+      {isLowEndDevice() ? (
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0, 0, 0, 0.65)' }]} />
+      ) : (
+        <BlurView intensity={Platform.OS === 'ios' ? 20 : 100} style={StyleSheet.absoluteFill} tint="dark" />
+      )}
       <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
