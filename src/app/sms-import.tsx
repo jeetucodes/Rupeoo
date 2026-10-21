@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import Toast from 'react-native-toast-message';
 import { useAuth } from '@/context/AuthContext';
@@ -38,6 +38,8 @@ type ImportRange = '30d' | '90d' | '365d' | 'all';
 
 export default function SmsImportScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ fromOnboarding?: string }>();
+  const fromOnboarding = params.fromOnboarding === 'true';
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const userId = user?.uid || 'local';
@@ -222,13 +224,19 @@ export default function SmsImportScreen() {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
-          onPress={() => router.back()}
+          onPress={() => {
+            if (fromOnboarding) {
+              router.replace('/(tabs)/dashboard');
+            } else {
+              router.back();
+            }
+          }}
           style={styles.backBtn}
           activeOpacity={0.7}
           accessibilityRole="button"
-          accessibilityLabel="Back"
+          accessibilityLabel={fromOnboarding ? 'Close' : 'Back'}
         >
-          <Ionicons name="arrow-back" size={24} color="#0F172A" />
+          <Ionicons name={fromOnboarding ? 'close' : 'arrow-back'} size={24} color="#0F172A" />
         </TouchableOpacity>
         <View style={styles.headerTitleWrap}>
           <Text style={styles.headerTitle}>Import from Messages</Text>
@@ -501,6 +509,15 @@ export default function SmsImportScreen() {
                   )}
                 </TouchableOpacity>
               )}
+
+              <TouchableOpacity
+                style={styles.goToDashboardBtn}
+                onPress={() => router.replace('/(tabs)/dashboard')}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.goToDashboardBtnText}>Continue to Dashboard</Text>
+                <Ionicons name="arrow-forward" size={16} color="#0F172A" style={{ marginLeft: 6 }} />
+              </TouchableOpacity>
             </View>
           </View>
         )}
@@ -851,6 +868,20 @@ const styles = StyleSheet.create({
   undoBatchBtnText: {
     color: '#DC2626',
     fontSize: 12.5,
+    fontWeight: '700',
+  },
+  goToDashboardBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EEF2FF',
+    paddingVertical: 12,
+    borderRadius: 10,
+    marginTop: 4,
+  },
+  goToDashboardBtnText: {
+    color: '#4F46E5',
+    fontSize: 13,
     fontWeight: '700',
   },
   disclosureOverlay: {
