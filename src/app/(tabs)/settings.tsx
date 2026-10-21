@@ -136,7 +136,7 @@ function BottomSheetModal({
           <View style={styles.modalHeader}>
             <View style={styles.modalHeaderLeft}>
               {icon && (
-                <View style={[styles.infoIconBg, { backgroundColor: iconBg || '#F1F5F9' }]}>
+                <View style={[styles.infoIconBg, { backgroundColor: iconBg || '#F1F5F9', borderColor: iconBg || '#E2E8F0' }]}>
                   <Ionicons name={icon} size={20} color={iconColor || '#0F172A'} />
                 </View>
               )}
@@ -216,8 +216,8 @@ function SettingsRow({
       accessibilityRole={onPress ? 'button' : undefined}
       accessibilityLabel={label}
     >
-      <View style={[styles.infoIconBg, { backgroundColor: iconBg }, iconBg !== '#F1F5F9' && { borderColor: iconBg }]}>
-        <Ionicons name={icon} size={20} color={iconColor} />
+      <View style={[styles.infoIconBg, { backgroundColor: iconBg || '#F1F5F9', borderColor: iconBg || '#E2E8F0' }]}>
+        <Ionicons name={icon} size={20} color={iconColor || '#0F172A'} />
       </View>
       <View style={styles.infoTextContainer}>
         <View style={styles.infoLabelRow}>
@@ -1070,19 +1070,25 @@ export default function SettingsScreen() {
             </View>
             <View style={styles.infoCard}>
               <SettingsRow
-                icon="pie-chart-outline"
+                icon="pie-chart"
+                iconBg="#FEF3C7"
+                iconColor="#D97706"
                 label={t('budget_goals')}
                 value={t('budget_goals_desc')}
                 onPress={() => router.push('/budget')}
               />
               <SettingsRow
-                icon="grid-outline"
+                icon="grid"
+                iconBg="#EEF2FF"
+                iconColor="#4F46E5"
                 label={t('manage_categories')}
                 value={t('manage_categories_desc')}
                 onPress={() => router.push('/categories')}
               />
               <SettingsRow
-                icon="wallet-outline"
+                icon="wallet"
+                iconBg="#ECFDF5"
+                iconColor="#059669"
                 label={t('update_starting_balance')}
                 value={`${t('current_balance_prefix')} ${curr}${Number((user as any)?.startingBalance || 0).toLocaleString('en-IN')}`}
                 onPress={openStartingBalanceEditor}
@@ -1099,8 +1105,8 @@ export default function SettingsScreen() {
               {/* Language Card */}
               <View style={styles.prefRowCard}>
                 <View style={styles.prefHeaderRow}>
-                  <View style={styles.infoIconBg}>
-                    <Ionicons name="language-outline" size={20} color="#0F172A" />
+                  <View style={[styles.infoIconBg, { backgroundColor: '#EFF6FF', borderColor: '#DBEAFE' }]}>
+                    <Ionicons name="language" size={20} color="#2563EB" />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.infoLabel}>{t('language')}</Text>
@@ -1133,8 +1139,8 @@ export default function SettingsScreen() {
                 accessibilityRole="button"
                 accessibilityLabel={t('currency')}
               >
-                <View style={styles.infoIconBg}>
-                  <Ionicons name="cash-outline" size={20} color="#0F172A" />
+                <View style={[styles.infoIconBg, { backgroundColor: '#F5F3FF', borderColor: '#EDE9FE' }]}>
+                  <Ionicons name="cash" size={20} color="#7C3AED" />
                 </View>
                 <View style={styles.infoTextContainer}>
                   <Text style={styles.infoLabel}>{t('currency')}</Text>
@@ -1205,8 +1211,8 @@ export default function SettingsScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="My UPI ID"
               >
-                <View style={styles.infoIconBg}>
-                  <Ionicons name="qr-code-outline" size={20} color="#0F172A" />
+                <View style={[styles.infoIconBg, { backgroundColor: '#F3E8FF', borderColor: '#E9D5FF' }]}>
+                  <Ionicons name="qr-code" size={20} color="#8B5CF6" />
                 </View>
                 <View style={styles.infoTextContainer}>
                   <View style={styles.infoLabelRow}>
@@ -1242,35 +1248,41 @@ export default function SettingsScreen() {
             </View>
             <View style={styles.infoCard}>
               <SettingsRow
-                icon="document-text-outline"
+                icon="document-text"
+                iconBg="#FEF2F2"
+                iconColor="#DC2626"
                 label={t('statement_pdf')}
                 value={t('statement_pdf_desc')}
                 badgeText="PDF PASSBOOK"
-                badgeBg="#F1F5F9"
-                badgeColor="#475569"
+                badgeBg="#FEF2F2"
+                badgeColor="#DC2626"
                 onPress={openStatementModal}
               />
               <SettingsRow
-                icon="cloud-download-outline"
+                icon="cloud-download"
+                iconBg="#ECFDF5"
+                iconColor="#059669"
                 label={t('export_data')}
                 value={t('export_desc')}
                 badgeText="JSON • CSV"
-                badgeBg="#F1F5F9"
-                badgeColor="#475569"
+                badgeBg="#ECFDF5"
+                badgeColor="#059669"
                 onPress={openExportModal}
                 loading={isExporting}
               />
               <SettingsRow
-                icon="cloud-upload-outline"
+                icon="cloud-upload"
+                iconBg="#EFF6FF"
+                iconColor="#2563EB"
                 label={t('import_data')}
                 value={t('import_desc')}
                 badgeText="RESTORE"
-                badgeBg="#F1F5F9"
-                badgeColor="#475569"
+                badgeBg="#EFF6FF"
+                badgeColor="#2563EB"
                 onPress={() => setShowImportModal(true)}
               />
               <SettingsRow
-                icon="trash-outline"
+                icon="trash"
                 iconBg="#FEF2F2"
                 iconColor="#DC2626"
                 label={t('delete_all_data')}
@@ -1300,10 +1312,10 @@ export default function SettingsScreen() {
               accessibilityLabel={t('help_support')}
             >
               <View style={styles.supportCardContent}>
-                {/* Left: Clean Slate Icon */}
+                {/* Left: Support Icon */}
                 <View style={styles.supportIconWrapper}>
-                  <View style={styles.supportIconBg}>
-                    <Ionicons name="headset-outline" size={22} color="#0F172A" />
+                  <View style={[styles.supportIconBg, { backgroundColor: '#EFF6FF', borderColor: '#DBEAFE' }]}>
+                    <Ionicons name="headset" size={22} color="#2563EB" />
                   </View>
                   <View style={styles.supportStatusDot} />
                 </View>
@@ -1378,12 +1390,16 @@ export default function SettingsScreen() {
             </View>
             <View style={styles.infoCard}>
               <SettingsRow
-                icon="document-text-outline"
+                icon="document-text"
+                iconBg="#F1F5F9"
+                iconColor="#475569"
                 label={t('terms_conditions')}
                 onPress={() => setLegalDoc('terms')}
               />
               <SettingsRow
-                icon="shield-checkmark-outline"
+                icon="shield-checkmark"
+                iconBg="#F0FDFA"
+                iconColor="#0D9488"
                 label={t('privacy_policy')}
                 onPress={() => setLegalDoc('privacy')}
               />
@@ -1408,7 +1424,7 @@ export default function SettingsScreen() {
                 accessibilityLabel={t('log_out')}
               >
                 <View style={[styles.infoIconBg, { backgroundColor: '#FEF2F2', borderColor: '#FEE2E2' }]}>
-                  <Ionicons name="log-out-outline" size={20} color="#DC2626" />
+                  <Ionicons name="log-out" size={20} color="#DC2626" />
                 </View>
                 <View style={styles.dangerTextWrap}>
                   <Text style={styles.dangerRowLabel}>{t('log_out')}</Text>
@@ -1465,7 +1481,9 @@ export default function SettingsScreen() {
         visible={showUpiModal}
         onClose={() => setShowUpiModal(false)}
         title="My UPI ID"
-        icon="qr-code-outline"
+        icon="qr-code"
+        iconBg="#F3E8FF"
+        iconColor="#8B5CF6"
         autoHeight
       >
         <Text style={styles.modalIntroText}>
@@ -1499,7 +1517,9 @@ export default function SettingsScreen() {
         visible={showStartingBalanceModal}
         onClose={() => setShowStartingBalanceModal(false)}
         title={t('update_starting_balance')}
-        icon="wallet-outline"
+        icon="wallet"
+        iconBg="#ECFDF5"
+        iconColor="#059669"
         autoHeight
       >
         <Text style={styles.modalIntroText}>
@@ -1532,7 +1552,9 @@ export default function SettingsScreen() {
         visible={showExportModal}
         onClose={() => setShowExportModal(false)}
         title={t('export_data')}
-        icon="cloud-download-outline"
+        icon="cloud-download"
+        iconBg="#ECFDF5"
+        iconColor="#059669"
         autoHeight={false}
       >
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
@@ -1724,7 +1746,9 @@ export default function SettingsScreen() {
         visible={showStatementModal}
         onClose={() => setShowStatementModal(false)}
         title={t('statement_pdf')}
-        icon="document-text-outline"
+        icon="document-text"
+        iconBg="#FEF2F2"
+        iconColor="#DC2626"
         autoHeight={false}
       >
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
@@ -1916,7 +1940,9 @@ export default function SettingsScreen() {
           setImportText('');
         }}
         title={t('import_data')}
-        icon="cloud-upload-outline"
+        icon="cloud-upload"
+        iconBg="#EFF6FF"
+        iconColor="#2563EB"
         autoHeight
       >
         <Text style={styles.modalIntroText}>
