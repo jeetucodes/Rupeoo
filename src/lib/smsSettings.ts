@@ -197,3 +197,64 @@ export async function clearWrongParseReports(): Promise<void> {
     warn('Failed to clear wrong parse reports:', err);
   }
 }
+
+/**
+ * Saves a wrong parse report directly from a ParsedAlert object.
+ */
+export async function saveWrongParseReport(
+  parsed: {
+    sender: string;
+    amount: number | null;
+    type: string | null;
+    merchant: string | null;
+    refNo: string | null;
+    category: string | null;
+    confidence: number;
+    rawText: string;
+  },
+  userCorrection?: string
+): Promise<void> {
+  await reportWrongParse({
+    sender: parsed.sender,
+    parsedAmount: parsed.amount,
+    parsedType: parsed.type || 'unknown',
+    parsedMerchant: parsed.merchant,
+    parsedRefNo: parsed.refNo,
+    parsedCategory: parsed.category || 'Other',
+    confidence: parsed.confidence,
+    userCorrection,
+    includesRawText: false,
+    maskedText: maskAccountNumbersInText(parsed.rawText),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Privacy Disclosure Storage (Safety Block Requirement 4)
+// ---------------------------------------------------------------------------
+
+const getPrivacyDisclosureKey = (userId: string) => `@rupeo_sms_privacy_disclosure_${userId}`;
+
+/**
+ * Checks if the user has completed or accepted the one-time SMS privacy disclosure.
+ */
+export async function hasCompletedSmsPrivacyDisclosure(userId: string): Promise<boolean> {
+  if (!userId) return false;
+  try {
+    const val = await AsyncStorage.getItem(getPrivacyDisclosureKey(userId));
+    return val === 'true';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Marks the one-time SMS privacy disclosure as completed for the user.
+ */
+export async function markSmsPrivacyDisclosureDone(userId: string): Promise<void> {
+  if (!userId) return;
+  try {
+    await AsyncStorage.setItem(getPrivacyDisclosureKey(userId), 'true');
+  } catch (err) {
+    warn('Failed to save SMS privacy disclosure state:', err);
+  }
+}

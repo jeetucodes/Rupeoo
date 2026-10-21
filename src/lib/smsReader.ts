@@ -179,3 +179,7 @@ export function splitMultiMessagePaste(rawText: string): Array<{ sender: string;
   // Single message
   return [{ sender: '', body: text, timestamp: Date.now() }];
 }
+
+// Convenient aliases for UI consumers
+export const isSmsInboxSupported = isInboxImportSupported;
+export const splitMultiMessageText = splitMultiMessagePaste;

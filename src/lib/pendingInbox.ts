@@ -168,3 +168,5 @@ export async function clearPendingInbox(userId: string): Promise<void> {
     warn('Failed to clear pending inbox:', err);
   }
 }
+
+export const clearAllPendingAlerts = clearPendingInbox;

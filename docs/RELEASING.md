@@ -77,3 +77,29 @@ Rupeo checks Firestore `app_config/global` in real-time. You can configure updat
 ### B. Testing Sideloaded / Debug Builds
 - If the app was installed directly via USB/APK (`adb install`) instead of Google Play, Google Play Core In-App Updates will return an error (`ERROR_APP_NOT_OWNED`).
 - Rupeo safely catches this and seamlessly redirects the user to the Play Store listing (`market://details?id=com.innovatexlabs.paisewaise` or web fallback).
+
+---
+
+## 4. Build Flavors: Play Store vs. Direct Sideload APK
+
+Rupeo supports two distinct build flavors controlled by the `EXPO_PUBLIC_SMS_INBOX_IMPORT` environment variable and `app.config.js`:
+
+### A. "play" Flavor (Default for Google Play Store)
+- **Flag**: `EXPO_PUBLIC_SMS_INBOX_IMPORT` is unset or `false`.
+- **Manifest Permissions**: **NO** `android.permission.READ_SMS` or `RECEIVE_SMS`. Completely compliant with Google Play SMS policy.
+- **Import Capabilities**: Multi-message paste parsing and notification alert auto-add.
+- **Build Command**:
+  ```bash
+  eas build --platform android --profile production
+  ```
+- **CRITICAL**: ONLY builds from this flavor are authorized for upload to Google Play Console.
+
+### B. "direct" Flavor (Website / Sideload APK Only)
+- **Flag**: `EXPO_PUBLIC_SMS_INBOX_IMPORT=true`.
+- **Manifest Permissions**: Injects `android.permission.READ_SMS` and compiles the native `RupeoSmsModule` via `plugins/withSmsInbox.js`.
+- **Import Capabilities**: Unlocks full background SMS inbox scanning with custom date range cutoffs (Last 30 days, 3 months, 1 year, All).
+- **Build Command**:
+  ```bash
+  EXPO_PUBLIC_SMS_INBOX_IMPORT=true eas build --platform android --profile preview
+  ```
+- **CRITICAL WARNING**: **NEVER UPLOAD A DIRECT FLAVOR BUILD TO GOOGLE PLAY CONSOLE**. Doing so will violate Google Play's SMS permissions policy and cause app rejection or suspension. This flavor is strictly reserved for self-hosted website APK downloads.

@@ -28,9 +28,22 @@ export interface ImportProgress {
   statusText: string;
 }
 
+export interface SmsImportProgress {
+  phase: 'idle' | 'scanning' | 'parsing' | 'saving' | 'complete' | 'cancelled' | 'reading' | 'deduping';
+  scannedCount: number;
+  detectedCount: number;
+  duplicatesSkipped: number;
+  addedCount: number;
+  reviewCount: number;
+  totalToScan: number;
+  statusText?: string;
+  isComplete?: boolean;
+}
+
 export interface ImportResult {
   batchId: string;
   totalScanned: number;
+  scannedCount: number;
   detectedCount: number;
   duplicatesSkipped: number;
   addedCount: number;
@@ -38,6 +51,8 @@ export interface ImportResult {
   createdTxIds: string[];
   isCancelled: boolean;
 }
+
+export type SmsImportResult = ImportResult;
 
 export interface CancelToken {
   isCancelled: boolean;
@@ -86,6 +101,7 @@ export async function runSmsImport(
   const result: ImportResult = {
     batchId,
     totalScanned: 0,
+    scannedCount: 0,
     detectedCount: 0,
     duplicatesSkipped: 0,
     addedCount: 0,
@@ -124,6 +140,7 @@ export async function runSmsImport(
 
     const msg = messages[i];
     result.totalScanned++;
+    result.scannedCount++;
 
     const timestamp = msg.date || Date.now();
     if (timestamp > latestTimestamp) {
@@ -319,4 +336,103 @@ export async function runSmsImport(
   }
 
   return result;
+}
+
+/**
+ * Imports messages directly from the device SMS inbox.
+ * Only available on Android direct flavor with READ_SMS permission.
+ */
+export async function importFromSmsInbox(
+  userId: string,
+  options: {
+    minDate?: number;
+    maxDate?: number;
+    limit?: number;
+    onProgress?: (progress: SmsImportProgress) => void;
+    cancelController?: { cancel: () => void; isCancelled?: boolean };
+  }
+): Promise<SmsImportResult> {
+  const cancelToken: CancelToken = { isCancelled: false };
+  if (options.cancelController) {
+    options.cancelController.cancel = () => {
+      cancelToken.isCancelled = true;
+    };
+  }
+
+  const minDate = options.minDate ?? (Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const maxDate = options.maxDate ?? Date.now();
+  const limit = options.limit ?? 2500;
+
+  options.onProgress?.({
+    phase: 'scanning',
+    scannedCount: 0,
+    detectedCount: 0,
+    duplicatesSkipped: 0,
+    addedCount: 0,
+    reviewCount: 0,
+    totalToScan: 0,
+    statusText: 'Reading SMS inbox...',
+  });
+
+  const messages = await readSmsInbox({ minDate, maxDate, limit });
+
+  return runSmsImport(userId, messages, {
+    dateRangeLabel: `From ${new Date(minDate).toLocaleDateString()}`,
+    cancelToken,
+    onProgress: (p) => {
+      options.onProgress?.({
+        phase: p.isComplete ? 'complete' : p.isCancelled ? 'cancelled' : 'parsing',
+        scannedCount: p.scanned,
+        detectedCount: p.detected,
+        duplicatesSkipped: p.duplicatesSkipped,
+        addedCount: p.added,
+        reviewCount: p.needsReview,
+        totalToScan: messages.length,
+        statusText: p.statusText,
+        isComplete: p.isComplete,
+      });
+    },
+  });
+}
+
+/**
+ * Imports multiple pasted bank / UPI alerts from raw text chunks.
+ */
+export async function importFromPastedMessages(
+  rawMessages: Array<{ sender: string; body: string; timestamp: number }>,
+  userId: string,
+  onProgress?: (progress: SmsImportProgress) => void,
+  cancelController?: { cancel: () => void }
+): Promise<SmsImportResult> {
+  const cancelToken: CancelToken = { isCancelled: false };
+  if (cancelController) {
+    cancelController.cancel = () => {
+      cancelToken.isCancelled = true;
+    };
+  }
+
+  const messages: RawSmsMessage[] = rawMessages.map((m, idx) => ({
+    _id: `paste_${Date.now()}_${idx}`,
+    address: m.sender || 'Pasted Alert',
+    body: m.body,
+    date: m.timestamp || Date.now(),
+  }));
+
+  return runSmsImport(userId, messages, {
+    dateRangeLabel: 'Pasted Messages',
+    cancelToken,
+    onProgress: (p) => {
+      onProgress?.({
+        phase: p.isComplete ? 'complete' : p.isCancelled ? 'cancelled' : 'parsing',
+        scannedCount: p.scanned,
+        detectedCount: p.detected,
+        duplicatesSkipped: p.duplicatesSkipped,
+        addedCount: p.added,
+        reviewCount: p.needsReview,
+        totalToScan: messages.length,
+        statusText: p.statusText,
+        isComplete: p.isComplete,
+      });
+    },
+  });
 }
