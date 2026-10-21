@@ -136,20 +136,9 @@ function BottomSheetModal({
           <View style={styles.modalHeader}>
             <View style={styles.modalHeaderLeft}>
               {icon && (
-                gradientColors ? (
-                  <LinearGradient
-                    colors={gradientColors}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={styles.infoIconGradient}
-                  >
-                    <Ionicons name={icon} size={22} color="#FFFFFF" />
-                  </LinearGradient>
-                ) : (
-                  <View style={[styles.infoIconBg, { backgroundColor: iconBg || '#F3F4F6' }]}>
-                    <Ionicons name={icon} size={22} color={iconColor || '#1C1C1E'} />
-                  </View>
-                )
+                <View style={[styles.infoIconBg, { backgroundColor: iconBg || '#F1F5F9' }]}>
+                  <Ionicons name={icon} size={20} color={iconColor || '#0F172A'} />
+                </View>
               )}
               <Text style={styles.modalTitle}>{title}</Text>
             </View>
@@ -227,20 +216,9 @@ function SettingsRow({
       accessibilityRole={onPress ? 'button' : undefined}
       accessibilityLabel={label}
     >
-      {gradientColors ? (
-        <LinearGradient
-          colors={gradientColors}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.infoIconGradient}
-        >
-          <Ionicons name={icon} size={20} color="#FFFFFF" />
-        </LinearGradient>
-      ) : (
-        <View style={[styles.infoIconBg, { backgroundColor: iconBg }]}>
-          <Ionicons name={icon} size={20} color={iconColor} />
-        </View>
-      )}
+      <View style={[styles.infoIconBg, { backgroundColor: iconBg }, iconBg !== '#F1F5F9' && { borderColor: iconBg }]}>
+        <Ionicons name={icon} size={20} color={iconColor} />
+      </View>
       <View style={styles.infoTextContainer}>
         <View style={styles.infoLabelRow}>
           <Text style={[styles.infoLabel, labelColor && { color: labelColor }]}>{label}</Text>
@@ -256,7 +234,7 @@ function SettingsRow({
           </Text>
         )}
       </View>
-      {onPress && (loading ? <ActivityIndicator size="small" color={gradientColors ? '#FFFFFF' : iconColor} /> : showChevron && (
+      {onPress && (loading ? <ActivityIndicator size="small" color={iconColor} /> : showChevron && (
         <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
       ))}
     </Wrapper>
@@ -1092,22 +1070,19 @@ export default function SettingsScreen() {
             </View>
             <View style={styles.infoCard}>
               <SettingsRow
-                icon="pie-chart"
-                gradientColors={['#F59E0B', '#D97706']}
+                icon="pie-chart-outline"
                 label={t('budget_goals')}
                 value={t('budget_goals_desc')}
                 onPress={() => router.push('/budget')}
               />
               <SettingsRow
-                icon="grid"
-                gradientColors={['#6366F1', '#4F46E5']}
+                icon="grid-outline"
                 label={t('manage_categories')}
                 value={t('manage_categories_desc')}
                 onPress={() => router.push('/categories')}
               />
               <SettingsRow
-                icon="wallet"
-                gradientColors={['#10B981', '#059669']}
+                icon="wallet-outline"
                 label={t('update_starting_balance')}
                 value={`${t('current_balance_prefix')} ${curr}${Number((user as any)?.startingBalance || 0).toLocaleString('en-IN')}`}
                 onPress={openStartingBalanceEditor}
@@ -1124,14 +1099,9 @@ export default function SettingsScreen() {
               {/* Language Card */}
               <View style={styles.prefRowCard}>
                 <View style={styles.prefHeaderRow}>
-                  <LinearGradient
-                    colors={['#3B82F6', '#1D4ED8']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={styles.infoIconGradient}
-                  >
-                    <Ionicons name="language" size={20} color="#FFFFFF" />
-                  </LinearGradient>
+                  <View style={styles.infoIconBg}>
+                    <Ionicons name="language-outline" size={20} color="#0F172A" />
+                  </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.infoLabel}>{t('language')}</Text>
                     <Text style={styles.infoValue}>
@@ -1163,14 +1133,9 @@ export default function SettingsScreen() {
                 accessibilityRole="button"
                 accessibilityLabel={t('currency')}
               >
-                <LinearGradient
-                  colors={['#10B981', '#0D9488']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.infoIconGradient}
-                >
-                  <Ionicons name="cash" size={20} color="#FFFFFF" />
-                </LinearGradient>
+                <View style={styles.infoIconBg}>
+                  <Ionicons name="cash-outline" size={20} color="#0F172A" />
+                </View>
                 <View style={styles.infoTextContainer}>
                   <Text style={styles.infoLabel}>{t('currency')}</Text>
                   <Text style={styles.infoValue}>
@@ -1240,14 +1205,9 @@ export default function SettingsScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="My UPI ID"
               >
-                <LinearGradient
-                  colors={['#8B5CF6', '#7C3AED']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.infoIconGradient}
-                >
-                  <Ionicons name="qr-code" size={20} color="#FFFFFF" />
-                </LinearGradient>
+                <View style={styles.infoIconBg}>
+                  <Ionicons name="qr-code-outline" size={20} color="#0F172A" />
+                </View>
                 <View style={styles.infoTextContainer}>
                   <View style={styles.infoLabelRow}>
                     <Text style={styles.infoLabel}>My UPI ID</Text>
@@ -1282,45 +1242,43 @@ export default function SettingsScreen() {
             </View>
             <View style={styles.infoCard}>
               <SettingsRow
-                icon="document-text"
-                gradientColors={['#EF4444', '#DC2626']}
+                icon="document-text-outline"
                 label={t('statement_pdf')}
                 value={t('statement_pdf_desc')}
                 badgeText="PDF PASSBOOK"
-                badgeBg="#FEF2F2"
-                badgeColor="#DC2626"
+                badgeBg="#F1F5F9"
+                badgeColor="#475569"
                 onPress={openStatementModal}
               />
               <SettingsRow
-                icon="cloud-download"
-                gradientColors={['#059669', '#047857']}
+                icon="cloud-download-outline"
                 label={t('export_data')}
                 value={t('export_desc')}
                 badgeText="JSON • CSV"
-                badgeBg="#ECFDF5"
-                badgeColor="#047857"
+                badgeBg="#F1F5F9"
+                badgeColor="#475569"
                 onPress={openExportModal}
                 loading={isExporting}
               />
               <SettingsRow
-                icon="cloud-upload"
-                gradientColors={['#2563EB', '#1D4ED8']}
+                icon="cloud-upload-outline"
                 label={t('import_data')}
                 value={t('import_desc')}
                 badgeText="RESTORE"
-                badgeBg="#EFF6FF"
-                badgeColor="#1D4ED8"
+                badgeBg="#F1F5F9"
+                badgeColor="#475569"
                 onPress={() => setShowImportModal(true)}
               />
               <SettingsRow
-                icon="trash"
-                gradientColors={['#F43F5E', '#BE123C']}
+                icon="trash-outline"
+                iconBg="#FEF2F2"
+                iconColor="#DC2626"
                 label={t('delete_all_data')}
                 labelColor="#DC2626"
                 value={t('delete_all_desc')}
                 badgeText="RESET"
-                badgeBg="#FFF1F2"
-                badgeColor="#E11D48"
+                badgeBg="#FEF2F2"
+                badgeColor="#DC2626"
                 onPress={() => setDeleteDataModalVisible(true)}
               />
             </View>
@@ -1342,16 +1300,11 @@ export default function SettingsScreen() {
               accessibilityLabel={t('help_support')}
             >
               <View style={styles.supportCardContent}>
-                {/* Left: Branded Navy & Gold Icon */}
+                {/* Left: Clean Slate Icon */}
                 <View style={styles.supportIconWrapper}>
-                  <LinearGradient
-                    colors={['#0F172A', '#1E293B']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={styles.supportIconBg}
-                  >
-                    <Ionicons name="headset" size={22} color="#FFD740" />
-                  </LinearGradient>
+                  <View style={styles.supportIconBg}>
+                    <Ionicons name="headset-outline" size={22} color="#0F172A" />
+                  </View>
                   <View style={styles.supportStatusDot} />
                 </View>
 
@@ -1390,16 +1343,11 @@ export default function SettingsScreen() {
               accessibilityLabel="Rate on Google Play"
             >
               <View style={styles.supportCardContent}>
-                {/* Left: Gold Star Icon */}
+                {/* Left: Clean Amber Star Icon */}
                 <View style={styles.supportIconWrapper}>
-                  <LinearGradient
-                    colors={['#F59E0B', '#D97706']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={styles.supportIconBg}
-                  >
-                    <Ionicons name="star" size={24} color="#FFFFFF" />
-                  </LinearGradient>
+                  <View style={[styles.supportIconBg, { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }]}>
+                    <Ionicons name="star" size={22} color="#D97706" />
+                  </View>
                 </View>
 
                 {/* Center: Title, Subtitle, Rating Tag */}
@@ -1430,14 +1378,12 @@ export default function SettingsScreen() {
             </View>
             <View style={styles.infoCard}>
               <SettingsRow
-                icon="document-text"
-                gradientColors={['#64748B', '#475569']}
+                icon="document-text-outline"
                 label={t('terms_conditions')}
                 onPress={() => setLegalDoc('terms')}
               />
               <SettingsRow
-                icon="shield-checkmark"
-                gradientColors={['#0D9488', '#0F766E']}
+                icon="shield-checkmark-outline"
                 label={t('privacy_policy')}
                 onPress={() => setLegalDoc('privacy')}
               />
@@ -1461,14 +1407,9 @@ export default function SettingsScreen() {
                 accessibilityRole="button"
                 accessibilityLabel={t('log_out')}
               >
-                <LinearGradient
-                  colors={['#64748B', '#475569']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.infoIconGradient}
-                >
-                  <Ionicons name="log-out" size={20} color="#FFFFFF" />
-                </LinearGradient>
+                <View style={[styles.infoIconBg, { backgroundColor: '#FEF2F2', borderColor: '#FEE2E2' }]}>
+                  <Ionicons name="log-out-outline" size={20} color="#DC2626" />
+                </View>
                 <View style={styles.dangerTextWrap}>
                   <Text style={styles.dangerRowLabel}>{t('log_out')}</Text>
                   <Text style={styles.dangerRowSub}>{t('logout_msg')}</Text>
@@ -1501,7 +1442,7 @@ export default function SettingsScreen() {
           </View>
 
           <View style={{ alignItems: 'center', marginTop: 8 }}>
-            <Text style={styles.versionText}>Rupeo Version 2.1.6</Text>
+            <Text style={styles.versionText}>Rupeo v2.1.8</Text>
           </View>
         </View>
       </ScrollView>
@@ -1524,8 +1465,7 @@ export default function SettingsScreen() {
         visible={showUpiModal}
         onClose={() => setShowUpiModal(false)}
         title="My UPI ID"
-        icon="qr-code"
-        gradientColors={['#8B5CF6', '#6366F1']}
+        icon="qr-code-outline"
         autoHeight
       >
         <Text style={styles.modalIntroText}>
@@ -1559,8 +1499,7 @@ export default function SettingsScreen() {
         visible={showStartingBalanceModal}
         onClose={() => setShowStartingBalanceModal(false)}
         title={t('update_starting_balance')}
-        icon="wallet"
-        gradientColors={['#10B981', '#059669']}
+        icon="wallet-outline"
         autoHeight
       >
         <Text style={styles.modalIntroText}>
@@ -1593,8 +1532,7 @@ export default function SettingsScreen() {
         visible={showExportModal}
         onClose={() => setShowExportModal(false)}
         title={t('export_data')}
-        icon="cloud-download"
-        gradientColors={['#059669', '#047857']}
+        icon="cloud-download-outline"
         autoHeight={false}
       >
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
@@ -1786,8 +1724,7 @@ export default function SettingsScreen() {
         visible={showStatementModal}
         onClose={() => setShowStatementModal(false)}
         title={t('statement_pdf')}
-        icon="document-text"
-        gradientColors={['#EF4444', '#DC2626']}
+        icon="document-text-outline"
         autoHeight={false}
       >
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
@@ -1979,8 +1916,7 @@ export default function SettingsScreen() {
           setImportText('');
         }}
         title={t('import_data')}
-        icon="cloud-upload"
-        gradientColors={['#2563EB', '#1D4ED8']}
+        icon="cloud-upload-outline"
         autoHeight
       >
         <Text style={styles.modalIntroText}>
@@ -2602,13 +2538,15 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   infoIconBg: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: '#F8FAFC',
+    width: 38,
+    height: 38,
+    borderRadius: 11,
+    backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   infoTextContainer: { flex: 1 },
   infoLabelRow: {
@@ -2793,16 +2731,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   supportIconBg: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
+    width: 44,
+    height: 44,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    elevation: 3,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   supportStatusDot: {
     position: 'absolute',
