@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   ScrollView,
+  FlatList,
   TouchableOpacity,
   Dimensions,
   useWindowDimensions,
@@ -368,6 +369,14 @@ export default function ReportsScreen() {
 
     return list.sort((a, b) => b.amount - a.amount);
   }, [filteredTransactions, categories, categoryType]);
+
+  const drillDownTransactions = useMemo(() => {
+    if (!selectedCategoryDetail?.name) return [];
+    const targetCat = selectedCategoryDetail.name.toLowerCase();
+    return filteredTransactions.filter(
+      t => (t.category || '').toLowerCase() === targetCat && t.type === categoryType
+    );
+  }, [filteredTransactions, selectedCategoryDetail?.name, categoryType]);
 
   // Payment Modes Split
   const paymentModesSplit = useMemo(() => {
@@ -2573,21 +2582,27 @@ export default function ReportsScreen() {
               </TouchableOpacity>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 380, marginTop: 10 }}>
-              {filteredTransactions
-                .filter(t => (t.category || '').toLowerCase() === (selectedCategoryDetail?.name || '').toLowerCase() && t.type === categoryType)
-                .map((tx, idx) => (
-                  <View key={tx.id || String(idx)} style={styles.drillDownItem}>
-                    <View style={{ flex: 1, paddingRight: 8 }}>
-                      <Text style={styles.drillDownTitle} numberOfLines={1}>{tx.title || tx.category}</Text>
-                      <Text style={styles.drillDownDate}>{tx.date} • {tx.payment_mode || 'UPI'}</Text>
-                    </View>
-                    <Text style={[styles.drillDownAmount, categoryType === 'income' ? styles.drillDownAmountIncome : styles.drillDownAmountExpense]}>
-                      {categoryType === 'income' ? '+' : '-'}{curr}{Math.abs(tx.amount).toLocaleString('en-IN')}
-                    </Text>
+            <FlatList
+              data={drillDownTransactions}
+              keyExtractor={(item, idx) => item.id || String(idx)}
+              style={{ maxHeight: 380, marginTop: 10 }}
+              showsVerticalScrollIndicator={false}
+              initialNumToRender={10}
+              maxToRenderPerBatch={10}
+              windowSize={5}
+              removeClippedSubviews={Platform.OS === 'android'}
+              renderItem={({ item: tx }) => (
+                <View style={styles.drillDownItem}>
+                  <View style={{ flex: 1, paddingRight: 8 }}>
+                    <Text style={styles.drillDownTitle} numberOfLines={1}>{tx.title || tx.category}</Text>
+                    <Text style={styles.drillDownDate}>{tx.date} • {tx.payment_mode || 'UPI'}</Text>
                   </View>
-                ))}
-            </ScrollView>
+                  <Text style={[styles.drillDownAmount, categoryType === 'income' ? styles.drillDownAmountIncome : styles.drillDownAmountExpense]}>
+                    {categoryType === 'income' ? '+' : '-'}{curr}{Math.abs(tx.amount).toLocaleString('en-IN')}
+                  </Text>
+                </View>
+              )}
+            />
           </View>
         </View>
       </Modal>

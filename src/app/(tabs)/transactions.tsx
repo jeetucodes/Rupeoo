@@ -5,6 +5,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
+  FlatList,
   StatusBar,
   TextInput,
   RefreshControl,
@@ -290,6 +291,147 @@ const SlicedPieChart = ({
   );
 };
 
+interface TransactionItemRowProps {
+  tx: any;
+  isLast: boolean;
+  curr: string;
+  onPress: (id: string) => void;
+  meta: { icon: string; color: string };
+  pMeta: { label: string; icon: string; color: string; bg: string };
+}
+
+const TransactionItemRow = React.memo(function TransactionItemRow({
+  tx,
+  isLast,
+  curr,
+  onPress,
+  meta,
+  pMeta,
+}: TransactionItemRowProps) {
+  const isCredit = tx.type === 'credit';
+  const hasProof = Boolean(tx.receipt_image || tx.receiptImage);
+
+  return (
+    <TouchableOpacity
+      style={[styles.txItemRow, !isLast && styles.txItemBorder]}
+      onPress={() => onPress(tx.id)}
+      activeOpacity={0.72}
+    >
+      {/* 3D Category Avatar Squircle */}
+      <View style={[styles.txIconCircle, { backgroundColor: meta.color + '15', borderColor: meta.color + '30' }]}>
+        <CategoryIcon categoryName={tx.category || 'Others'} iconName={meta.icon} size={24} color={meta.color} />
+      </View>
+
+      <View style={styles.txMainInfo}>
+        <View style={styles.txTitleRow}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 }}>
+            <Text style={styles.txMerchantName} numberOfLines={1}>
+              {tx.merchant_name || tx.category || 'Transaction'}
+            </Text>
+            {hasProof && (
+              <View style={styles.proofPill}>
+                <Ionicons name="image" size={10} color="#2563EB" style={{ marginRight: 2 }} />
+                <Text style={styles.proofPillText}>Photo</Text>
+              </View>
+            )}
+          </View>
+          <Text
+            style={[
+              styles.txAmountText,
+              { color: isCredit ? '#059669' : '#0F172A' },
+            ]}
+          >
+            {isCredit ? '+' : '-'}
+            {curr}
+            {Number(tx.amount || 0).toLocaleString('en-IN', {
+              minimumFractionDigits: 2,
+            })}
+          </Text>
+        </View>
+
+        <View style={styles.txMetaRow}>
+          <View style={[styles.txCategoryPill, { backgroundColor: meta.color + '12' }]}>
+            <Text style={[styles.txCategoryTag, { color: meta.color }]}>{tx.category || 'General'}</Text>
+          </View>
+
+          <View style={[styles.txModePill, { backgroundColor: pMeta.bg }]}>
+            <PaymentModeIcon mode={tx.payment_mode} size={11} color={pMeta.color} style={{ marginRight: 4 }} />
+            <Text style={[styles.txModeText, { color: pMeta.color }]}>{pMeta.label}</Text>
+          </View>
+
+          {Boolean(tx.time) && (
+            <Text style={styles.txTimeTag}>• {formatTime12Hour(tx.time)}</Text>
+          )}
+        </View>
+
+        {Boolean(tx.description && tx.description.trim()) && (
+          <View style={styles.txNoteBox}>
+            <Ionicons name="chatbox-ellipses-outline" size={11} color="#94A3B8" style={{ marginRight: 4 }} />
+            <Text style={styles.txDescText} numberOfLines={1}>
+              {tx.description}
+            </Text>
+          </View>
+        )}
+      </View>
+
+      <Ionicons name="chevron-forward" size={14} color="#CBD5E1" style={{ marginLeft: 8 }} />
+    </TouchableOpacity>
+  );
+});
+
+interface DateGroupCardProps {
+  group: { dateKey: string; dateLabel: string; totalSpend: number; items: any[] };
+  curr: string;
+  onPressTx: (id: string) => void;
+  getCategoryMeta: (cat: string) => { icon: string; color: string };
+}
+
+const DateGroupCard = React.memo(function DateGroupCard({
+  group,
+  curr,
+  onPressTx,
+  getCategoryMeta,
+}: DateGroupCardProps) {
+  return (
+    <View style={[styles.dateGroup, { marginHorizontal: 20 }]}>
+      {/* Date Group Header */}
+      <View style={styles.dateGroupHeader}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Ionicons name="calendar" size={13} color="#64748B" />
+          <Text style={styles.dateGroupLabel}>{group.dateLabel}</Text>
+        </View>
+        {group.totalSpend > 0 && (
+          <View style={styles.dateGroupSpendBadge}>
+            <Text style={styles.dateGroupSpent}>
+              Spent -{curr}{formatAmount(group.totalSpend)}
+            </Text>
+          </View>
+        )}
+      </View>
+
+      {/* Items in date group */}
+      <View style={styles.dateGroupCard}>
+        {group.items.map((tx: any, idx: number) => {
+          const meta = getCategoryMeta(tx.category);
+          const pMeta = getPaymentModeMeta(tx.payment_mode);
+          const isLast = idx === group.items.length - 1;
+          return (
+            <TransactionItemRow
+              key={tx.id || idx}
+              tx={tx}
+              isLast={isLast}
+              curr={curr}
+              onPress={onPressTx}
+              meta={meta}
+              pMeta={pMeta}
+            />
+          );
+        })}
+      </View>
+    </View>
+  );
+});
+
 export default function TransactionsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -313,6 +455,7 @@ export default function TransactionsScreen() {
 
   // Search & Filter States
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'debit' | 'credit'>('all');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
@@ -323,8 +466,15 @@ export default function TransactionsScreen() {
   const [voiceModalVisible, setVoiceModalVisible] = useState(false);
 
   useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  useEffect(() => {
     setDisplayLimit(20);
-  }, [period, startDate, endDate, searchQuery, filterType, selectedCategory, minAmount, maxAmount, filterPaymentMode]);
+  }, [period, startDate, endDate, debouncedSearchQuery, filterType, selectedCategory, minAmount, maxAmount, filterPaymentMode]);
 
   const lastLoadTimeRef = useRef<number>(0);
 
@@ -373,7 +523,7 @@ export default function TransactionsScreen() {
 
   // Filter logic
   const filteredList = useMemo(() => {
-    const isSearching = searchQuery.trim().length > 0;
+    const isSearching = debouncedSearchQuery.trim().length > 0;
     const now = new Date();
 
     return allTransactions.filter(tx => {
@@ -409,7 +559,7 @@ export default function TransactionsScreen() {
 
       // 2. Search query filter (matches merchant, description, category, payment mode, amount, date, utr, ref_no)
       if (isSearching) {
-        const q = searchQuery.toLowerCase().trim();
+        const q = debouncedSearchQuery.toLowerCase().trim();
         const m = (tx.merchant_name || '').toLowerCase();
         const d = (tx.description || '').toLowerCase();
         const c = (tx.category || '').toLowerCase();
@@ -463,7 +613,7 @@ export default function TransactionsScreen() {
     period,
     startDate,
     endDate,
-    searchQuery,
+    debouncedSearchQuery,
     filterType,
     selectedCategory,
     minAmount,
@@ -558,7 +708,7 @@ export default function TransactionsScreen() {
     const todayStr = getLocalDateString();
     const yesterdayStr = getRelativeDateString(-1);
 
-    const isSearching = searchQuery.trim().length > 0;
+    const isSearching = debouncedSearchQuery.trim().length > 0;
     const sortedList = sortTransactionsRecentFirst(filteredList);
     // When searching, display ALL matching items immediately so no results are clipped!
     const visibleList = isSearching ? sortedList : sortedList.slice(0, displayLimit);
@@ -592,10 +742,11 @@ export default function TransactionsScreen() {
         ...group,
         items: sortTransactionsRecentFirst(group.items),
       }));
-  }, [filteredList, displayLimit, searchQuery]);
+  }, [filteredList, displayLimit, debouncedSearchQuery]);
 
   const resetFilters = () => {
     setSearchQuery('');
+    setDebouncedSearchQuery('');
     setFilterType('all');
     setSelectedCategory('All');
     setMinAmount('');
@@ -606,13 +757,22 @@ export default function TransactionsScreen() {
   const hasActiveAdvancedFilters =
     filterPaymentMode !== 'All' || minAmount !== '' || maxAmount !== '';
 
-  const getCategoryMeta = (catName: string) => {
-    const cat = categories.find(c => c.name.toLowerCase() === (catName || '').toLowerCase());
-    return {
-      icon: cat?.icon || 'receipt-outline',
-      color: cat?.color || '#3B82F6',
-    };
-  };
+  const categoryLookupMap = useMemo(() => {
+    const map = new Map<string, { icon: string; color: string }>();
+    for (const c of categories) {
+      map.set(c.name.toLowerCase(), { icon: c.icon || 'receipt-outline', color: c.color || '#3B82F6' });
+    }
+    return map;
+  }, [categories]);
+
+  const getCategoryMeta = useCallback((catName: string) => {
+    const norm = (catName || '').toLowerCase();
+    return categoryLookupMap.get(norm) || { icon: 'receipt-outline', color: '#3B82F6' };
+  }, [categoryLookupMap]);
+
+  const handlePressTx = useCallback((id: string) => {
+    router.push(`/transaction/${id}` as any);
+  }, [router]);
 
   if (loading) {
     return (
@@ -704,10 +864,24 @@ export default function TransactionsScreen() {
         </View>
       </View>
 
-      <ScrollView
+      <FlatList
+        data={filteredList.length === 0 ? [] : groupedTransactions}
+        keyExtractor={(item) => item.dateKey}
+        renderItem={({ item }) => (
+          <DateGroupCard
+            group={item}
+            curr={curr}
+            onPressTx={handlePressTx}
+            getCategoryMeta={getCategoryMeta}
+          />
+        )}
+        ItemSeparatorComponent={() => <View style={{ height: 16 }} />}
+        initialNumToRender={10}
+        maxToRenderPerBatch={10}
+        windowSize={7}
+        removeClippedSubviews={Platform.OS === 'android'}
         contentContainerStyle={[styles.content, { paddingBottom: 110 + (insets.bottom > 0 ? insets.bottom + 8 : 0) }]}
         showsVerticalScrollIndicator={false}
-        removeClippedSubviews={Platform.OS === 'android'}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -716,7 +890,8 @@ export default function TransactionsScreen() {
             tintColor="#1C1C1E"
           />
         }
-      >
+        ListHeaderComponent={
+          <>
         {/* Simple Minimal Cashflow Summary Card */}
         <View style={styles.cashflowSimpleCard}>
           <View style={styles.cashflowSimpleCol}>
@@ -771,7 +946,7 @@ export default function TransactionsScreen() {
             onChangeText={setSearchQuery}
           />
           {searchQuery.length > 0 && (
-            <TouchableOpacity onPress={() => setSearchQuery('')} style={{ padding: 4 }}>
+            <TouchableOpacity onPress={() => { setSearchQuery(''); setDebouncedSearchQuery(''); }} style={{ padding: 4 }}>
               <Ionicons name="close-circle" size={18} color="#9CA3AF" />
             </TouchableOpacity>
           )}
@@ -789,7 +964,7 @@ export default function TransactionsScreen() {
         </View>
 
         {/* Active Search Scope Indicator Banner */}
-        {searchQuery.trim().length > 0 && (
+        {debouncedSearchQuery.trim().length > 0 && (
           <View style={styles.searchScopeBanner}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
               <Ionicons name="sparkles" size={14} color="#D97706" />
@@ -798,7 +973,7 @@ export default function TransactionsScreen() {
               </Text>
             </View>
             <TouchableOpacity
-              onPress={() => setSearchQuery('')}
+              onPress={() => { setSearchQuery(''); setDebouncedSearchQuery(''); }}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
               <Text style={styles.clearSearchLink}>Clear</Text>
@@ -1123,9 +1298,9 @@ export default function TransactionsScreen() {
         <View style={styles.listHeaderRow}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <Text style={styles.listHeaderTitle}>
-              {searchQuery.trim() ? t('search_results_all') : t('transaction_history')}
+              {debouncedSearchQuery.trim() ? t('search_results_all') : t('transaction_history')}
             </Text>
-            {searchQuery.trim().length > 0 && (
+            {debouncedSearchQuery.trim().length > 0 && (
               <View style={styles.searchAllBadge}>
                 <Text style={styles.searchAllBadgeText}>ALL RECORDS</Text>
               </View>
@@ -1133,17 +1308,17 @@ export default function TransactionsScreen() {
           </View>
           <Text style={styles.listHeaderCount}>{filteredList.length} {t('items_count')}</Text>
         </View>
-
-        {/* Grouped Transaction List */}
-        {filteredList.length === 0 ? (
+          </>
+        }
+        ListEmptyComponent={
           <View style={styles.emptyState}>
             <View style={styles.emptyIconCircle}>
               <Ionicons name="receipt-outline" size={40} color="#9CA3AF" />
             </View>
             <Text style={styles.emptyTitle}>{t('no_transactions_found')}</Text>
             <Text style={styles.emptySubtitle}>
-              {searchQuery.trim()
-                ? `No transactions found matching "${searchQuery.trim()}" across your entire history.`
+              {debouncedSearchQuery.trim()
+                ? `No transactions found matching "${debouncedSearchQuery.trim()}" across your entire history.`
                 : selectedCategory !== 'All' || filterType !== 'all'
                 ? t('no_tx_adjust_filters')
                 : t('start_tracking_msg')}
@@ -1157,107 +1332,10 @@ export default function TransactionsScreen() {
               <Text style={styles.addEmptyBtnText}>{t('add_transaction')}</Text>
             </TouchableOpacity>
           </View>
-        ) : (
-          <View style={styles.transactionsContainer}>
-            {groupedTransactions.map(group => (
-              <View key={group.dateKey} style={styles.dateGroup}>
-                {/* Date Group Header */}
-                <View style={styles.dateGroupHeader}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Ionicons name="calendar" size={13} color="#64748B" />
-                    <Text style={styles.dateGroupLabel}>{group.dateLabel}</Text>
-                  </View>
-                  {group.totalSpend > 0 && (
-                    <View style={styles.dateGroupSpendBadge}>
-                      <Text style={styles.dateGroupSpent}>
-                        Spent -{curr}{formatAmount(group.totalSpend)}
-                      </Text>
-                    </View>
-                  )}
-                </View>
-
-                {/* Items in date group */}
-                <View style={styles.dateGroupCard}>
-                  {group.items.map((tx: any, idx: number) => {
-                    const meta = getCategoryMeta(tx.category);
-                    const isCredit = tx.type === 'credit';
-                    const isLast = idx === group.items.length - 1;
-                    const hasProof = Boolean(tx.receipt_image || tx.receiptImage);
-                    const pMeta = getPaymentModeMeta(tx.payment_mode);
-
-                    return (
-                      <TouchableOpacity
-                        key={tx.id || idx}
-                        style={[styles.txItemRow, !isLast && styles.txItemBorder]}
-                        onPress={() => router.push(`/transaction/${tx.id}` as any)}
-                        activeOpacity={0.72}
-                      >
-                        {/* 3D Category Avatar Squircle */}
-                        <View style={[styles.txIconCircle, { backgroundColor: meta.color + '15', borderColor: meta.color + '30' }]}>
-                          <CategoryIcon categoryName={tx.category || 'Others'} iconName={meta.icon} size={24} color={meta.color} />
-                        </View>
-
-                        <View style={styles.txMainInfo}>
-                          <View style={styles.txTitleRow}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 }}>
-                              <Text style={styles.txMerchantName} numberOfLines={1}>
-                                {tx.merchant_name || tx.category || 'Transaction'}
-                              </Text>
-                              {hasProof && (
-                                <View style={styles.proofPill}>
-                                  <Ionicons name="image" size={10} color="#2563EB" style={{ marginRight: 2 }} />
-                                  <Text style={styles.proofPillText}>Photo</Text>
-                                </View>
-                              )}
-                            </View>
-                            <Text
-                              style={[
-                                styles.txAmountText,
-                                { color: isCredit ? '#059669' : '#0F172A' },
-                              ]}
-                            >
-                              {isCredit ? '+' : '-'}
-                              {curr}
-                              {Number(tx.amount || 0).toLocaleString('en-IN', {
-                                minimumFractionDigits: 2,
-                              })}
-                            </Text>
-                          </View>
-
-                          <View style={styles.txMetaRow}>
-                            <View style={[styles.txCategoryPill, { backgroundColor: meta.color + '12' }]}>
-                              <Text style={[styles.txCategoryTag, { color: meta.color }]}>{tx.category || 'General'}</Text>
-                            </View>
-                            
-                            <View style={[styles.txModePill, { backgroundColor: pMeta.bg }]}>
-                              <PaymentModeIcon mode={tx.payment_mode} size={11} color={pMeta.color} style={{ marginRight: 4 }} />
-                              <Text style={[styles.txModeText, { color: pMeta.color }]}>{pMeta.label}</Text>
-                            </View>
-
-                            {Boolean(tx.time) && (
-                              <Text style={styles.txTimeTag}>• {formatTime12Hour(tx.time)}</Text>
-                            )}
-                          </View>
-
-                          {Boolean(tx.description && tx.description.trim()) && (
-                            <View style={styles.txNoteBox}>
-                              <Ionicons name="chatbox-ellipses-outline" size={11} color="#94A3B8" style={{ marginRight: 4 }} />
-                              <Text style={styles.txDescText} numberOfLines={1}>
-                                {tx.description}
-                              </Text>
-                            </View>
-                          )}
-                        </View>
-
-                        <Ionicons name="chevron-forward" size={14} color="#CBD5E1" style={{ marginLeft: 8 }} />
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </View>
-            ))}
-
-            {!searchQuery.trim() && displayLimit < filteredList.length && (
+        }
+        ListFooterComponent={
+          !debouncedSearchQuery.trim() && displayLimit < filteredList.length ? (
+            <View style={{ marginHorizontal: 20, marginTop: 16 }}>
               <TouchableOpacity
                 style={styles.loadMoreBtn}
                 onPress={() => setDisplayLimit(prev => prev + 20)}
@@ -1266,10 +1344,10 @@ export default function TransactionsScreen() {
                 <Text style={styles.loadMoreBtnText}>Load More</Text>
                 <Ionicons name="chevron-down" size={16} color="#4B5563" style={{ marginLeft: 4 }} />
               </TouchableOpacity>
-            )}
-          </View>
-        )}
-      </ScrollView>
+            </View>
+          ) : null
+        }
+      />
 
       {/* Voice Transaction Modal */}
       <VoiceTransactionModal

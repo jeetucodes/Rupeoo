@@ -374,6 +374,72 @@ const MONTH_NAMES = [
 
 const WEEKDAY_NAMES = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
+interface DashboardTransactionItemProps {
+  tx: any;
+  isLast: boolean;
+  curr: string;
+  meta: { icon: string; color: string };
+  onPress: (id: string) => void;
+}
+
+const DashboardTransactionItem = React.memo(function DashboardTransactionItem({
+  tx,
+  isLast,
+  curr,
+  meta,
+  onPress,
+}: DashboardTransactionItemProps) {
+  const isCredit = tx.type === 'credit';
+  const hasProof = Boolean(tx.receipt_image || tx.receiptImage);
+
+  return (
+    <TouchableOpacity
+      style={[styles.txItem, !isLast && styles.txItemBorder]}
+      onPress={() => onPress(tx.id)}
+      activeOpacity={0.7}
+    >
+      <View style={[styles.txIconCircle, { backgroundColor: meta.color + '15', overflow: 'hidden' }]}>
+        <CategoryIcon categoryName={tx.category || 'Others'} iconName={meta.icon} size={22} color={meta.color} />
+      </View>
+
+      <View style={styles.txMainInfo}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Text style={styles.txMerchantName} numberOfLines={1}>
+            {tx.merchant_name || tx.category || 'Transaction'}
+          </Text>
+          {hasProof && (
+            <View style={styles.proofBadge}>
+              <Ionicons name="image" size={11} color="#2563EB" />
+            </View>
+          )}
+        </View>
+        <View style={styles.txSubRow}>
+          <Text style={styles.txDate}>{tx.date}</Text>
+          {Boolean(tx.time) && <Text style={styles.txTime}> • {formatTime12Hour(tx.time)}</Text>}
+          <View style={[styles.txModePill, { flexDirection: 'row', alignItems: 'center' }]}>
+            <PaymentModeIcon mode={tx.payment_mode || 'Cash'} size={11} color="#64748B" style={{ marginRight: 4 }} />
+            <Text style={styles.txModeText}>{tx.payment_mode || 'Cash'}</Text>
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.txAmountCol}>
+        <Text
+          style={[
+            styles.txAmountText,
+            { color: isCredit ? '#10B981' : '#0F172A' },
+          ]}
+        >
+          {isCredit ? '+' : '-'}{curr}{Number(tx.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+        </Text>
+        <Text style={[styles.txTypeText, { color: isCredit ? '#10B981' : '#94A3B8' }]}>
+          {isCredit ? 'Income' : tx.category || 'Expense'}
+        </Text>
+      </View>
+    </TouchableOpacity>
+  );
+});
+
 export default function DashboardScreen() {
   const { width: windowWidth } = useWindowDimensions();
   const { user, settings, isPremium, appConfig } = useAuth();
@@ -757,10 +823,22 @@ export default function DashboardScreen() {
     return { name: topName, amount: topAmt, percentage: topPct, total };
   }, [transactions]);
 
-  const getCategoryMeta = (catName: string) => {
-    const cat = categories.find(c => c.name.toLowerCase() === (catName || '').toLowerCase());
-    return { icon: cat?.icon || 'receipt-outline', color: cat?.color || '#FF6B6B' };
-  };
+  const categoryLookupMap = useMemo(() => {
+    const map = new Map<string, { icon: string; color: string }>();
+    for (const c of categories) {
+      map.set(c.name.toLowerCase(), { icon: c.icon || 'receipt-outline', color: c.color || '#FF6B6B' });
+    }
+    return map;
+  }, [categories]);
+
+  const getCategoryMeta = useCallback((catName: string) => {
+    const norm = (catName || '').toLowerCase();
+    return categoryLookupMap.get(norm) || { icon: 'receipt-outline', color: '#FF6B6B' };
+  }, [categoryLookupMap]);
+
+  const handlePressRecentTx = useCallback((id: string) => {
+    router.push(`/transaction/${id}` as any);
+  }, [router]);
 
   // Pick receipt screenshot
   const pickReceiptForBill = async () => {
@@ -1287,61 +1365,16 @@ export default function DashboardScreen() {
         {/* RECENT TRANSACTIONS LIST */}
         {recentTransactions.length > 0 ? (
           <View style={styles.transactionsListCard}>
-            {recentTransactions.map((tx: any, idx: number) => {
-              const meta = getCategoryMeta(tx.category);
-              const isCredit = tx.type === 'credit';
-              const isLast = idx === recentTransactions.length - 1;
-              const pmodeIcon = PAYMENT_MODE_ICON[tx.payment_mode] || 'cash';
-              const hasProof = Boolean(tx.receipt_image || tx.receiptImage);
-
-              return (
-                <TouchableOpacity
-                  key={tx.id || idx}
-                  style={[styles.txItem, !isLast && styles.txItemBorder]}
-                  onPress={() => router.push(`/transaction/${tx.id}` as any)}
-                  activeOpacity={0.7}
-                >
-                  <View style={[styles.txIconCircle, { backgroundColor: meta.color + '15', overflow: 'hidden' }]}>
-                    <CategoryIcon categoryName={tx.category || 'Others'} iconName={meta.icon} size={22} color={meta.color} />
-                  </View>
-
-                  <View style={styles.txMainInfo}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                      <Text style={styles.txMerchantName} numberOfLines={1}>
-                        {tx.merchant_name || tx.category || 'Transaction'}
-                      </Text>
-                      {hasProof && (
-                        <View style={styles.proofBadge}>
-                          <Ionicons name="image" size={11} color="#2563EB" />
-                        </View>
-                      )}
-                    </View>
-                    <View style={styles.txSubRow}>
-                      <Text style={styles.txDate}>{tx.date}</Text>
-                      {Boolean(tx.time) && <Text style={styles.txTime}> â€¢ {formatTime12Hour(tx.time)}</Text>}
-                      <View style={[styles.txModePill, { flexDirection: 'row', alignItems: 'center' }]}>
-                        <PaymentModeIcon mode={tx.payment_mode || 'Cash'} size={11} color="#64748B" style={{ marginRight: 4 }} />
-                        <Text style={styles.txModeText}>{tx.payment_mode || 'Cash'}</Text>
-                      </View>
-                    </View>
-                  </View>
-
-                  <View style={styles.txAmountCol}>
-                    <Text
-                      style={[
-                        styles.txAmountText,
-                        { color: isCredit ? '#10B981' : '#0F172A' },
-                      ]}
-                    >
-                      {isCredit ? '+' : '-'}{curr}{Number(tx.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                    </Text>
-                    <Text style={[styles.txTypeText, { color: isCredit ? '#10B981' : '#94A3B8' }]}>
-                      {isCredit ? 'Income' : tx.category || 'Expense'}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
+            {recentTransactions.map((tx: any, idx: number) => (
+              <DashboardTransactionItem
+                key={tx.id || idx}
+                tx={tx}
+                isLast={idx === recentTransactions.length - 1}
+                curr={curr}
+                meta={getCategoryMeta(tx.category)}
+                onPress={handlePressRecentTx}
+              />
+            ))}
           </View>
         ) : (
           <View style={styles.emptyCard}>

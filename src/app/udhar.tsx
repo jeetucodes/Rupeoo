@@ -5,6 +5,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
+  FlatList,
   TextInput,
   Modal,
   Linking,
@@ -111,6 +112,220 @@ const POPULAR_HANDLES = [
   { id: 'sbi', handle: '@oksbi' },
 ];
 
+interface FriendCardItemProps {
+  friend: FriendSummary;
+  curr: string;
+  t: (key: string) => string;
+  onSelectDetail: (friend: FriendSummary) => void;
+  onAddEntry: (friend: FriendSummary, type: UdharEntryType) => void;
+  onRequestPayment: (friend: FriendSummary) => void;
+  onSettleUp: (friend: FriendSummary) => void;
+}
+
+const FriendCardItem = React.memo(function FriendCardItem({
+  friend,
+  curr,
+  t,
+  onSelectDetail,
+  onAddEntry,
+  onRequestPayment,
+  onSettleUp,
+}: FriendCardItemProps) {
+  const initial = (friend.name[0] || 'F').toUpperCase();
+  const isToGet = friend.balance > 0;
+  const isToPay = friend.balance < 0;
+  const palette = getAvatarPalette(friend.name);
+
+  return (
+    <TouchableOpacity
+      style={styles.friendCard}
+      onPress={() => onSelectDetail(friend)}
+      activeOpacity={0.88}
+    >
+      <View style={styles.friendCardMain}>
+        {/* Friend Photo / Initial Circle Avatar with Palette */}
+        <View
+          style={[
+            styles.friendAvatarCircle,
+            {
+              backgroundColor: palette.bg,
+              borderColor: palette.border,
+            },
+          ]}
+        >
+          {friend.photoUri ? (
+            <ExpoImage
+              source={{ uri: friend.photoUri }}
+              style={styles.friendCardPhotoImage}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+            />
+          ) : (
+            <Text style={[styles.friendAvatarText, { color: palette.text }]}>
+              {initial}
+            </Text>
+          )}
+        </View>
+
+        {/* Friend Name & Phone Column */}
+        <View style={styles.friendInfoColumn}>
+          <Text style={styles.friendNameText} numberOfLines={1}>
+            {friend.name}
+          </Text>
+          {friend.phone ? (
+            <View style={styles.phoneRow}>
+              <Ionicons name="call-outline" size={11} color="#64748B" style={{ marginRight: 4 }} />
+              <Text style={styles.phoneText}>{friend.phone}</Text>
+            </View>
+          ) : (
+            <Text style={styles.noPhoneText}>
+              {friend.entryCount} {friend.entryCount === 1 ? 'entry' : 'entries'}
+            </Text>
+          )}
+        </View>
+
+        {/* Balance Pill on Right */}
+        <View style={styles.friendBalanceWrap}>
+          <Text
+            style={[
+              styles.friendBalanceAmount,
+              isToGet
+                ? { color: '#15803D' }
+                : isToPay
+                  ? { color: '#DC2626' }
+                  : { color: '#475569' },
+            ]}
+          >
+            {isToGet ? '+' : isToPay ? '-' : ''}
+            {curr}
+            {Math.abs(friend.balance).toLocaleString('en-IN')}
+          </Text>
+          <View
+            style={[
+              styles.friendBalanceBadge,
+              isToGet
+                ? styles.badgeGreen
+                : isToPay
+                  ? styles.badgeRed
+                  : styles.badgeNeutral,
+            ]}
+          >
+            <Text
+              style={[
+                styles.friendBalanceBadgeText,
+                isToGet
+                  ? { color: '#15803D' }
+                  : isToPay
+                    ? { color: '#DC2626' }
+                    : { color: '#475569' },
+              ]}
+            >
+              {isToGet
+                ? t('you_will_get')
+                : isToPay
+                  ? t('you_will_pay')
+                  : t('settled')}
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Friend Quick Actions Footer */}
+      <View style={styles.friendCardActions}>
+        {/* Add Entry Action */}
+        <TouchableOpacity
+          style={styles.cardActionBtn}
+          onPress={() => onAddEntry(friend, 'gave')}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="add-circle" size={15} color="#475569" style={{ marginRight: 4 }} />
+          <Text style={styles.cardActionBtnText}>{t('add_entry')}</Text>
+        </TouchableOpacity>
+
+        {/* QR & WhatsApp Request Button */}
+        <TouchableOpacity
+          style={styles.cardActionBtn}
+          onPress={() => onRequestPayment(friend)}
+          activeOpacity={0.8}
+        >
+          <Ionicons
+            name="logo-whatsapp"
+            size={14}
+            color="#16A34A"
+            style={{ marginRight: 4 }}
+          />
+          <Text style={[styles.cardActionBtnText, { color: '#16A34A', fontWeight: '800' }]}>
+            {t('request_payment')}
+          </Text>
+        </TouchableOpacity>
+
+        {/* Settle Quick Action if balance != 0 */}
+        {friend.balance !== 0 && (
+          <TouchableOpacity
+            style={styles.cardActionBtn}
+            onPress={() => onSettleUp(friend)}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="checkmark-circle" size={14} color="#6366F1" style={{ marginRight: 4 }} />
+            <Text style={[styles.cardActionBtnText, { color: '#6366F1', fontWeight: '800' }]}>
+              {t('settle_up')}
+            </Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Details Chevron */}
+        <View style={styles.cardDetailsChevron}>
+          <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+});
+
+interface ContactListItemProps {
+  contact: { id: string; name: string; phone: string; photoUri?: string };
+  onSelect: (contact: { id: string; name: string; phone: string; photoUri?: string }) => void;
+}
+
+const ContactListItem = React.memo(function ContactListItem({ contact: c, onSelect }: ContactListItemProps) {
+  return (
+    <TouchableOpacity
+      style={styles.contactListItem}
+      onPress={() => onSelect(c)}
+      activeOpacity={0.7}
+    >
+      {c.photoUri ? (
+        <ExpoImage
+          source={{ uri: c.photoUri }}
+          style={styles.contactListAvatar}
+          contentFit="cover"
+          cachePolicy="memory-disk"
+        />
+      ) : (
+        <View style={styles.contactListInitials}>
+          <Text style={styles.contactListInitialsText}>
+            {c.name.slice(0, 2).toUpperCase()}
+          </Text>
+        </View>
+      )}
+      <View style={{ flex: 1, marginLeft: 12 }}>
+        <Text style={styles.contactListName} numberOfLines={1}>
+          {c.name}
+        </Text>
+        {c.phone ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
+            <Ionicons name="call-outline" size={12} color="#64748B" style={{ marginRight: 4 }} />
+            <Text style={styles.contactListPhone}>{c.phone}</Text>
+          </View>
+        ) : null}
+      </View>
+      <View style={styles.contactSelectBadge}>
+        <Text style={styles.contactSelectText}>Select</Text>
+      </View>
+    </TouchableOpacity>
+  );
+});
+
 export default function UdharScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -127,7 +342,15 @@ export default function UdharScreen() {
 
   // Search & Filter
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState<string>('');
   const [activeFilter, setActiveFilter] = useState<'all' | 'to_get' | 'to_pay' | 'settled'>('all');
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   // Modals
   const [isAddFriendModalOpen, setIsAddFriendModalOpen] = useState<boolean>(false);
@@ -141,6 +364,14 @@ export default function UdharScreen() {
   const [deviceContacts, setDeviceContacts] = useState<Array<{ id: string; name: string; phone: string; photoUri?: string }>>([]);
   const [isLoadingContacts, setIsLoadingContacts] = useState<boolean>(false);
   const [contactSearchQuery, setContactSearchQuery] = useState<string>('');
+  const [debouncedContactSearchQuery, setDebouncedContactSearchQuery] = useState<string>('');
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedContactSearchQuery(contactSearchQuery);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [contactSearchQuery]);
 
   // Add Entry Modal
   const [isAddEntryModalOpen, setIsAddEntryModalOpen] = useState<boolean>(false);
@@ -395,9 +626,9 @@ export default function UdharScreen() {
     return friends.filter((f) => {
       // Search filter
       const matchesSearch =
-        !searchQuery.trim() ||
-        f.name.toLowerCase().includes(searchQuery.toLowerCase().trim()) ||
-        (f.phone && f.phone.includes(searchQuery.trim()));
+        !debouncedSearchQuery.trim() ||
+        f.name.toLowerCase().includes(debouncedSearchQuery.toLowerCase().trim()) ||
+        (f.phone && f.phone.includes(debouncedSearchQuery.trim()));
 
       if (!matchesSearch) return false;
 
@@ -407,7 +638,7 @@ export default function UdharScreen() {
       if (activeFilter === 'settled') return f.balance === 0;
       return true;
     });
-  }, [friends, searchQuery, activeFilter]);
+  }, [friends, debouncedSearchQuery, activeFilter]);
 
   const toGetCount = useMemo(() => friends.filter((f) => f.balance > 0).length, [friends]);
   const toPayCount = useMemo(() => friends.filter((f) => f.balance < 0).length, [friends]);
@@ -620,6 +851,7 @@ export default function UdharScreen() {
     try {
       setIsLoadingContacts(true);
       setContactSearchQuery('');
+      setDebouncedContactSearchQuery('');
       setIsContactListModalOpen(true);
 
       const { data } = await LegacyContacts.getContactsAsync({
@@ -658,12 +890,12 @@ export default function UdharScreen() {
 
   // Filtered contacts for in-app contact picker
   const filteredDeviceContacts = useMemo(() => {
-    if (!contactSearchQuery.trim()) return deviceContacts;
-    const q = contactSearchQuery.toLowerCase().trim();
+    if (!debouncedContactSearchQuery.trim()) return deviceContacts;
+    const q = debouncedContactSearchQuery.toLowerCase().trim();
     return deviceContacts.filter(
       (c) => c.name.toLowerCase().includes(q) || c.phone.toLowerCase().includes(q)
     );
-  }, [deviceContacts, contactSearchQuery]);
+  }, [deviceContacts, debouncedContactSearchQuery]);
 
   // Save new or edited friend handler
   const handleSaveFriend = async () => {
@@ -890,9 +1122,9 @@ export default function UdharScreen() {
     setIsSettleModalOpen(true);
   };
 
-  const handleSettleUp = (friend: FriendSummary) => {
+  const handleSettleUp = useCallback((friend: FriendSummary) => {
     promptSettleUp(friend);
-  };
+  }, []);
 
   // Confirm Settlement Handler
   const handleConfirmSettle = async () => {
@@ -1250,6 +1482,14 @@ export default function UdharScreen() {
     setIsQrGenerated(false);
     setIsRequestModalOpen(true);
   };
+
+  const handleSelectDetail = useCallback((f: FriendSummary) => setSelectedFriendDetail(f), []);
+  const handleAddEntry = useCallback((f: FriendSummary, type: UdharEntryType) => openAddEntryModal(f, type), []);
+  const handleRequestPayment = useCallback((f: FriendSummary) => openPaymentRequestModal(f), []);
+  const handleSelectContact = useCallback((c: any) => {
+    applyContactToFriend(c);
+    setIsContactListModalOpen(false);
+  }, []);
 
   // Append handle to UPI ID
   const handleSelectUpiSuffix = (suffix: string) => {
@@ -1881,15 +2121,19 @@ export default function UdharScreen() {
               </Text>
             </View>
           ) : (
-            <ScrollView
+            <FlatList
+              data={groupedLedgerEntries}
+              keyExtractor={(item) => item.parent.id}
               contentContainerStyle={{
                 paddingHorizontal: 16,
                 paddingBottom: 110 + (insets.bottom > 0 ? insets.bottom : 0),
               }}
               showsVerticalScrollIndicator={false}
               removeClippedSubviews={Platform.OS === 'android'}
-            >
-              {groupedLedgerEntries.map((group) => {
+              initialNumToRender={10}
+              maxToRenderPerBatch={10}
+              windowSize={7}
+              renderItem={({ item: group }) => {
                 const {
                   parent,
                   children,
@@ -2202,8 +2446,8 @@ export default function UdharScreen() {
                     </View>
                   </View>
                 );
-              })}
-            </ScrollView>
+              }}
+            />
           )}
 
           {/* Simple Bottom Action Bar (Khatabook Style) */}
@@ -2263,11 +2507,29 @@ export default function UdharScreen() {
             </TouchableOpacity>
           </View>
 
-          <ScrollView
+          <FlatList
+            data={loading ? [] : filteredFriends}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => (
+              <FriendCardItem
+                friend={item}
+                curr={curr}
+                t={t}
+                onSelectDetail={handleSelectDetail}
+                onAddEntry={handleAddEntry}
+                onRequestPayment={handleRequestPayment}
+                onSettleUp={handleSettleUp}
+              />
+            )}
+            ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+            initialNumToRender={10}
+            maxToRenderPerBatch={10}
+            windowSize={7}
+            removeClippedSubviews={Platform.OS === 'android'}
             contentContainerStyle={[styles.scrollContent, { paddingBottom: 40 + (insets.bottom > 0 ? insets.bottom + 16 : 0) }]}
             showsVerticalScrollIndicator={false}
-            removeClippedSubviews={Platform.OS === 'android'}
-          >
+            ListHeaderComponent={
+              <>
             {/* Master Net Khata Position Banner */}
             <View style={styles.netKhataCard}>
               <LinearGradient
@@ -2489,7 +2751,7 @@ export default function UdharScreen() {
                 onChangeText={setSearchQuery}
               />
               {searchQuery.length > 0 && (
-                <TouchableOpacity onPress={() => setSearchQuery('')} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <TouchableOpacity onPress={() => { setSearchQuery(''); setDebouncedSearchQuery(''); }} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                   <Ionicons name="close-circle" size={18} color="#94A3B8" />
                 </TouchableOpacity>
               )}
@@ -2563,186 +2825,37 @@ export default function UdharScreen() {
                 )}
               </TouchableOpacity>
             </View>
-
-            {/* Friends List */}
-            {loading ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#0F172A" />
+          </>
+        }
+        ListEmptyComponent={
+          loading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#0F172A" />
+            </View>
+          ) : (
+            <View style={styles.emptyContainer}>
+              <View style={styles.emptyIconCircle}>
+                <ExpoImage
+                  source={require('@/assets/images/3D_frinds-icon.png')}
+                  style={{ width: 44, height: 44 }}
+                  contentFit="contain"
+                  cachePolicy="memory-disk"
+                />
               </View>
-            ) : filteredFriends.length === 0 ? (
-              <View style={styles.emptyContainer}>
-                <View style={styles.emptyIconCircle}>
-                  <ExpoImage
-                    source={require('@/assets/images/3D_frinds-icon.png')}
-                    style={{ width: 44, height: 44 }}
-                    contentFit="contain"
-                    cachePolicy="memory-disk"
-                  />
-                </View>
-                <Text style={styles.emptyTitle}>{t('no_friends_yet')}</Text>
-                <Text style={styles.emptySubtitle}>{t('no_friends_sub')}</Text>
-                <TouchableOpacity
-                  style={styles.emptyAddBtn}
-                  onPress={openAddFriendModal}
-                  activeOpacity={0.85}
-                >
-                  <Ionicons name="person-add" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
-                  <Text style={styles.emptyAddBtnText}>{t('add_friend')}</Text>
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <View style={styles.friendsList}>
-                {filteredFriends.map((friend) => {
-                  const initial = (friend.name[0] || 'F').toUpperCase();
-                  const isToGet = friend.balance > 0;
-                  const isToPay = friend.balance < 0;
-                  const isSettled = friend.balance === 0;
-                  const palette = getAvatarPalette(friend.name);
-
-                  return (
-                    <TouchableOpacity
-                      key={friend.id}
-                      style={styles.friendCard}
-                      onPress={() => setSelectedFriendDetail(friend)}
-                      activeOpacity={0.88}
-                    >
-                      <View style={styles.friendCardMain}>
-                        {/* Friend Photo / Initial Circle Avatar with Palette */}
-                        <View
-                          style={[
-                            styles.friendAvatarCircle,
-                            {
-                              backgroundColor: palette.bg,
-                              borderColor: palette.border,
-                            },
-                          ]}
-                        >
-                          {friend.photoUri ? (
-                            <Image source={{ uri: friend.photoUri }} style={styles.friendCardPhotoImage} />
-                          ) : (
-                            <Text style={[styles.friendAvatarText, { color: palette.text }]}>
-                              {initial}
-                            </Text>
-                          )}
-                        </View>
-
-                        {/* Friend Name & Phone Column */}
-                        <View style={styles.friendInfoColumn}>
-                          <Text style={styles.friendNameText} numberOfLines={1}>
-                            {friend.name}
-                          </Text>
-                          {friend.phone ? (
-                            <View style={styles.phoneRow}>
-                              <Ionicons name="call-outline" size={11} color="#64748B" style={{ marginRight: 4 }} />
-                              <Text style={styles.phoneText}>{friend.phone}</Text>
-                            </View>
-                          ) : (
-                            <Text style={styles.noPhoneText}>
-                              {friend.entryCount} {friend.entryCount === 1 ? 'entry' : 'entries'}
-                            </Text>
-                          )}
-                        </View>
-
-                        {/* Balance Pill on Right */}
-                        <View style={styles.friendBalanceWrap}>
-                          <Text
-                            style={[
-                              styles.friendBalanceAmount,
-                              isToGet
-                                ? { color: '#15803D' }
-                                : isToPay
-                                  ? { color: '#DC2626' }
-                                  : { color: '#475569' },
-                            ]}
-                          >
-                            {isToGet ? '+' : isToPay ? '-' : ''}
-                            {curr}
-                            {Math.abs(friend.balance).toLocaleString('en-IN')}
-                          </Text>
-                          <View
-                            style={[
-                              styles.friendBalanceBadge,
-                              isToGet
-                                ? styles.badgeGreen
-                                : isToPay
-                                  ? styles.badgeRed
-                                  : styles.badgeNeutral,
-                            ]}
-                          >
-                            <Text
-                              style={[
-                                styles.friendBalanceBadgeText,
-                                isToGet
-                                  ? { color: '#15803D' }
-                                  : isToPay
-                                    ? { color: '#DC2626' }
-                                    : { color: '#475569' },
-                              ]}
-                            >
-                              {isToGet
-                                ? t('you_will_get')
-                                : isToPay
-                                  ? t('you_will_pay')
-                                  : t('settled')}
-                            </Text>
-                          </View>
-                        </View>
-                      </View>
-
-                      {/* Friend Quick Actions Footer */}
-                      <View style={styles.friendCardActions}>
-                        {/* Add Entry Action */}
-                        <TouchableOpacity
-                          style={styles.cardActionBtn}
-                          onPress={() => openAddEntryModal(friend, 'gave')}
-                          activeOpacity={0.8}
-                        >
-                          <Ionicons name="add-circle" size={15} color="#475569" style={{ marginRight: 4 }} />
-                          <Text style={styles.cardActionBtnText}>{t('add_entry')}</Text>
-                        </TouchableOpacity>
-
-                        {/* QR & WhatsApp Request Button */}
-                        <TouchableOpacity
-                          style={styles.cardActionBtn}
-                          onPress={() => openPaymentRequestModal(friend)}
-                          activeOpacity={0.8}
-                        >
-                          <Ionicons
-                            name="logo-whatsapp"
-                            size={14}
-                            color="#16A34A"
-                            style={{ marginRight: 4 }}
-                          />
-                          <Text style={[styles.cardActionBtnText, { color: '#16A34A', fontWeight: '800' }]}>
-                            {t('request_payment')}
-                          </Text>
-                        </TouchableOpacity>
-
-                        {/* Settle Quick Action if balance != 0 */}
-                        {friend.balance !== 0 && (
-                          <TouchableOpacity
-                            style={styles.cardActionBtn}
-                            onPress={() => promptSettleUp(friend)}
-                            activeOpacity={0.8}
-                          >
-                            <Ionicons name="checkmark-circle" size={14} color="#6366F1" style={{ marginRight: 4 }} />
-                            <Text style={[styles.cardActionBtnText, { color: '#6366F1', fontWeight: '800' }]}>
-                              {t('settle_up')}
-                            </Text>
-                          </TouchableOpacity>
-                        )}
-
-                        {/* Details Chevron */}
-                        <View style={styles.cardDetailsChevron}>
-                          <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-                        </View>
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            )}
-          </ScrollView>
+              <Text style={styles.emptyTitle}>{t('no_friends_yet')}</Text>
+              <Text style={styles.emptySubtitle}>{t('no_friends_sub')}</Text>
+              <TouchableOpacity
+                style={styles.emptyAddBtn}
+                onPress={openAddFriendModal}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="person-add" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                <Text style={styles.emptyAddBtnText}>{t('add_friend')}</Text>
+              </TouchableOpacity>
+            </View>
+          )
+        }
+      />
         </View>
       )}
 
@@ -2960,7 +3073,7 @@ export default function UdharScreen() {
                 autoCorrect={false}
               />
               {contactSearchQuery.length > 0 && (
-                <TouchableOpacity onPress={() => setContactSearchQuery('')}>
+                <TouchableOpacity onPress={() => { setContactSearchQuery(''); setDebouncedContactSearchQuery(''); }}>
                   <Ionicons name="close-circle" size={17} color="#94A3B8" />
                 </TouchableOpacity>
               )}
@@ -2979,47 +3092,23 @@ export default function UdharScreen() {
                 <Text style={styles.contactEmptySub}>Try searching with a different name or number</Text>
               </View>
             ) : (
-              <ScrollView
+              <FlatList
+                data={filteredDeviceContacts}
+                keyExtractor={(item) => item.id}
                 style={{ flex: 1 }}
                 contentContainerStyle={{ paddingBottom: 24 }}
                 keyboardShouldPersistTaps="handled"
-              >
-                {filteredDeviceContacts.map((c) => (
-                  <TouchableOpacity
-                    key={c.id}
-                    style={styles.contactListItem}
-                    onPress={() => {
-                      applyContactToFriend(c);
-                      setIsContactListModalOpen(false);
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    {c.photoUri ? (
-                      <Image source={{ uri: c.photoUri }} style={styles.contactListAvatar} />
-                    ) : (
-                      <View style={styles.contactListInitials}>
-                        <Text style={styles.contactListInitialsText}>
-                          {c.name.slice(0, 2).toUpperCase()}
-                        </Text>
-                      </View>
-                    )}
-                    <View style={{ flex: 1, marginLeft: 12 }}>
-                      <Text style={styles.contactListName} numberOfLines={1}>
-                        {c.name}
-                      </Text>
-                      {c.phone ? (
-                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
-                          <Ionicons name="call-outline" size={12} color="#64748B" style={{ marginRight: 4 }} />
-                          <Text style={styles.contactListPhone}>{c.phone}</Text>
-                        </View>
-                      ) : null}
-                    </View>
-                    <View style={styles.contactSelectBadge}>
-                      <Text style={styles.contactSelectText}>Select</Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
+                initialNumToRender={15}
+                maxToRenderPerBatch={15}
+                windowSize={5}
+                removeClippedSubviews={Platform.OS === 'android'}
+                renderItem={({ item }) => (
+                  <ContactListItem
+                    contact={item}
+                    onSelect={handleSelectContact}
+                  />
+                )}
+              />
             )}
           </SafeAreaView>
         </View>
