@@ -380,6 +380,22 @@ export default function RootLayout() {
                       contentStyle: { backgroundColor: 'transparent' }
                     }}
                   />
+                  <Stack.Screen
+                    name="sms-import"
+                    options={{
+                      presentation: 'card',
+                      animation: 'slide_from_right',
+                      contentStyle: { backgroundColor: '#F8FAFC' },
+                    }}
+                  />
+                  <Stack.Screen
+                    name="pending-inbox"
+                    options={{
+                      presentation: 'card',
+                      animation: 'slide_from_right',
+                      contentStyle: { backgroundColor: '#F8FAFC' },
+                    }}
+                  />
                 </Stack>
               </View>
             </View>

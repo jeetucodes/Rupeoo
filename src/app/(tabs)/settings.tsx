@@ -43,6 +43,15 @@ import { HelpSupportModal } from '@/components/help-support-modal';
 import { requestGooglePlayReview, openPlayStorePageDirectly, setUserReviewPrompted, clearReviewPending } from '@/lib/review';
 import { GooglePlayReviewModal } from '@/components/GooglePlayReviewModal';
 import Constants from 'expo-constants';
+import {
+  getSmsImportSettings,
+  saveSmsImportSettings,
+  SmsImportSettings,
+  DEFAULT_SMS_SETTINGS,
+} from '@/lib/smsSettings';
+import { resetImportHistory } from '@/lib/smsDedupe';
+import { getPendingAlerts } from '@/lib/pendingInbox';
+import { SmsTestParserModal } from '@/components/SmsTestParserModal';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -275,6 +284,54 @@ export default function SettingsScreen() {
         : (lang === 'Hindi' ? 'उधार लेन-देन सिर्फ खाताबुक में रहेंगे' : 'Udhar transactions will stay in Khata only'),
       position: 'top',
       visibilityTime: 2500,
+    });
+  };
+
+  // SMS Import & Bank Alert State
+  const [smsSettings, setSmsSettings] = useState<SmsImportSettings>(DEFAULT_SMS_SETTINGS);
+  const [pendingAlertCount, setPendingAlertCount] = useState<number>(0);
+  const [showTestParserModal, setShowTestParserModal] = useState<boolean>(false);
+  const [resetHistoryModalVisible, setResetHistoryModalVisible] = useState<boolean>(false);
+  const [isResettingHistory, setIsResettingHistory] = useState<boolean>(false);
+  const [allowedSendersModalVisible, setAllowedSendersModalVisible] = useState<boolean>(false);
+  const [allowedSendersInput, setAllowedSendersInput] = useState<string>('');
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const uid = user?.uid || 'local';
+    getSmsImportSettings(uid).then((s) => setSmsSettings(s)).catch(() => {});
+    getPendingAlerts(uid).then((alerts) => setPendingAlertCount(alerts.length)).catch(() => {});
+  }, [user?.uid]);
+
+  const handleUpdateSmsSetting = async (key: keyof SmsImportSettings, value: any) => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch { }
+    const uid = user?.uid || 'local';
+    const updated = await saveSmsImportSettings(uid, { [key]: value });
+    setSmsSettings(updated);
+
+    if (key === 'saveOriginalInNote' && value === true) {
+      Toast.show({
+        type: 'info',
+        text1: 'Note Sync Notice',
+        text2: 'Transaction notes sync to the cloud with your account.',
+        visibilityTime: 4000,
+      });
+    }
+  };
+
+  const handleResetImportHistory = async () => {
+    setIsResettingHistory(true);
+    const uid = user?.uid || 'local';
+    await resetImportHistory(uid);
+    setIsResettingHistory(false);
+    setResetHistoryModalVisible(false);
+    Toast.show({
+      type: 'success',
+      text1: 'Import History Reset',
+      text2: 'Duplicate tracking and cursors have been cleared.',
+      visibilityTime: 3500,
     });
   };
 
@@ -1236,6 +1293,163 @@ export default function SettingsScreen() {
               </TouchableOpacity>
             </View>
           </View>
+
+          {/* Import & Bank Alerts (Android Only) */}
+          {Platform.OS === 'android' && (
+            <View style={styles.section}>
+              <View style={styles.sectionHeaderRow}>
+                <Text style={styles.sectionTitleNoMargin}>Import & Bank Alerts</Text>
+                <View style={[styles.securityHeaderBadge, { backgroundColor: '#EEF2FF', borderColor: '#E0E7FF' }]}>
+                  <Ionicons name="sparkles" size={11} color="#4F46E5" style={{ marginRight: 4 }} />
+                  <Text style={[styles.securityHeaderBadgeText, { color: '#4F46E5' }]}>AI ENGINE</Text>
+                </View>
+              </View>
+
+              <View style={styles.infoCard}>
+                {/* Import Messages Nav Row */}
+                <SettingsRow
+                  icon="chatbubbles"
+                  iconBg="#EEF2FF"
+                  iconColor="#4F46E5"
+                  label="Import from Messages"
+                  value="Scan past alerts or paste multi-message text"
+                  badgeText="OPEN"
+                  badgeBg="#EEF2FF"
+                  badgeColor="#4F46E5"
+                  onPress={() => router.push('/sms-import')}
+                />
+
+                {/* Pending Inbox Nav Row */}
+                <SettingsRow
+                  icon="mail-unread"
+                  iconBg="#FFFBEB"
+                  iconColor="#D97706"
+                  label="Pending Alerts Inbox"
+                  value="Review detected transactions before adding"
+                  badgeText={pendingAlertCount > 0 ? `${pendingAlertCount} NEW` : undefined}
+                  badgeBg="#FEF3C7"
+                  badgeColor="#B45309"
+                  onPress={() => router.push('/pending-inbox')}
+                />
+
+                {/* Auto-Add Toggle */}
+                <View style={styles.infoRow}>
+                  <View style={[styles.infoIconBg, { backgroundColor: '#ECFDF5', borderColor: '#D1FAE5' }]}>
+                    <Ionicons name="flash" size={20} color="#059669" />
+                  </View>
+                  <View style={styles.infoTextContainer}>
+                    <Text style={styles.infoLabel}>Auto-add Transactions</Text>
+                    <Text style={styles.infoValue}>High-confidence (≥90%) alerts added automatically</Text>
+                  </View>
+                  <Switch
+                    value={smsSettings.autoAddEnabled}
+                    onValueChange={(val) => handleUpdateSmsSetting('autoAddEnabled', val)}
+                    trackColor={{ false: '#E2E8F0', true: '#10B981' }}
+                    thumbColor="#FFFFFF"
+                  />
+                </View>
+
+                {/* Review Before Adding Toggle */}
+                <View style={styles.infoRow}>
+                  <View style={[styles.infoIconBg, { backgroundColor: '#EFF6FF', borderColor: '#DBEAFE' }]}>
+                    <Ionicons name="eye" size={20} color="#2563EB" />
+                  </View>
+                  <View style={styles.infoTextContainer}>
+                    <Text style={styles.infoLabel}>Review Before Adding</Text>
+                    <Text style={styles.infoValue}>Send all alerts to Pending Inbox for manual confirmation</Text>
+                  </View>
+                  <Switch
+                    value={smsSettings.reviewBeforeAdding}
+                    onValueChange={(val) => handleUpdateSmsSetting('reviewBeforeAdding', val)}
+                    trackColor={{ false: '#E2E8F0', true: '#3B82F6' }}
+                    thumbColor="#FFFFFF"
+                  />
+                </View>
+
+                {/* Save Original Message in Note (+ Cloud Sync Notice) */}
+                <View style={styles.infoRow}>
+                  <View style={[styles.infoIconBg, { backgroundColor: '#F5F3FF', borderColor: '#EDE9FE' }]}>
+                    <Ionicons name="document-text" size={20} color="#7C3AED" />
+                  </View>
+                  <View style={styles.infoTextContainer}>
+                    <Text style={styles.infoLabel}>Save Original Message in Note</Text>
+                    <Text style={styles.infoValue}>Save original alert text in note (syncs to cloud)</Text>
+                  </View>
+                  <Switch
+                    value={smsSettings.saveOriginalInNote}
+                    onValueChange={(val) => handleUpdateSmsSetting('saveOriginalInNote', val)}
+                    trackColor={{ false: '#E2E8F0', true: '#8B5CF6' }}
+                    thumbColor="#FFFFFF"
+                  />
+                </View>
+
+                {/* Mask Account Numbers Toggle */}
+                <View style={styles.infoRow}>
+                  <View style={[styles.infoIconBg, { backgroundColor: '#FEF2F2', borderColor: '#FEE2E2' }]}>
+                    <Ionicons name="lock-closed" size={20} color="#DC2626" />
+                  </View>
+                  <View style={styles.infoTextContainer}>
+                    <Text style={styles.infoLabel}>Mask Account Numbers</Text>
+                    <Text style={styles.infoValue}>Keep only the last 4 digits in notes for privacy</Text>
+                  </View>
+                  <Switch
+                    value={smsSettings.maskAccountNumbers}
+                    onValueChange={(val) => handleUpdateSmsSetting('maskAccountNumbers', val)}
+                    trackColor={{ false: '#E2E8F0', true: '#EF4444' }}
+                    thumbColor="#FFFFFF"
+                  />
+                </View>
+
+                {/* Allowed Bank Senders */}
+                <SettingsRow
+                  icon="business"
+                  iconBg="#F8FAFC"
+                  iconColor="#475569"
+                  label="Allowed Bank Senders"
+                  value={
+                    smsSettings.allowedSenders?.length > 0
+                      ? `${smsSettings.allowedSenders.length} custom banks filtered`
+                      : 'All major Indian banks & UPI allowed'
+                  }
+                  onPress={() => {
+                    setAllowedSendersInput((smsSettings.allowedSenders || []).join(', '));
+                    setAllowedSendersModalVisible(true);
+                  }}
+                />
+
+                {/* Test Parser Sandbox */}
+                <SettingsRow
+                  icon="flask"
+                  iconBg="#FDF4FF"
+                  iconColor="#C026D3"
+                  label="Test Parser Sandbox"
+                  value="Paste any message to test field extraction and confidence"
+                  badgeText="TEST"
+                  badgeBg="#FAE8FF"
+                  badgeColor="#A21CAF"
+                  onPress={() => {
+                    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch { }
+                    setShowTestParserModal(true);
+                  }}
+                />
+
+                {/* Reset Import History */}
+                <SettingsRow
+                  icon="refresh"
+                  iconBg="#FEF2F2"
+                  iconColor="#DC2626"
+                  label="Reset Import History"
+                  labelColor="#DC2626"
+                  value="Clear duplicate fingerprints to allow fresh re-import"
+                  badgeText="RESET"
+                  badgeBg="#FEF2F2"
+                  badgeColor="#DC2626"
+                  onPress={() => setResetHistoryModalVisible(true)}
+                  loading={isResettingHistory}
+                />
+              </View>
+            </View>
+          )}
 
           {/* Data Management */}
           <View style={styles.section}>
@@ -2231,6 +2445,80 @@ export default function SettingsScreen() {
         onConfirm={executeDeleteAccount}
         onCancel={() => setDeleteAccountModalVisible(false)}
       />
+
+      {/* Reset Import History Confirmation Modal */}
+      <ConfirmDialogModal
+        visible={resetHistoryModalVisible}
+        title="Reset Import History"
+        message="This will clear all processed message fingerprints, native SMS ID tracking, and cursors. You will be able to re-import past messages from scratch. Existing transactions in Rupeo will not be deleted."
+        confirmText="Reset History"
+        cancelText="Cancel"
+        type="danger"
+        icon="refresh-outline"
+        loading={isResettingHistory}
+        onConfirm={handleResetImportHistory}
+        onCancel={() => setResetHistoryModalVisible(false)}
+      />
+
+      {/* SMS Alert Parser Test Sandbox Modal */}
+      <SmsTestParserModal
+        visible={showTestParserModal}
+        onClose={() => setShowTestParserModal(false)}
+      />
+
+      {/* Allowed Bank Senders Modal */}
+      <BottomSheetModal
+        visible={allowedSendersModalVisible}
+        onClose={() => setAllowedSendersModalVisible(false)}
+        title="Allowed Bank Senders"
+        icon="business"
+        iconBg="#EFF6FF"
+        iconColor="#2563EB"
+        autoHeight
+      >
+        <Text style={styles.modalIntroText}>
+          Specify comma-separated sender codes (e.g. HDFCBK, SBIINB, ICICIB, AXISBK). Leave blank to accept all verified Indian DLT bank & UPI headers.
+        </Text>
+        <View style={styles.startingBalanceInputRow}>
+          <Ionicons name="filter-outline" size={20} color="#64748B" style={{ marginRight: 8 }} />
+          <TextInput
+            style={[styles.startingBalanceInput, { fontSize: 15, textAlign: 'left', flex: 1 }]}
+            value={allowedSendersInput}
+            onChangeText={setAllowedSendersInput}
+            placeholder="e.g. HDFCBK, SBIINB, ICICIB"
+            placeholderTextColor="#94A3B8"
+            autoCapitalize="characters"
+          />
+        </View>
+        <View style={{ flexDirection: 'row', gap: 12, marginTop: 16 }}>
+          <TouchableOpacity
+            style={[styles.cancelBtn, { flex: 1 }]}
+            onPress={() => setAllowedSendersModalVisible(false)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.cancelBtnText}>{t('cancel')}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.primaryBtn, { flex: 1, marginTop: 0 }]}
+            onPress={async () => {
+              const cleaned = allowedSendersInput
+                .split(',')
+                .map((s) => s.trim().toUpperCase())
+                .filter(Boolean);
+              await handleUpdateSmsSetting('allowedSenders', cleaned);
+              setAllowedSendersModalVisible(false);
+              Toast.show({
+                type: 'success',
+                text1: 'Allowed Senders Updated',
+                text2: cleaned.length > 0 ? `Saved ${cleaned.length} bank senders.` : 'Allowing all verified bank senders.',
+              });
+            }}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.primaryBtnText}>{t('save')}</Text>
+          </TouchableOpacity>
+        </View>
+      </BottomSheetModal>
 
       <GooglePlayReviewModal
         visible={showReviewModal}
