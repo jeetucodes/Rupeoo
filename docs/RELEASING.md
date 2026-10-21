@@ -11,7 +11,7 @@ Before building an Android App Bundle (.aab) for Google Play release, update `ap
 1. Open [app.json](file:///c:/Users/pc/Desktop/Rupeo/app.json).
 2. Bump `version` under `expo`:
    ```json
-   "version": "2.1.8"
+   "version": "2.1.9"
    ```
 3. Increment `versionCode` by 1 under `expo.android`:
    ```json
@@ -35,8 +35,8 @@ Rupeo checks Firestore `app_config/global` in real-time. You can configure updat
 | Field Name | Type | Example Value | Description |
 | :--- | :--- | :--- | :--- |
 | `latestVersionCode` | `number` | `36` | The latest version available on Google Play. Any user on a lower version gets a **SOFT** update prompt. |
-| `minSupportedVersionCode` | `number` | `34` | The minimum required version. Any user on a lower version gets a non-dismissible **FORCE** update modal. |
-| `updateTitle` | `string` | `"Update to v2.1.8"` | *(Optional)* Custom title for the modal. Falls back to localized default. |
+| `minSupportedVersionCode` | `number` | `35` | The minimum required version. Any user on a lower version gets a non-dismissible **FORCE** update modal. |
+| `updateTitle` | `string` | `"Update to v2.1.9"` | *(Optional)* Custom title for the modal. Falls back to localized default. |
 | `updateMessage` | `string` | `"Bug fixes & performance boosts."` | *(Optional)* Custom message. Falls back to localized default. |
 | `updateCooldownHours` | `number` | `24` | Hours to wait before re-showing a SOFT update prompt after user clicks "Later". Default is `24`. |
 

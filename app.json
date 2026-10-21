@@ -2,7 +2,7 @@
   "expo": {
     "name": "Rupeo",
     "slug": "PaiseWaise",
-    "version": "2.1.8",
+    "version": "2.1.9",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "rupeo",
@@ -22,7 +22,7 @@
         "backgroundColor": "#0F0F11",
         "foregroundImage": "./assets/images/icon.png"
       },
-      "versionCode": 35,
+      "versionCode": 36,
       "permissions": [
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.VIBRATE",

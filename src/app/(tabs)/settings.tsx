@@ -204,7 +204,7 @@ function SettingsRow({
     if (!onPress) return;
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } catch {}
+    } catch { }
     onPress();
   };
 
@@ -264,7 +264,7 @@ export default function SettingsScreen() {
   const handleToggleUdharDashboard = async (val: boolean) => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    } catch {}
+    } catch { }
     setSyncUdharDashboard(val);
     await setSyncUdharToDashboardTx(user?.uid, val);
     Toast.show({
@@ -306,10 +306,10 @@ export default function SettingsScreen() {
   const handleOpenPlayStoreReview = async () => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    } catch {}
+    } catch { }
     if (user?.uid) {
-      setUserReviewPrompted(user.uid).catch(() => {});
-      clearReviewPending(user.uid).catch(() => {});
+      setUserReviewPrompted(user.uid).catch(() => { });
+      clearReviewPending(user.uid).catch(() => { });
     }
     await openPlayStorePageDirectly();
   };
@@ -317,7 +317,7 @@ export default function SettingsScreen() {
   // Automatically sync widgets in the background when settings screen is active
   useEffect(() => {
     if (user?.uid) {
-      syncWidgetWithTransactions(user.uid).catch(() => {});
+      syncWidgetWithTransactions(user.uid).catch(() => { });
     }
   }, [user?.uid]);
 
@@ -707,7 +707,7 @@ export default function SettingsScreen() {
     setSettings(newSettings);
     try {
       await saveUserSettings(user.uid, newSettings);
-      syncWidgetWithTransactions(user.uid).catch(() => {});
+      syncWidgetWithTransactions(user.uid).catch(() => { });
     } catch (e) {
       console.error(e);
       // Revert optimistic update on failure
@@ -830,7 +830,7 @@ export default function SettingsScreen() {
           <TouchableOpacity
             style={styles.profileCardWrapper}
             onPress={() => {
-              try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+              try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch { }
               router.push('/edit-profile');
             }}
             activeOpacity={0.88}
@@ -1120,7 +1120,7 @@ export default function SettingsScreen() {
                     options={LANGUAGES}
                     activeValue={(settings?.language as Language) || 'English'}
                     onSelect={val => {
-                      try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+                      try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch { }
                       updatePref('language', val);
                     }}
                     a11yLabel="App language"
@@ -1132,7 +1132,7 @@ export default function SettingsScreen() {
               <TouchableOpacity
                 style={styles.infoRow}
                 onPress={() => {
-                  try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+                  try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch { }
                   setShowCurrencyModal(true);
                 }}
                 activeOpacity={0.7}
@@ -1203,7 +1203,7 @@ export default function SettingsScreen() {
               <TouchableOpacity
                 style={styles.infoRow}
                 onPress={() => {
-                  try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+                  try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch { }
                   setUpiInput(settings?.upiId || '');
                   setShowUpiModal(true);
                 }}
@@ -1304,7 +1304,7 @@ export default function SettingsScreen() {
             <TouchableOpacity
               style={styles.supportCard}
               onPress={() => {
-                try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+                try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch { }
                 setShowSupportModal(true);
               }}
               activeOpacity={0.85}
@@ -1416,7 +1416,7 @@ export default function SettingsScreen() {
               <TouchableOpacity
                 style={styles.dangerRow}
                 onPress={() => {
-                  try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+                  try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch { }
                   setLogoutModalVisible(true);
                 }}
                 activeOpacity={0.7}
@@ -1438,7 +1438,7 @@ export default function SettingsScreen() {
             <TouchableOpacity
               style={styles.deleteAccountBtn}
               onPress={() => {
-                try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch {}
+                try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch { }
                 setDeleteAccountModalVisible(true);
               }}
               activeOpacity={0.85}
@@ -1458,7 +1458,7 @@ export default function SettingsScreen() {
           </View>
 
           <View style={{ alignItems: 'center', marginTop: 8 }}>
-            <Text style={styles.versionText}>Rupeo v2.1.8</Text>
+            <Text style={styles.versionText}>Rupeo Version v2.1.9</Text>
           </View>
         </View>
       </ScrollView>
@@ -1649,11 +1649,11 @@ export default function SettingsScreen() {
             ]}>
               {exportPeriodMode === 'all'
                 ? (totalExportTxsCount > 0
-                    ? t('all_data_ready_msg').replace('{count}', String(totalExportTxsCount))
-                    : t('all_history_ready_generic'))
+                  ? t('all_data_ready_msg').replace('{count}', String(totalExportTxsCount))
+                  : t('all_history_ready_generic'))
                 : (selectedMonthExportTxsCount > 0
-                    ? t('month_data_ready_msg').replace('{count}', String(selectedMonthExportTxsCount)).replace('{month}', formatMonthDisplay(exportMonth))
-                    : t('no_month_data_msg').replace('{month}', formatMonthDisplay(exportMonth)))
+                  ? t('month_data_ready_msg').replace('{count}', String(selectedMonthExportTxsCount)).replace('{month}', formatMonthDisplay(exportMonth))
+                  : t('no_month_data_msg').replace('{month}', formatMonthDisplay(exportMonth)))
               }
             </Text>
           </View>
