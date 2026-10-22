@@ -9,3 +9,5 @@ web-build/
 src/assets/
 src/assets/**
 functions/node_modules/
+assets/images/tabIcons/
+assets/images/tabIcons/**
