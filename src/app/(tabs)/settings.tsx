@@ -1294,8 +1294,8 @@ export default function SettingsScreen() {
             </View>
           </View>
 
-          {/* Import & Bank Alerts (Android Only) */}
-          {Platform.OS === 'android' && (
+          {/* Import & Bank Alerts (Android & Web) */}
+          {(Platform.OS === 'android' || Platform.OS === 'web') && (
             <View style={styles.section}>
               <View style={styles.sectionHeaderRow}>
                 <Text style={styles.sectionTitleNoMargin}>Import & Bank Alerts</Text>

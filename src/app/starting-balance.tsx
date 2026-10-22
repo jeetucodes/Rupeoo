@@ -31,7 +31,7 @@ export default function StartingBalanceScreen() {
     try {
       await saveStartingBalance(user.uid, value);
       await refreshUser();
-      if (Platform.OS === 'android') {
+      if (Platform.OS === 'android' || Platform.OS === 'web') {
         setStep('import_prompt');
       } else {
         router.replace('/(tabs)/dashboard');
