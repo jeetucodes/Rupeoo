@@ -396,6 +396,30 @@ export default function RootLayout() {
                       contentStyle: { backgroundColor: '#F8FAFC' },
                     }}
                   />
+                  <Stack.Screen
+                    name="settings/bank-alerts"
+                    options={{
+                      presentation: 'card',
+                      animation: 'slide_from_right',
+                      contentStyle: { backgroundColor: '#F8FAFC' },
+                    }}
+                  />
+                  <Stack.Screen
+                    name="settings/notifications"
+                    options={{
+                      presentation: 'card',
+                      animation: 'slide_from_right',
+                      contentStyle: { backgroundColor: '#F8FAFC' },
+                    }}
+                  />
+                  <Stack.Screen
+                    name="settings/advanced"
+                    options={{
+                      presentation: 'card',
+                      animation: 'slide_from_right',
+                      contentStyle: { backgroundColor: '#F8FAFC' },
+                    }}
+                  />
                 </Stack>
               </View>
             </View>
