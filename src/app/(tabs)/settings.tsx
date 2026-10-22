@@ -38,7 +38,7 @@ import { VipAvatar } from '@/components/VipAvatar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image as ExpoImage } from 'expo-image';
 import * as Haptics from 'expo-haptics';
-import { restorePurchases, getPlanDisplayName } from '@/lib/iap';
+import { restorePurchases } from '@/lib/iap';
 import { HelpSupportModal } from '@/components/help-support-modal';
 import { requestGooglePlayReview, openPlayStorePageDirectly, setUserReviewPrompted, clearReviewPending } from '@/lib/review';
 import { GooglePlayReviewModal } from '@/components/GooglePlayReviewModal';
@@ -53,6 +53,8 @@ import {
 } from '@/lib/smsSettings';
 import { resetImportHistory } from '@/lib/smsDedupe';
 import { getPendingAlerts } from '@/lib/pendingInbox';
+import { SettingsSection } from '@/components/settings/SettingsSection';
+import { SettingsRow } from '@/components/settings/SettingsRow';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -173,81 +175,6 @@ function BottomSheetModal({
         </KeyboardAvoidingView>
       </View>
     </Modal>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Reusable: Info / Nav Row
-// ---------------------------------------------------------------------------
-
-function SettingsRow({
-  icon,
-  iconBg = '#F1F5F9',
-  iconColor = '#0F172A',
-  gradientColors,
-  label,
-  value,
-  labelColor,
-  onPress,
-  loading = false,
-  showChevron = true,
-  badgeText,
-  badgeBg,
-  badgeColor,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  iconBg?: string;
-  iconColor?: string;
-  gradientColors?: [string, string];
-  label: string;
-  value?: string;
-  labelColor?: string;
-  onPress?: () => void;
-  loading?: boolean;
-  showChevron?: boolean;
-  badgeText?: string;
-  badgeBg?: string;
-  badgeColor?: string;
-}) {
-  const Wrapper = onPress ? TouchableOpacity : View;
-  const handlePress = () => {
-    if (!onPress) return;
-    try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } catch { }
-    onPress();
-  };
-
-  return (
-    <Wrapper
-      style={styles.infoRow}
-      onPress={onPress ? handlePress : undefined}
-      activeOpacity={0.7}
-      accessibilityRole={onPress ? 'button' : undefined}
-      accessibilityLabel={label}
-    >
-      <View style={[styles.infoIconBg, { backgroundColor: iconBg || '#F1F5F9', borderColor: iconBg || '#E2E8F0' }]}>
-        <Ionicons name={icon} size={20} color={iconColor || '#0F172A'} />
-      </View>
-      <View style={styles.infoTextContainer}>
-        <View style={styles.infoLabelRow}>
-          <Text style={[styles.infoLabel, labelColor && { color: labelColor }]}>{label}</Text>
-          {!!badgeText && (
-            <View style={[styles.rowBadge, { backgroundColor: badgeBg || '#F1F5F9' }]}>
-              <Text style={[styles.rowBadgeText, { color: badgeColor || '#475569' }]}>{badgeText}</Text>
-            </View>
-          )}
-        </View>
-        {!!value && (
-          <Text style={styles.infoValue} numberOfLines={1} ellipsizeMode="tail">
-            {value}
-          </Text>
-        )}
-      </View>
-      {onPress && (loading ? <ActivityIndicator size="small" color={iconColor} /> : showChevron && (
-        <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
-      ))}
-    </Wrapper>
   );
 }
 
@@ -858,6 +785,240 @@ export default function SettingsScreen() {
     return (planKey || 'PRO').toUpperCase();
   };
 
+  const [searchQuery, setSearchQuery] = useState('');
+  const [versionTapCount, setVersionTapCount] = useState(0);
+
+  const handleVersionTap = () => {
+    const next = versionTapCount + 1;
+    setVersionTapCount(next);
+    if (next >= 7) {
+      setVersionTapCount(0);
+      Toast.show({
+        type: 'info',
+        text1: 'Developer Diagnostics',
+        text2: `Rupeo v2.1.9 • UID: ${user?.uid?.slice(0, 8)}... • Platform: ${Platform.OS}`,
+        visibilityTime: 4000,
+      });
+    }
+  };
+
+  const searchableItems = useMemo(() => {
+    return [
+      {
+        id: 'currency',
+        section: 'MONEY',
+        label: t('currency'),
+        subtitle: selectedCurrencyObj ? `${selectedCurrencyObj.name} (${selectedCurrencyObj.symbol})` : 'Default Currency',
+        icon: 'cash' as const,
+        iconBg: '#F5F3FF',
+        iconColor: '#7C3AED',
+        action: () => setShowCurrencyModal(true),
+        keywords: ['currency', 'rupee', 'inr', 'dollar', 'money', 'symbol', 'paisa'],
+      },
+      {
+        id: 'categories',
+        section: 'MONEY',
+        label: t('manage_categories'),
+        subtitle: t('manage_categories_desc'),
+        icon: 'grid' as const,
+        iconBg: '#EEF2FF',
+        iconColor: '#4F46E5',
+        action: () => router.push('/categories'),
+        keywords: ['categories', 'food', 'travel', 'shopping', 'bills', 'custom category'],
+      },
+      {
+        id: 'budget',
+        section: 'MONEY',
+        label: t('budget_goals'),
+        subtitle: t('budget_goals_desc'),
+        icon: 'pie-chart' as const,
+        iconBg: '#FEF3C7',
+        iconColor: '#D97706',
+        action: () => router.push('/budget'),
+        keywords: ['budget', 'monthly budget', 'goals', 'limit', 'spending limit'],
+      },
+      {
+        id: 'starting_balance',
+        section: 'MONEY',
+        label: t('update_starting_balance'),
+        subtitle: `${curr}${Number((user as any)?.startingBalance || 0).toLocaleString('en-IN')}`,
+        icon: 'wallet' as const,
+        iconBg: '#ECFDF5',
+        iconColor: '#059669',
+        action: openStartingBalanceEditor,
+        keywords: ['balance', 'starting balance', 'opening balance', 'cash in hand', 'account balance'],
+      },
+      {
+        id: 'reminders',
+        section: 'MONEY',
+        label: 'Recurring & Bills',
+        subtitle: 'Bill reminders, scheduled electricity, rent & subscriptions',
+        icon: 'calendar' as const,
+        iconBg: '#EEF2FF',
+        iconColor: '#4F46E5',
+        action: () => router.push('/reminders'),
+        keywords: ['bills', 'recurring', 'reminders', 'electricity', 'rent', 'subscription'],
+      },
+      {
+        id: 'upi',
+        section: 'MONEY',
+        label: 'My UPI ID',
+        subtitle: settings?.upiId || 'Add UPI ID for statement QR code',
+        icon: 'qr-code' as const,
+        iconBg: '#F3E8FF',
+        iconColor: '#8B5CF6',
+        action: () => {
+          setUpiInput(settings?.upiId || '');
+          setShowUpiModal(true);
+        },
+        keywords: ['upi', 'vpa', 'qr', 'payment qr', 'gpay', 'phonepe', 'paytm'],
+      },
+      {
+        id: 'bank_alerts',
+        section: 'AUTOMATION',
+        label: 'Bank Messages & Auto-Add',
+        subtitle: 'On-device bank & UPI detection, auto-add rules & senders',
+        icon: 'flash' as const,
+        iconBg: '#ECFDF5',
+        iconColor: '#059669',
+        action: () => router.push('/settings/bank-alerts'),
+        keywords: ['bank', 'sms', 'messages', 'auto add', 'auto-add', 'upi alerts', 'detection', 'import'],
+      },
+      {
+        id: 'sms_import',
+        section: 'AUTOMATION',
+        label: 'Import from Messages',
+        subtitle: 'One-tap scan of bank messages from inbox or clipboard',
+        icon: 'chatbubbles' as const,
+        iconBg: '#EEF2FF',
+        iconColor: '#4F46E5',
+        action: () => router.push('/sms-import'),
+        keywords: ['import', 'scan sms', 'paste messages', 'inbox scan'],
+      },
+      {
+        id: 'pending_inbox',
+        section: 'AUTOMATION',
+        label: 'Pending Alerts Inbox',
+        subtitle: 'Review detected transactions before adding',
+        icon: 'mail-unread' as const,
+        iconBg: '#FFFBEB',
+        iconColor: '#D97706',
+        action: () => router.push('/pending-inbox'),
+        keywords: ['pending', 'inbox', 'review alerts', 'confirm alerts'],
+      },
+      {
+        id: 'notifications',
+        section: 'NOTIFICATIONS',
+        label: 'Notification Settings',
+        subtitle: 'Daily routine schedules, test alerts & quiet hours',
+        icon: 'notifications' as const,
+        iconBg: '#EEF2FF',
+        iconColor: '#4F46E5',
+        action: () => router.push('/settings/notifications'),
+        keywords: ['notifications', 'reminders', 'routine', 'nudges', 'alerts', 'sound', 'daily'],
+      },
+      {
+        id: 'advanced',
+        section: 'ADVANCED',
+        label: 'Advanced & Data Tools',
+        subtitle: 'Statement PDF passbook, backup export/restore, widget sync',
+        icon: 'construct' as const,
+        iconBg: '#EEF2FF',
+        iconColor: '#4F46E5',
+        action: () => router.push('/settings/advanced'),
+        keywords: ['advanced', 'backup', 'export', 'restore', 'pdf', 'statement', 'sync', 'widget', 'cache'],
+      },
+      {
+        id: 'statement_pdf',
+        section: 'ADVANCED',
+        label: t('statement_pdf'),
+        subtitle: t('statement_pdf_desc'),
+        icon: 'document-text' as const,
+        iconBg: '#FEF2F2',
+        iconColor: '#DC2626',
+        action: openStatementModal,
+        keywords: ['pdf', 'statement', 'passbook', 'download', 'report'],
+      },
+      {
+        id: 'export_data',
+        section: 'ADVANCED',
+        label: t('export_data'),
+        subtitle: t('export_desc'),
+        icon: 'cloud-download' as const,
+        iconBg: '#ECFDF5',
+        iconColor: '#059669',
+        action: openExportModal,
+        keywords: ['export', 'json', 'csv', 'excel', 'backup'],
+      },
+      {
+        id: 'import_data',
+        section: 'ADVANCED',
+        label: t('import_data'),
+        subtitle: t('import_desc'),
+        icon: 'cloud-upload' as const,
+        iconBg: '#EFF6FF',
+        iconColor: '#2563EB',
+        action: () => setShowImportModal(true),
+        keywords: ['import', 'restore', 'load backup'],
+      },
+      {
+        id: 'privacy_policy',
+        section: 'SECURITY & PRIVACY',
+        label: t('privacy_policy'),
+        subtitle: 'Read our pure on-device data privacy guarantees',
+        icon: 'shield-checkmark' as const,
+        iconBg: '#F0FDFA',
+        iconColor: '#0D9488',
+        action: () => setLegalDoc('privacy'),
+        keywords: ['privacy', 'policy', 'data', 'security'],
+      },
+      {
+        id: 'terms',
+        section: 'SECURITY & PRIVACY',
+        label: t('terms_conditions'),
+        subtitle: 'Usage terms & app conditions',
+        icon: 'document-text' as const,
+        iconBg: '#F1F5F9',
+        iconColor: '#475569',
+        action: () => setLegalDoc('terms'),
+        keywords: ['terms', 'conditions', 'legal'],
+      },
+      {
+        id: 'support',
+        section: 'SUPPORT & ABOUT',
+        label: t('support_desk_faqs'),
+        subtitle: t('support_desk_desc'),
+        icon: 'headset' as const,
+        iconBg: '#EFF6FF',
+        iconColor: '#2563EB',
+        action: () => setShowSupportModal(true),
+        keywords: ['help', 'support', 'faq', 'contact', 'customer service'],
+      },
+      {
+        id: 'review',
+        section: 'SUPPORT & ABOUT',
+        label: 'Rate on Google Play',
+        subtitle: 'Enjoying Rupeo? Support our journey with a 5-star review!',
+        icon: 'star' as const,
+        iconBg: '#FEF3C7',
+        iconColor: '#D97706',
+        action: handleOpenPlayStoreReview,
+        keywords: ['rate', 'review', 'play store', 'google play', 'star'],
+      },
+    ];
+  }, [t, selectedCurrencyObj, curr, user, settings, openStartingBalanceEditor, openStatementModal, openExportModal]);
+
+  const filteredSearchItems = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return [];
+    return searchableItems.filter(
+      (item) =>
+        item.label.toLowerCase().includes(q) ||
+        item.subtitle?.toLowerCase().includes(q) ||
+        item.keywords.some((k) => k.includes(q))
+    );
+  }, [searchQuery, searchableItems]);
+
   return (
     <View style={styles.container}>
       <ScrollView
@@ -883,783 +1044,593 @@ export default function SettingsScreen() {
         </View>
 
         <View style={styles.bottomHalf}>
-          {/* Profile Card */}
-          <TouchableOpacity
-            style={styles.profileCardWrapper}
-            onPress={() => {
-              try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch { }
-              router.push('/edit-profile');
-            }}
-            activeOpacity={0.88}
-            accessibilityRole="button"
-            accessibilityLabel={t('edit_profile_btn')}
-          >
-            <View style={styles.profileCard}>
-              <View style={{ marginBottom: 12 }}>
-                <VipAvatar
-                  photoURL={user.photoURL}
-                  name={user.displayName}
-                  email={user.email}
-                  size={92}
-                  showBadge={true}
-                  badgeType="edit"
-                />
-              </View>
+          {/* Settings Search Bar */}
+          <View style={styles.searchBar}>
+            <Ionicons name="search" size={18} color="#94A3B8" style={{ marginRight: 8 }} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search settings, tools, alerts..."
+              placeholderTextColor="#94A3B8"
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              clearButtonMode="while-editing"
+              returnKeyType="search"
+              autoCorrect={false}
+              accessibilityLabel="Search settings"
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity
+                onPress={() => setSearchQuery('')}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                accessibilityRole="button"
+                accessibilityLabel="Clear search"
+              >
+                <Ionicons name="close-circle" size={18} color="#94A3B8" />
+              </TouchableOpacity>
+            )}
+          </View>
 
-              <View style={styles.userNameRow}>
-                <Text style={styles.userName}>{user.displayName || 'Rupeo User'}</Text>
-                {isPremium && (
-                  <LinearGradient
-                    colors={['#F59E0B', '#D97706']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={styles.userVipBadge}
-                  >
-                    <Ionicons name="diamond" size={10} color="#FFFFFF" style={{ marginRight: 3 }} />
-                    <Text style={styles.userVipBadgeText}>PRO</Text>
-                  </LinearGradient>
-                )}
-              </View>
-              <Text style={styles.userEmail}>{user.email}</Text>
-
-              <View style={styles.editProfilePill}>
-                <Ionicons name="pencil" size={12} color="#2563EB" style={{ marginRight: 4 }} />
-                <Text style={styles.editProfilePillText}>{t('edit_profile_btn')}</Text>
-              </View>
-
-              <View style={styles.statsRow}>
-                <View style={styles.statItem}>
-                  <Text style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
-                    {curr} {totalSpend.toFixed(0)}
+          {searchQuery.trim().length > 0 ? (
+            <SettingsSection title={`SEARCH RESULTS (${filteredSearchItems.length})`}>
+              {filteredSearchItems.length === 0 ? (
+                <View style={styles.emptySearchContainer}>
+                  <Ionicons name="search-outline" size={32} color="#CBD5E1" style={{ marginBottom: 6 }} />
+                  <Text style={styles.emptySearchTitle}>No matching settings found</Text>
+                  <Text style={styles.emptySearchSub}>
+                    Try searching for "currency", "backup", "bills", "bank", or "lock"
                   </Text>
-                  <Text style={styles.statLabel} numberOfLines={1}>{t('total_spend')}</Text>
                 </View>
-                <View style={styles.statDivider} />
-                <View style={styles.statItem}>
-                  <Text style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
-                    {curr} {Number((user as any)?.startingBalance || 0).toLocaleString('en-IN')}
-                  </Text>
-                  <Text style={styles.statLabel} numberOfLines={1}>{t('starting_bal_short')}</Text>
-                </View>
-                <View style={styles.statDivider} />
-                <View style={styles.statItem}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, marginBottom: 2 }}>
-                    <View style={styles.activeDotPulse} />
-                    <Text style={[styles.statValue, { color: '#10B981', marginBottom: 0 }]} numberOfLines={1}>
-                      {t('account_active')}
-                    </Text>
-                  </View>
-                  <Text style={styles.statLabel} numberOfLines={1}>{t('account_label')}</Text>
-                </View>
-              </View>
-            </View>
-          </TouchableOpacity>
-
-          {/* Subscription & Membership (Remotely Controlled by Admin via Firestore) */}
-          {appConfig?.showSubscriptions !== false && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>{t('subscription_membership')}</Text>
-              {isPremium ? (
-                <LinearGradient
-                  colors={['#061A14', '#064E3B', '#0B132B']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.proCardCompact}
-                >
-                  {/* Top Bar */}
-                  <View style={styles.proCompactHeader}>
-                    <View style={styles.proCompactBadge}>
-                      <Ionicons name="shield-checkmark" size={13} color="#34D399" />
-                      <Text style={styles.proCompactBadgeText}>{t('rupeo_pro')}</Text>
-                    </View>
-                    <View style={styles.proActiveIndicatorV2}>
-                      <View style={styles.proActiveDotV2} />
-                      <Text style={styles.proActiveStatusTextV2}>{t('account_active')}</Text>
-                    </View>
-                  </View>
-
-                  {/* Plan Name & Tagline */}
-                  <View style={styles.proCompactTitleRow}>
-                    <Ionicons name="diamond" size={16} color="#F59E0B" style={{ marginRight: 6 }} />
-                    <Text style={styles.proCompactPlanName}>
-                      {getPlanDisplayName(currentPlan || (user as any)?.premiumPlan)}
-                    </Text>
-                  </View>
-
-                  {/* Highlights Row */}
-                  <View style={styles.proCompactPerksRow}>
-                    <View style={styles.proCompactPerk}>
-                      <Ionicons name="checkmark-circle" size={13} color="#34D399" />
-                      <Text style={styles.proCompactPerkText}>{t('ad_free')}</Text>
-                    </View>
-                    <View style={styles.proCompactPerk}>
-                      <Ionicons name="checkmark-circle" size={13} color="#34D399" />
-                      <Text style={styles.proCompactPerkText}>{t('unlimited_pdfs')}</Text>
-                    </View>
-                    <View style={styles.proCompactPerk}>
-                      <Ionicons name="checkmark-circle" size={13} color="#34D399" />
-                      <Text style={styles.proCompactPerkText}>{t('reminders_perk')}</Text>
-                    </View>
-                  </View>
-
-                  {/* Actions */}
-                  <View style={styles.proCompactActions}>
-                    <TouchableOpacity
-                      style={styles.proCompactChangeBtn}
-                      onPress={() => router.push('/premium')}
-                      activeOpacity={0.85}
-                      accessibilityRole="button"
-                      accessibilityLabel={t('change_plan')}
-                    >
-                      <Ionicons name="swap-horizontal" size={14} color="#FFFFFF" style={{ marginRight: 5 }} />
-                      <Text style={styles.proCompactBtnText}>{t('change_plan')}</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.proCompactSyncBtn}
-                      onPress={handleRestorePurchases}
-                      disabled={isRestoring}
-                      activeOpacity={0.8}
-                      accessibilityRole="button"
-                      accessibilityLabel={t('sync')}
-                    >
-                      {isRestoring ? (
-                        <ActivityIndicator size="small" color="#94A3B8" />
-                      ) : (
-                        <>
-                          <Ionicons name="refresh-outline" size={14} color="#94A3B8" style={{ marginRight: 4 }} />
-                          <Text style={styles.proCompactSyncText}>{t('sync')}</Text>
-                        </>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-                </LinearGradient>
               ) : (
-                <LinearGradient
-                  colors={['#0A0F1D', '#111827', '#1E1B4B']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.proCardCompact}
-                >
-                  {/* Top Bar: Badge & Price */}
-                  <View style={styles.proCompactHeader}>
-                    <View style={styles.proBadgeGoldCompact}>
-                      <Ionicons name="sparkles" size={12} color="#F59E0B" />
-                      <Text style={styles.proBadgeGoldTextCompact}>{t('rupeo_pro')}</Text>
-                    </View>
-                    <View style={styles.proPriceTagCompact}>
-                      <Text style={styles.proPriceTextCompact}>{t('from_price_mo')}</Text>
-                      <View style={styles.proSavePillCompact}>
-                        <Text style={styles.proSavePillTextCompact}>{t('discount_off')}</Text>
-                      </View>
-                    </View>
-                  </View>
-
-                  {/* Headline */}
-                  <View style={styles.proCompactBody}>
-                    <Text style={styles.proCompactTitle}>{t('upgrade_to_pro')}</Text>
-                    <Text style={styles.proCompactDesc} numberOfLines={1}>
-                      {t('pro_features_desc')}
-                    </Text>
-                  </View>
-
-                  {/* Compact Feature Pills */}
-                  <View style={styles.proCompactPerksRow}>
-                    <View style={styles.proFeaturePill}>
-                      <Ionicons name="ban" size={11} color="#EF4444" />
-                      <Text style={styles.proFeaturePillText}>{t('ad_free')}</Text>
-                    </View>
-                    <View style={styles.proFeaturePill}>
-                      <Ionicons name="document-text" size={11} color="#38BDF8" />
-                      <Text style={styles.proFeaturePillText}>{t('unlimited_pdfs')}</Text>
-                    </View>
-                    <View style={styles.proFeaturePill}>
-                      <Ionicons name="notifications" size={11} color="#FBBF24" />
-                      <Text style={styles.proFeaturePillText}>{t('reminders_perk')}</Text>
-                    </View>
-                  </View>
-
-                  {/* Action Buttons Row */}
-                  <View style={styles.proCompactActions}>
-                    <TouchableOpacity
-                      style={styles.proUpgradeBtnCompact}
-                      onPress={() => router.push('/premium')}
-                      activeOpacity={0.88}
-                      accessibilityRole="button"
-                      accessibilityLabel={t('upgrade_now')}
-                    >
-                      <LinearGradient
-                        colors={['#F59E0B', '#D97706']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 0 }}
-                        style={styles.proUpgradeGradientCompact}
-                      >
-                        <Ionicons name="diamond" size={14} color="#0B0F19" style={{ marginRight: 5 }} />
-                        <Text style={styles.proUpgradeBtnTextCompact}>{t('upgrade_now')}</Text>
-                        <Ionicons name="arrow-forward" size={13} color="#0B0F19" style={{ marginLeft: 5 }} />
-                      </LinearGradient>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.proCompactSyncBtn}
-                      onPress={handleRestorePurchases}
-                      disabled={isRestoring}
-                      activeOpacity={0.8}
-                      accessibilityRole="button"
-                      accessibilityLabel={t('restore')}
-                    >
-                      {isRestoring ? (
-                        <ActivityIndicator size="small" color="#94A3B8" />
-                      ) : (
-                        <Text style={styles.proCompactSyncText}>{t('restore')}</Text>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-                </LinearGradient>
-              )}
-            </View>
-          )}
-
-          {/* Planning & Categories */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitleNoMargin}>{t('planning_expenses')}</Text>
-            </View>
-            <View style={styles.infoCard}>
-              <SettingsRow
-                icon="pie-chart"
-                iconBg="#FEF3C7"
-                iconColor="#D97706"
-                label={t('budget_goals')}
-                value={t('budget_goals_desc')}
-                onPress={() => router.push('/budget')}
-              />
-              <SettingsRow
-                icon="grid"
-                iconBg="#EEF2FF"
-                iconColor="#4F46E5"
-                label={t('manage_categories')}
-                value={t('manage_categories_desc')}
-                onPress={() => router.push('/categories')}
-              />
-              <SettingsRow
-                icon="wallet"
-                iconBg="#ECFDF5"
-                iconColor="#059669"
-                label={t('update_starting_balance')}
-                value={`${t('current_balance_prefix')} ${curr}${Number((user as any)?.startingBalance || 0).toLocaleString('en-IN')}`}
-                onPress={openStartingBalanceEditor}
-              />
-            </View>
-          </View>
-
-          {/* Preferences */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitleNoMargin}>{t('preferences')}</Text>
-            </View>
-            <View style={styles.infoCard}>
-              {/* Language Card */}
-              <View style={styles.prefRowCard}>
-                <View style={styles.prefHeaderRow}>
-                  <View style={[styles.infoIconBg, { backgroundColor: '#EFF6FF', borderColor: '#DBEAFE' }]}>
-                    <Ionicons name="language" size={20} color="#2563EB" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.infoLabel}>{t('language')}</Text>
-                    <Text style={styles.infoValue}>
-                      {settings?.language === 'Hindi' ? 'ऐप की भाषा चुनें' : settings?.language === 'Hinglish' ? 'App ki bhasha chunein' : 'Select app display language'}
-                    </Text>
-                  </View>
-                </View>
-                <View style={styles.prefSelectorWrap}>
-                  <PillSelector
-                    options={LANGUAGES}
-                    activeValue={(settings?.language as Language) || 'English'}
-                    onSelect={val => {
-                      try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch { }
-                      updatePref('language', val);
+                filteredSearchItems.map((item, idx) => (
+                  <SettingsRow
+                    key={item.id}
+                    icon={item.icon}
+                    iconBg={item.iconBg}
+                    iconColor={item.iconColor}
+                    label={item.label}
+                    subtitle={item.subtitle}
+                    badge={item.section}
+                    badgeBg="#F1F5F9"
+                    badgeColor="#475569"
+                    isLast={idx === filteredSearchItems.length - 1}
+                    onPress={() => {
+                      setSearchQuery('');
+                      item.action();
                     }}
-                    a11yLabel="App language"
                   />
+                ))
+              )}
+            </SettingsSection>
+          ) : (
+            <>
+              {/* 1. ACCOUNT */}
+              <View style={{ marginBottom: 20 }}>
+                <View style={styles.sectionHeaderRowSimple}>
+                  <Text style={styles.sectionHeaderTitle}>ACCOUNT</Text>
                 </View>
-              </View>
 
-              {/* Currency Row */}
-              <TouchableOpacity
-                style={styles.infoRow}
-                onPress={() => {
-                  try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch { }
-                  setShowCurrencyModal(true);
-                }}
-                activeOpacity={0.7}
-                accessibilityRole="button"
-                accessibilityLabel={t('currency')}
-              >
-                <View style={[styles.infoIconBg, { backgroundColor: '#F5F3FF', borderColor: '#EDE9FE' }]}>
-                  <Ionicons name="cash" size={20} color="#7C3AED" />
-                </View>
-                <View style={styles.infoTextContainer}>
-                  <Text style={styles.infoLabel}>{t('currency')}</Text>
-                  <Text style={styles.infoValue}>
-                    {selectedCurrencyObj ? `${selectedCurrencyObj.name} (${selectedCurrencyObj.symbol})` : 'Default Currency'}
-                  </Text>
-                </View>
-                <View style={styles.currencySelectorBtnModern}>
-                  <Text style={styles.currencySymbolText}>{selectedCurrencyObj?.symbol || settings?.currency || '₹'}</Text>
-                  <Ionicons name="chevron-forward" size={14} color="#64748B" style={{ marginLeft: 6 }} />
-                </View>
-              </TouchableOpacity>
+                {/* Profile Card */}
+                <TouchableOpacity
+                  style={styles.profileCardWrapper}
+                  onPress={() => {
+                    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch { }
+                    router.push('/edit-profile');
+                  }}
+                  activeOpacity={0.88}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('edit_profile_btn')}
+                >
+                  <View style={styles.profileCard}>
+                    <View style={{ marginBottom: 12 }}>
+                      <VipAvatar
+                        photoURL={user.photoURL}
+                        name={user.displayName}
+                        email={user.email}
+                        size={92}
+                        showBadge={true}
+                        badgeType="edit"
+                      />
+                    </View>
 
-              {/* Add Udhar to Dashboard Spends Featured Card */}
-              <View style={[styles.udharPrefCard, syncUdharDashboard && styles.udharPrefCardActive]}>
-                <View style={styles.udharPrefHeader}>
-                  <View style={[styles.udharIconCircle, syncUdharDashboard && styles.udharIconCircleActive]}>
-                    <ExpoImage cachePolicy="memory-disk"
-                      source={require('@/assets/images/3D_frinds-icon.png')}
-                      style={styles.udhar3dImg}
-                      contentFit="contain"
-                    />
-                  </View>
-                  <View style={{ flex: 1, paddingHorizontal: 12 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                      <Text style={styles.udharPrefTitle}>{t('sync_udhar_to_dashboard')}</Text>
-                      <View style={[styles.udharBadge, syncUdharDashboard ? styles.udharBadgeActive : styles.udharBadgeInactive]}>
-                        <View style={[styles.udharDot, syncUdharDashboard ? styles.udharDotActive : styles.udharDotInactive]} />
-                        <Text style={[styles.udharBadgeText, syncUdharDashboard ? styles.udharBadgeTextActive : styles.udharBadgeTextInactive]}>
-                          {syncUdharDashboard ? t('udhar_sync_active_badge') : t('udhar_sync_inactive_badge')}
+                    <View style={styles.userNameRow}>
+                      <Text style={styles.userName}>{user.displayName || 'Rupeo User'}</Text>
+                      {isPremium && (
+                        <LinearGradient
+                          colors={['#F59E0B', '#D97706']}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                          style={styles.userVipBadge}
+                        >
+                          <Ionicons name="diamond" size={10} color="#FFFFFF" style={{ marginRight: 3 }} />
+                          <Text style={styles.userVipBadgeText}>PRO</Text>
+                        </LinearGradient>
+                      )}
+                    </View>
+                    <Text style={styles.userEmail}>{user.email}</Text>
+
+                    <View style={styles.editProfilePill}>
+                      <Ionicons name="pencil" size={12} color="#2563EB" style={{ marginRight: 4 }} />
+                      <Text style={styles.editProfilePillText}>{t('edit_profile_btn')}</Text>
+                    </View>
+
+                    <View style={styles.statsRow}>
+                      <View style={styles.statItem}>
+                        <Text style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+                          {curr} {totalSpend.toFixed(0)}
                         </Text>
+                        <Text style={styles.statLabel} numberOfLines={1}>{t('total_spend')}</Text>
+                      </View>
+                      <View style={styles.statDivider} />
+                      <View style={styles.statItem}>
+                        <Text style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+                          {curr} {Number((user as any)?.startingBalance || 0).toLocaleString('en-IN')}
+                        </Text>
+                        <Text style={styles.statLabel} numberOfLines={1}>{t('starting_bal_short')}</Text>
+                      </View>
+                      <View style={styles.statDivider} />
+                      <View style={styles.statItem}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, marginBottom: 2 }}>
+                          <View style={styles.activeDotPulse} />
+                          <Text style={[styles.statValue, { color: '#10B981', marginBottom: 0 }]} numberOfLines={1}>
+                            {t('account_active')}
+                          </Text>
+                        </View>
+                        <Text style={styles.statLabel} numberOfLines={1}>{t('account_label')}</Text>
                       </View>
                     </View>
-                    <Text style={styles.udharPrefSub}>{t('sync_udhar_to_dashboard_sub')}</Text>
                   </View>
-                  <Switch
-                    value={syncUdharDashboard}
-                    onValueChange={handleToggleUdharDashboard}
-                    trackColor={{ false: '#CBD5E1', true: '#6366F1' }}
-                    thumbColor="#FFFFFF"
-                    ios_backgroundColor="#CBD5E1"
-                  />
-                </View>
+                </TouchableOpacity>
 
-                {/* Dynamic Context Explanation */}
-                <View style={[styles.udharNoteBox, syncUdharDashboard && styles.udharNoteBoxActive]}>
-                  <Ionicons
-                    name={syncUdharDashboard ? "checkmark-circle" : "shield-checkmark-outline"}
-                    size={15}
-                    color={syncUdharDashboard ? "#4F46E5" : "#64748B"}
-                    style={{ marginRight: 6 }}
+                {/* Subscription & Membership */}
+                {appConfig?.showSubscriptions !== false && (
+                  <View style={{ marginTop: 12 }}>
+                    {isPremium ? (
+                      <LinearGradient
+                        colors={['#061A14', '#064E3B', '#0B132B']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={styles.proCardCompact}
+                      >
+                        <View style={styles.proCompactHeader}>
+                          <View style={styles.proCompactBadge}>
+                            <Ionicons name="shield-checkmark" size={13} color="#34D399" />
+                            <Text style={styles.proCompactBadgeText}>{t('rupeo_pro')}</Text>
+                          </View>
+                          <View style={styles.proActiveIndicatorV2}>
+                            <View style={styles.proActiveDotV2} />
+                            <Text style={styles.proActiveStatusTextV2}>{t('account_active')}</Text>
+                          </View>
+                        </View>
+
+                        <View style={styles.proCompactTitleRow}>
+                          <Ionicons name="diamond" size={16} color="#F59E0B" style={{ marginRight: 6 }} />
+                          <Text style={styles.proCompactPlanName}>
+                            {getPlanNameDisplay(currentPlan || (user as any)?.premiumPlan)}
+                          </Text>
+                        </View>
+
+                        <View style={styles.proCompactPerksRow}>
+                          <View style={styles.proCompactPerk}>
+                            <Ionicons name="checkmark-circle" size={13} color="#34D399" />
+                            <Text style={styles.proCompactPerkText}>{t('ad_free')}</Text>
+                          </View>
+                          <View style={styles.proCompactPerk}>
+                            <Ionicons name="checkmark-circle" size={13} color="#34D399" />
+                            <Text style={styles.proCompactPerkText}>{t('unlimited_pdfs')}</Text>
+                          </View>
+                          <View style={styles.proCompactPerk}>
+                            <Ionicons name="checkmark-circle" size={13} color="#34D399" />
+                            <Text style={styles.proCompactPerkText}>{t('reminders_perk')}</Text>
+                          </View>
+                        </View>
+
+                        <View style={styles.proCompactActions}>
+                          <TouchableOpacity
+                            style={styles.proCompactChangeBtn}
+                            onPress={() => router.push('/premium')}
+                            activeOpacity={0.85}
+                            accessibilityRole="button"
+                            accessibilityLabel={t('change_plan')}
+                          >
+                            <Ionicons name="swap-horizontal" size={14} color="#FFFFFF" style={{ marginRight: 5 }} />
+                            <Text style={styles.proCompactBtnText}>{t('change_plan')}</Text>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            style={styles.proCompactSyncBtn}
+                            onPress={handleRestorePurchases}
+                            disabled={isRestoring}
+                            activeOpacity={0.8}
+                            accessibilityRole="button"
+                            accessibilityLabel={t('sync')}
+                          >
+                            {isRestoring ? (
+                              <ActivityIndicator size="small" color="#94A3B8" />
+                            ) : (
+                              <>
+                                <Ionicons name="refresh-outline" size={14} color="#94A3B8" style={{ marginRight: 4 }} />
+                                <Text style={styles.proCompactSyncText}>{t('sync')}</Text>
+                              </>
+                            )}
+                          </TouchableOpacity>
+                        </View>
+                      </LinearGradient>
+                    ) : (
+                      <LinearGradient
+                        colors={['#0A0F1D', '#111827', '#1E1B4B']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={styles.proCardCompact}
+                      >
+                        <View style={styles.proCompactHeader}>
+                          <View style={styles.proBadgeGoldCompact}>
+                            <Ionicons name="sparkles" size={12} color="#F59E0B" />
+                            <Text style={styles.proBadgeGoldTextCompact}>{t('rupeo_pro')}</Text>
+                          </View>
+                          <View style={styles.proPriceTagCompact}>
+                            <Text style={styles.proPriceTextCompact}>{t('from_price_mo')}</Text>
+                            <View style={styles.proSavePillCompact}>
+                              <Text style={styles.proSavePillTextCompact}>{t('discount_off')}</Text>
+                            </View>
+                          </View>
+                        </View>
+
+                        <View style={styles.proCompactBody}>
+                          <Text style={styles.proCompactTitle}>{t('upgrade_to_pro')}</Text>
+                          <Text style={styles.proCompactDesc} numberOfLines={1}>
+                            {t('pro_features_desc')}
+                          </Text>
+                        </View>
+
+                        <View style={styles.proCompactPerksRow}>
+                          <View style={styles.proFeaturePill}>
+                            <Ionicons name="ban" size={11} color="#EF4444" />
+                            <Text style={styles.proFeaturePillText}>{t('ad_free')}</Text>
+                          </View>
+                          <View style={styles.proFeaturePill}>
+                            <Ionicons name="document-text" size={11} color="#38BDF8" />
+                            <Text style={styles.proFeaturePillText}>{t('unlimited_pdfs')}</Text>
+                          </View>
+                          <View style={styles.proFeaturePill}>
+                            <Ionicons name="notifications" size={11} color="#FBBF24" />
+                            <Text style={styles.proFeaturePillText}>{t('reminders_perk')}</Text>
+                          </View>
+                        </View>
+
+                        <View style={styles.proCompactActions}>
+                          <TouchableOpacity
+                            style={styles.proUpgradeBtnCompact}
+                            onPress={() => router.push('/premium')}
+                            activeOpacity={0.88}
+                            accessibilityRole="button"
+                            accessibilityLabel={t('upgrade_now')}
+                          >
+                            <LinearGradient
+                              colors={['#F59E0B', '#D97706']}
+                              start={{ x: 0, y: 0 }}
+                              end={{ x: 1, y: 0 }}
+                              style={styles.proUpgradeGradientCompact}
+                            >
+                              <Ionicons name="diamond" size={14} color="#0B0F19" style={{ marginRight: 5 }} />
+                              <Text style={styles.proUpgradeBtnTextCompact}>{t('upgrade_now')}</Text>
+                              <Ionicons name="arrow-forward" size={13} color="#0B0F19" style={{ marginLeft: 5 }} />
+                            </LinearGradient>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            style={styles.proCompactSyncBtn}
+                            onPress={handleRestorePurchases}
+                            disabled={isRestoring}
+                            activeOpacity={0.8}
+                            accessibilityRole="button"
+                            accessibilityLabel={t('restore')}
+                          >
+                            {isRestoring ? (
+                              <ActivityIndicator size="small" color="#94A3B8" />
+                            ) : (
+                              <Text style={styles.proCompactSyncText}>{t('restore')}</Text>
+                            )}
+                          </TouchableOpacity>
+                        </View>
+                      </LinearGradient>
+                    )}
+                  </View>
+                )}
+
+                {/* Account Action: Sign Out */}
+                <View style={styles.accountActionCard}>
+                  <SettingsRow
+                    icon="log-out-outline"
+                    iconBg="#FEF2F2"
+                    iconColor="#DC2626"
+                    label={t('log_out')}
+                    subtitle={t('logout_msg')}
+                    isDestructive
+                    showChevron={false}
+                    isLast
+                    onPress={() => {
+                      try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch { }
+                      setLogoutModalVisible(true);
+                    }}
                   />
-                  <Text style={[styles.udharNoteText, syncUdharDashboard && styles.udharNoteTextActive]}>
-                    {syncUdharDashboard ? t('udhar_sync_active_desc') : t('udhar_sync_inactive_desc')}
-                  </Text>
                 </View>
               </View>
 
-              {/* My UPI ID Row */}
-              <TouchableOpacity
-                style={styles.infoRow}
-                onPress={() => {
-                  try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch { }
-                  setUpiInput(settings?.upiId || '');
-                  setShowUpiModal(true);
-                }}
-                activeOpacity={0.7}
-                accessibilityRole="button"
-                accessibilityLabel="My UPI ID"
-              >
-                <View style={[styles.infoIconBg, { backgroundColor: '#F3E8FF', borderColor: '#E9D5FF' }]}>
-                  <Ionicons name="qr-code" size={20} color="#8B5CF6" />
-                </View>
-                <View style={styles.infoTextContainer}>
-                  <View style={styles.infoLabelRow}>
-                    <Text style={styles.infoLabel}>My UPI ID</Text>
-                    {settings?.upiId ? (
-                      <View style={[styles.rowBadge, { backgroundColor: '#ECFDF5' }]}>
-                        <Text style={[styles.rowBadgeText, { color: '#047857' }]}>SET</Text>
-                      </View>
-                    ) : null}
-                  </View>
-                  <Text style={styles.infoValue} numberOfLines={1}>
-                    {settings?.upiId || 'Add UPI ID for statement QR'}
-                  </Text>
-                </View>
-                <View style={styles.currencySelectorBtnModern}>
-                  <Text style={[styles.currencySymbolText, { fontSize: 13, fontWeight: '700', color: '#6366F1' }]}>
-                    {settings?.upiId ? 'Edit' : 'Add'}
-                  </Text>
-                  <Ionicons name="pencil" size={12} color="#6366F1" style={{ marginLeft: 4 }} />
-                </View>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Import & Bank Alerts (Android & Web) */}
-          {(Platform.OS === 'android' || Platform.OS === 'web') && (
-            <View style={styles.section}>
-              <View style={styles.sectionHeaderRow}>
-                <Text style={styles.sectionTitleNoMargin}>Import & Bank Alerts</Text>
-                <View style={[styles.securityHeaderBadge, { backgroundColor: '#EEF2FF', borderColor: '#E0E7FF' }]}>
-                  <Ionicons name="sparkles" size={11} color="#4F46E5" style={{ marginRight: 4 }} />
-                  <Text style={[styles.securityHeaderBadgeText, { color: '#4F46E5' }]}>AI ENGINE</Text>
-                </View>
-              </View>
-
-              <View style={styles.infoCard}>
-                {/* Import Messages Nav Row */}
+              {/* 2. MONEY */}
+              <SettingsSection title="MONEY">
                 <SettingsRow
-                  icon="chatbubbles"
-                  iconBg="#EEF2FF"
-                  iconColor="#4F46E5"
-                  label="Import from Messages"
-                  value="Scan past alerts or paste multi-message text"
-                  badgeText="OPEN"
-                  badgeBg="#EEF2FF"
-                  badgeColor="#4F46E5"
-                  onPress={() => router.push('/sms-import')}
-                />
-
-                {/* Pending Inbox Nav Row */}
-                <SettingsRow
-                  icon="mail-unread"
-                  iconBg="#FFFBEB"
-                  iconColor="#D97706"
-                  label="Pending Alerts Inbox"
-                  value="Review detected transactions before adding"
-                  badgeText={pendingAlertCount > 0 ? `${pendingAlertCount} NEW` : undefined}
-                  badgeBg="#FEF3C7"
-                  badgeColor="#B45309"
-                  onPress={() => router.push('/pending-inbox')}
-                />
-
-                {/* Auto-Add Toggle */}
-                <View style={styles.infoRow}>
-                  <View style={[styles.infoIconBg, { backgroundColor: '#ECFDF5', borderColor: '#D1FAE5' }]}>
-                    <Ionicons name="flash" size={20} color="#059669" />
-                  </View>
-                  <View style={styles.infoTextContainer}>
-                    <Text style={styles.infoLabel}>Auto-add Transactions</Text>
-                    <Text style={styles.infoValue}>High-confidence (≥90%) alerts added automatically</Text>
-                  </View>
-                  <Switch
-                    value={smsSettings.autoAddEnabled}
-                    onValueChange={(val) => handleUpdateSmsSetting('autoAddEnabled', val)}
-                    trackColor={{ false: '#E2E8F0', true: '#10B981' }}
-                    thumbColor="#FFFFFF"
-                  />
-                </View>
-
-                {/* Review Before Adding Toggle */}
-                <View style={styles.infoRow}>
-                  <View style={[styles.infoIconBg, { backgroundColor: '#EFF6FF', borderColor: '#DBEAFE' }]}>
-                    <Ionicons name="eye" size={20} color="#2563EB" />
-                  </View>
-                  <View style={styles.infoTextContainer}>
-                    <Text style={styles.infoLabel}>Review Before Adding</Text>
-                    <Text style={styles.infoValue}>Send all alerts to Pending Inbox for manual confirmation</Text>
-                  </View>
-                  <Switch
-                    value={smsSettings.reviewBeforeAdding}
-                    onValueChange={(val) => handleUpdateSmsSetting('reviewBeforeAdding', val)}
-                    trackColor={{ false: '#E2E8F0', true: '#3B82F6' }}
-                    thumbColor="#FFFFFF"
-                  />
-                </View>
-
-                {/* Save Original Message in Note (+ Cloud Sync Notice) */}
-                <View style={styles.infoRow}>
-                  <View style={[styles.infoIconBg, { backgroundColor: '#F5F3FF', borderColor: '#EDE9FE' }]}>
-                    <Ionicons name="document-text" size={20} color="#7C3AED" />
-                  </View>
-                  <View style={styles.infoTextContainer}>
-                    <Text style={styles.infoLabel}>Save Original Message in Note</Text>
-                    <Text style={styles.infoValue}>Save original alert text in note (syncs to cloud)</Text>
-                  </View>
-                  <Switch
-                    value={smsSettings.saveOriginalInNote}
-                    onValueChange={(val) => handleUpdateSmsSetting('saveOriginalInNote', val)}
-                    trackColor={{ false: '#E2E8F0', true: '#8B5CF6' }}
-                    thumbColor="#FFFFFF"
-                  />
-                </View>
-
-                {/* Mask Account Numbers Toggle */}
-                <View style={styles.infoRow}>
-                  <View style={[styles.infoIconBg, { backgroundColor: '#FEF2F2', borderColor: '#FEE2E2' }]}>
-                    <Ionicons name="lock-closed" size={20} color="#DC2626" />
-                  </View>
-                  <View style={styles.infoTextContainer}>
-                    <Text style={styles.infoLabel}>Mask Account Numbers</Text>
-                    <Text style={styles.infoValue}>Keep only the last 4 digits in notes for privacy</Text>
-                  </View>
-                  <Switch
-                    value={smsSettings.maskAccountNumbers}
-                    onValueChange={(val) => handleUpdateSmsSetting('maskAccountNumbers', val)}
-                    trackColor={{ false: '#E2E8F0', true: '#EF4444' }}
-                    thumbColor="#FFFFFF"
-                  />
-                </View>
-
-                {/* Custom & International Banks */}
-                <SettingsRow
-                  icon="globe-outline"
-                  iconBg="#EEF2FF"
-                  iconColor="#4F46E5"
-                  label="Bank Senders & International"
-                  value={
-                    smsSettings.customBanks?.length > 0
-                      ? `${smsSettings.customBanks.length} custom banks added • 75+ Indian Banks active`
-                      : '75+ Indian Banks pre-configured • Add custom banks'
-                  }
-                  badgeText={smsSettings.customBanks?.length ? `${smsSettings.customBanks.length} CUSTOM` : 'READY'}
-                  badgeBg="#EEF2FF"
-                  badgeColor="#4F46E5"
+                  icon="cash-outline"
+                  iconBg="#F5F3FF"
+                  iconColor="#7C3AED"
+                  label={t('currency')}
+                  subtitle={selectedCurrencyObj ? `${selectedCurrencyObj.name}` : 'Default Currency'}
+                  value={selectedCurrencyObj?.symbol || settings?.currency || '₹'}
                   onPress={() => {
-                    setCustomBankModalVisible(true);
+                    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch { }
+                    setShowCurrencyModal(true);
                   }}
                 />
-
-                {/* Reset Import History */}
                 <SettingsRow
-                  icon="refresh"
+                  icon="grid-outline"
+                  iconBg="#EEF2FF"
+                  iconColor="#4F46E5"
+                  label={t('manage_categories')}
+                  subtitle={t('manage_categories_desc')}
+                  onPress={() => router.push('/categories')}
+                />
+                <SettingsRow
+                  icon="pie-chart-outline"
+                  iconBg="#FEF3C7"
+                  iconColor="#D97706"
+                  label={t('budget_goals')}
+                  subtitle={t('budget_goals_desc')}
+                  onPress={() => router.push('/budget')}
+                />
+                <SettingsRow
+                  icon="wallet-outline"
+                  iconBg="#ECFDF5"
+                  iconColor="#059669"
+                  label={t('update_starting_balance')}
+                  subtitle={t('starting_bal_short')}
+                  value={`${curr}${Number((user as any)?.startingBalance || 0).toLocaleString('en-IN')}`}
+                  onPress={openStartingBalanceEditor}
+                />
+                <SettingsRow
+                  icon="calendar-outline"
+                  iconBg="#EEF2FF"
+                  iconColor="#4F46E5"
+                  label="Recurring & Bills"
+                  subtitle="Bill reminders & payment defaults"
+                  onPress={() => router.push('/reminders')}
+                />
+                <SettingsRow
+                  icon="qr-code-outline"
+                  iconBg="#F3E8FF"
+                  iconColor="#8B5CF6"
+                  label="My UPI ID"
+                  subtitle={settings?.upiId || 'Add UPI ID for statement QR'}
+                  value={settings?.upiId ? 'Edit' : 'Add'}
+                  badge={settings?.upiId ? 'SET' : undefined}
+                  badgeBg="#ECFDF5"
+                  badgeColor="#047857"
+                  onPress={() => {
+                    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch { }
+                    setUpiInput(settings?.upiId || '');
+                    setShowUpiModal(true);
+                  }}
+                />
+                <SettingsRow
+                  icon="people-outline"
+                  iconBg="#EEF2FF"
+                  iconColor="#4F46E5"
+                  label={t('sync_udhar_to_dashboard')}
+                  subtitle={t('sync_udhar_to_dashboard_sub')}
+                  isSwitch
+                  switchValue={syncUdharDashboard}
+                  onSwitchChange={handleToggleUdharDashboard}
+                />
+                <SettingsRow
+                  icon="cloud-download-outline"
+                  iconBg="#ECFDF5"
+                  iconColor="#059669"
+                  label={t('export_data')}
+                  subtitle="Backup to JSON or CSV Excel"
+                  badge="JSON • CSV"
+                  badgeBg="#ECFDF5"
+                  badgeColor="#059669"
+                  loading={isExporting}
+                  isLast
+                  onPress={openExportModal}
+                />
+              </SettingsSection>
+
+              {/* 3. AUTOMATION */}
+              {(Platform.OS === 'android' || Platform.OS === 'web') && (
+                <SettingsSection
+                  title="AUTOMATION"
+                  badge={Platform.OS === 'android' ? 'AI ENGINE' : undefined}
+                  badgeBg="#EEF2FF"
+                  badgeColor="#4F46E5"
+                >
+                  <SettingsRow
+                    icon="flash-outline"
+                    iconBg="#ECFDF5"
+                    iconColor="#059669"
+                    label="Bank messages & auto-add"
+                    subtitle="On-device bank & UPI detection, rules & senders"
+                    badge={smsSettings.autoAddEnabled ? 'ACTIVE' : 'CONFIG'}
+                    badgeBg={smsSettings.autoAddEnabled ? '#ECFDF5' : '#F1F5F9'}
+                    badgeColor={smsSettings.autoAddEnabled ? '#059669' : '#64748B'}
+                    onPress={() => router.push('/settings/bank-alerts')}
+                  />
+                  <SettingsRow
+                    icon="mail-unread-outline"
+                    iconBg="#FFFBEB"
+                    iconColor="#D97706"
+                    label="Pending Alerts Inbox"
+                    subtitle="Review detected transactions before adding"
+                    badge={pendingAlertCount > 0 ? `${pendingAlertCount} NEW` : undefined}
+                    badgeBg="#FEF3C7"
+                    badgeColor="#B45309"
+                    isLast
+                    onPress={() => router.push('/pending-inbox')}
+                  />
+                </SettingsSection>
+              )}
+
+              {/* 4. NOTIFICATIONS */}
+              <SettingsSection title="NOTIFICATIONS">
+                <SettingsRow
+                  icon="notifications-outline"
+                  iconBg="#EEF2FF"
+                  iconColor="#4F46E5"
+                  label="Notification settings"
+                  subtitle="Daily routine schedules, test alerts & quiet hours"
+                  badge="4 DAILY"
+                  badgeBg="#EEF2FF"
+                  badgeColor="#4F46E5"
+                  isLast
+                  onPress={() => router.push('/settings/notifications')}
+                />
+              </SettingsSection>
+
+              {/* 5. APPEARANCE & NOTES */}
+              <SettingsSection title="APPEARANCE & NOTES">
+                <View style={styles.languageCardInner}>
+                  <View style={styles.prefHeaderRow}>
+                    <View style={[styles.infoIconBg, { backgroundColor: '#EFF6FF', borderColor: '#DBEAFE' }]}>
+                      <Ionicons name="language" size={20} color="#2563EB" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.infoLabel}>{t('language')}</Text>
+                      <Text style={styles.infoValue}>
+                        {settings?.language === 'Hindi'
+                          ? 'ऐप की भाषा चुनें'
+                          : settings?.language === 'Hinglish'
+                          ? 'App ki bhasha chunein'
+                          : 'Select app display language'}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.prefSelectorWrap}>
+                    <PillSelector
+                      options={LANGUAGES}
+                      activeValue={(settings?.language as Language) || 'English'}
+                      onSelect={(val) => {
+                        try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch { }
+                        updatePref('language', val);
+                      }}
+                      a11yLabel="App language"
+                    />
+                  </View>
+                </View>
+              </SettingsSection>
+
+              {/* 6. SECURITY & PRIVACY */}
+              <SettingsSection title="SECURITY & PRIVACY" badge="SAFE" badgeBg="#F0FDFA" badgeColor="#0D9488">
+                <SettingsRow
+                  icon="shield-checkmark-outline"
+                  iconBg="#F0FDFA"
+                  iconColor="#0D9488"
+                  label={t('privacy_policy')}
+                  subtitle="Pure on-device data privacy guarantees"
+                  onPress={() => setLegalDoc('privacy')}
+                />
+                <SettingsRow
+                  icon="document-text-outline"
+                  iconBg="#F1F5F9"
+                  iconColor="#475569"
+                  label={t('terms_conditions')}
+                  subtitle="Terms of service & user rights"
+                  onPress={() => setLegalDoc('terms')}
+                />
+                <SettingsRow
+                  icon="trash-outline"
                   iconBg="#FEF2F2"
                   iconColor="#DC2626"
-                  label="Reset Import History"
-                  labelColor="#DC2626"
-                  value="Clear duplicate fingerprints to allow fresh re-import"
-                  badgeText="RESET"
+                  label={t('delete_all_data')}
+                  subtitle={t('delete_all_desc')}
+                  badge="RESET"
                   badgeBg="#FEF2F2"
                   badgeColor="#DC2626"
-                  onPress={() => setResetHistoryModalVisible(true)}
-                  loading={isResettingHistory}
+                  isDestructive
+                  onPress={() => setDeleteDataModalVisible(true)}
                 />
-              </View>
-            </View>
-          )}
+                <SettingsRow
+                  icon="warning-outline"
+                  iconBg="#FEF2F2"
+                  iconColor="#DC2626"
+                  label={t('delete_my_account')}
+                  subtitle="Permanently delete cloud account & data"
+                  isDestructive
+                  showChevron={false}
+                  isLast
+                  onPress={() => {
+                    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch { }
+                    setDeleteAccountModalVisible(true);
+                  }}
+                />
+              </SettingsSection>
 
-          {/* Data Management */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitleNoMargin}>{t('data_management')}</Text>
-              <View style={styles.securityHeaderBadge}>
-                <Ionicons name="shield-checkmark" size={11} color="#059669" style={{ marginRight: 4 }} />
-                <Text style={styles.securityHeaderBadgeText}>{t('secure_backups')}</Text>
-              </View>
-            </View>
-            <View style={styles.infoCard}>
-              <SettingsRow
-                icon="document-text"
-                iconBg="#FEF2F2"
-                iconColor="#DC2626"
-                label={t('statement_pdf')}
-                value={t('statement_pdf_desc')}
-                badgeText="PDF PASSBOOK"
-                badgeBg="#FEF2F2"
-                badgeColor="#DC2626"
-                onPress={openStatementModal}
-              />
-              <SettingsRow
-                icon="cloud-download"
-                iconBg="#ECFDF5"
-                iconColor="#059669"
-                label={t('export_data')}
-                value={t('export_desc')}
-                badgeText="JSON • CSV"
-                badgeBg="#ECFDF5"
-                badgeColor="#059669"
-                onPress={openExportModal}
-                loading={isExporting}
-              />
-              <SettingsRow
-                icon="cloud-upload"
-                iconBg="#EFF6FF"
-                iconColor="#2563EB"
-                label={t('import_data')}
-                value={t('import_desc')}
-                badgeText="RESTORE"
-                badgeBg="#EFF6FF"
-                badgeColor="#2563EB"
-                onPress={() => setShowImportModal(true)}
-              />
-              <SettingsRow
-                icon="trash"
-                iconBg="#FEF2F2"
-                iconColor="#DC2626"
-                label={t('delete_all_data')}
-                labelColor="#DC2626"
-                value={t('delete_all_desc')}
-                badgeText="RESET"
-                badgeBg="#FEF2F2"
-                badgeColor="#DC2626"
-                onPress={() => setDeleteDataModalVisible(true)}
-              />
-            </View>
-          </View>
+              {/* 7. SUPPORT & ABOUT */}
+              <SettingsSection title="SUPPORT & ABOUT">
+                <SettingsRow
+                  icon="headset-outline"
+                  iconBg="#EFF6FF"
+                  iconColor="#2563EB"
+                  label={t('support_desk_faqs')}
+                  subtitle={t('support_desk_desc')}
+                  badge="24/7 ACTIVE"
+                  badgeBg="#EFF6FF"
+                  badgeColor="#2563EB"
+                  onPress={() => {
+                    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch { }
+                    setShowSupportModal(true);
+                  }}
+                />
+                <SettingsRow
+                  icon="star-outline"
+                  iconBg="#FEF3C7"
+                  iconColor="#D97706"
+                  label="Rate on Google Play"
+                  subtitle="Support Rupeo with a 5-star review!"
+                  badge="⭐ 5.0"
+                  badgeBg="#FEF3C7"
+                  badgeColor="#B45309"
+                  isLast
+                  onPress={handleOpenPlayStoreReview}
+                />
+              </SettingsSection>
 
-          {/* Help & Support */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitleNoMargin}>{t('help_support')}</Text>
-            </View>
-            <TouchableOpacity
-              style={styles.supportCard}
-              onPress={() => {
-                try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch { }
-                setShowSupportModal(true);
-              }}
-              activeOpacity={0.85}
-              accessibilityRole="button"
-              accessibilityLabel={t('help_support')}
-            >
-              <View style={styles.supportCardContent}>
-                {/* Left: Support Icon */}
-                <View style={styles.supportIconWrapper}>
-                  <View style={[styles.supportIconBg, { backgroundColor: '#EFF6FF', borderColor: '#DBEAFE' }]}>
-                    <Ionicons name="headset" size={22} color="#2563EB" />
-                  </View>
-                  <View style={styles.supportStatusDot} />
-                </View>
+              {/* 8. ADVANCED */}
+              <SettingsSection title="ADVANCED">
+                <SettingsRow
+                  icon="construct-outline"
+                  iconBg="#EEF2FF"
+                  iconColor="#4F46E5"
+                  label="Advanced & Data Tools"
+                  subtitle="Statement PDF passbook, backup restore, widget sync & cache"
+                  badge="TOOLS"
+                  badgeBg="#EEF2FF"
+                  badgeColor="#4F46E5"
+                  isLast
+                  onPress={() => router.push('/settings/advanced')}
+                />
+              </SettingsSection>
 
-                {/* Center: Title, Subtitle, Live Tag */}
-                <View style={styles.supportTextWrap}>
-                  <View style={styles.supportTitleRow}>
-                    <Text style={styles.supportCardTitle}>{t('support_desk_faqs')}</Text>
-                    <View style={styles.supportLiveBadge}>
-                      <View style={styles.supportLiveDot} />
-                      <Text style={styles.supportLiveText}>24/7 ACTIVE</Text>
-                    </View>
-                  </View>
-                  <Text style={styles.supportCardDesc}>
-                    {t('support_desk_desc')}
-                  </Text>
-                </View>
-
-                {/* Right: Chevron */}
-                <View style={styles.supportActionBtn}>
-                  <Ionicons name="chevron-forward" size={18} color="#0F172A" />
-                </View>
-              </View>
-            </TouchableOpacity>
-          </View>
-
-          {/* Rate & Review Card */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitleNoMargin}>Rate & Review</Text>
-            </View>
-            <TouchableOpacity
-              style={styles.reviewCard}
-              onPress={handleOpenPlayStoreReview}
-              activeOpacity={0.85}
-              accessibilityRole="button"
-              accessibilityLabel="Rate on Google Play"
-            >
-              <View style={styles.supportCardContent}>
-                {/* Left: Clean Amber Star Icon */}
-                <View style={styles.supportIconWrapper}>
-                  <View style={[styles.supportIconBg, { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }]}>
-                    <Ionicons name="star" size={22} color="#D97706" />
-                  </View>
-                </View>
-
-                {/* Center: Title, Subtitle, Rating Tag */}
-                <View style={styles.supportTextWrap}>
-                  <View style={styles.supportTitleRow}>
-                    <Text style={styles.supportCardTitle}>Rate on Google Play</Text>
-                    <View style={[styles.supportLiveBadge, { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }]}>
-                      <Text style={[styles.supportLiveText, { color: '#B45309' }]}>⭐ 5.0 RATING</Text>
-                    </View>
-                  </View>
-                  <Text style={styles.supportCardDesc}>
-                    Enjoying Rupeo? Support our journey with a 5-star review on Play Store!
-                  </Text>
-                </View>
-
-                {/* Right: Open Store Action */}
-                <View style={styles.supportActionBtn}>
-                  <Ionicons name="open-outline" size={18} color="#2563EB" />
-                </View>
-              </View>
-            </TouchableOpacity>
-          </View>
-
-          {/* Legal */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitleNoMargin}>{t('legal')}</Text>
-            </View>
-            <View style={styles.infoCard}>
-              <SettingsRow
-                icon="document-text"
-                iconBg="#F1F5F9"
-                iconColor="#475569"
-                label={t('terms_conditions')}
-                onPress={() => setLegalDoc('terms')}
-              />
-              <SettingsRow
-                icon="shield-checkmark"
-                iconBg="#F0FDFA"
-                iconColor="#0D9488"
-                label={t('privacy_policy')}
-                onPress={() => setLegalDoc('privacy')}
-              />
-            </View>
-          </View>
-
-          {/* Danger Zone */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitleNoMargin}>{t('danger_zone')}</Text>
-            </View>
-            <View style={styles.dangerCard}>
-              {/* Logout */}
+              {/* Version Footer */}
               <TouchableOpacity
-                style={styles.dangerRow}
-                onPress={() => {
-                  try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch { }
-                  setLogoutModalVisible(true);
-                }}
+                onPress={handleVersionTap}
                 activeOpacity={0.7}
+                style={styles.versionFooter}
                 accessibilityRole="button"
-                accessibilityLabel={t('log_out')}
+                accessibilityLabel="App version diagnostics"
               >
-                <View style={[styles.infoIconBg, { backgroundColor: '#FEF2F2', borderColor: '#FEE2E2' }]}>
-                  <Ionicons name="log-out" size={20} color="#DC2626" />
-                </View>
-                <View style={styles.dangerTextWrap}>
-                  <Text style={styles.dangerRowLabel}>{t('log_out')}</Text>
-                  <Text style={styles.dangerRowSub}>{t('logout_msg')}</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={16} color="#CBD5E1" />
+                <Text style={styles.versionText}>Rupeo Version v2.1.9</Text>
+                <Text style={styles.versionSubText}>Tap 7 times for diagnostics</Text>
               </TouchableOpacity>
-            </View>
-
-            {/* Standalone Delete Account Button */}
-            <TouchableOpacity
-              style={styles.deleteAccountBtn}
-              onPress={() => {
-                try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch { }
-                setDeleteAccountModalVisible(true);
-              }}
-              activeOpacity={0.85}
-              accessibilityRole="button"
-              accessibilityLabel={t('delete_my_account')}
-            >
-              <LinearGradient
-                colors={['#EF4444', '#DC2626']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.deleteAccountGradient}
-              >
-                <Ionicons name="warning" size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
-                <Text style={styles.deleteAccountBtnText}>{t('delete_my_account')}</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-          </View>
-
-          <View style={{ alignItems: 'center', marginTop: 8 }}>
-            <Text style={styles.versionText}>Rupeo Version v2.1.9</Text>
-          </View>
+            </>
+          )}
         </View>
       </ScrollView>
 
@@ -4085,5 +4056,77 @@ const styles = StyleSheet.create({
   udharNoteTextActive: {
     color: '#4338CA',
     fontWeight: '700',
+  },
+  // REORGANIZED SETTINGS & SEARCH STYLES
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginBottom: 20,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: '#0F172A',
+    padding: 0,
+  },
+  emptySearchContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 32,
+    paddingHorizontal: 16,
+  },
+  emptySearchTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#334155',
+    marginBottom: 4,
+  },
+  emptySearchSub: {
+    fontSize: 12,
+    color: '#64748B',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  sectionHeaderRowSimple: {
+    paddingHorizontal: 16,
+    marginBottom: 8,
+  },
+  sectionHeaderTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#64748B',
+    letterSpacing: 0.8,
+  },
+  accountActionCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    overflow: 'hidden',
+    marginTop: 12,
+  },
+  languageCardInner: {
+    padding: 16,
+  },
+  versionFooter: {
+    alignItems: 'center',
+    marginTop: 8,
+    marginBottom: 20,
+  },
+  versionSubText: {
+    fontSize: 11,
+    color: '#94A3B8',
+    marginTop: 3,
   },
 });
