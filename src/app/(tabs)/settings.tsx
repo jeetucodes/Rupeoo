@@ -1005,6 +1005,17 @@ export default function SettingsScreen() {
         action: handleOpenPlayStoreReview,
         keywords: ['rate', 'review', 'play store', 'google play', 'star'],
       },
+      {
+        id: 'logout',
+        section: 'ACCOUNT',
+        label: t('log_out'),
+        subtitle: t('logout_msg'),
+        icon: 'log-out-outline' as const,
+        iconBg: '#FEF2F2',
+        iconColor: '#DC2626',
+        action: () => setLogoutModalVisible(true),
+        keywords: ['logout', 'log out', 'sign out', 'switch account', 'exit'],
+      },
     ];
   }, [t, selectedCurrencyObj, curr, user, settings, openStartingBalanceEditor, openStatementModal, openExportModal]);
 
@@ -1337,23 +1348,6 @@ export default function SettingsScreen() {
                   </View>
                 )}
 
-                {/* Account Action: Sign Out */}
-                <View style={styles.accountActionCard}>
-                  <SettingsRow
-                    icon="log-out-outline"
-                    iconBg="#FEF2F2"
-                    iconColor="#DC2626"
-                    label={t('log_out')}
-                    subtitle={t('logout_msg')}
-                    isDestructive
-                    showChevron={false}
-                    isLast
-                    onPress={() => {
-                      try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch { }
-                      setLogoutModalVisible(true);
-                    }}
-                  />
-                </View>
               </View>
 
               {/* 2. MONEY */}
@@ -1617,6 +1611,24 @@ export default function SettingsScreen() {
                   onPress={() => router.push('/settings/advanced')}
                 />
               </SettingsSection>
+
+              {/* Account Action: Sign Out */}
+              <View style={[styles.accountActionCard, { marginTop: 4, marginBottom: 14 }]}>
+                <SettingsRow
+                  icon="log-out-outline"
+                  iconBg="#FEF2F2"
+                  iconColor="#DC2626"
+                  label={t('log_out')}
+                  subtitle={t('logout_msg')}
+                  isDestructive
+                  showChevron={false}
+                  isLast
+                  onPress={() => {
+                    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch { }
+                    setLogoutModalVisible(true);
+                  }}
+                />
+              </View>
 
               {/* Version Footer */}
               <TouchableOpacity
