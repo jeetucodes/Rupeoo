@@ -67,11 +67,21 @@ When you use the Friends & Udhar tracking feature:
 
 ---
 
+### J. Auto-Add Transactions (Android Notification Listener)
+Rupeo features an optional **Auto-Add Transactions** service on Android powered by Android's `NotificationListenerService`:
+- **Purpose:** Automatically detects transaction debit and credit alerts from supported Indian banking and payment apps (e.g., Google Pay, PhonePe, Paytm, BHIM, and scheduled Indian banks) so you do not have to manually log every expense.
+- **Strict On-Device Processing:** **All notification inspection, parsing, and deduplication occurs 100% locally on your device.** Notification data, titles, and text are NEVER transmitted to or stored on any external server or cloud service.
+- **Negative Filtering (OTPs & Personal Chats):** One-time passwords (OTPs), authentication codes, personal messaging notifications, and non-financial alerts are strictly filtered and dropped immediately on-device.
+- **User Control:** You may disable Auto-Add or revoke Notification Access at any time via Android System Settings or within Rupeo's Settings > Auto-Add Transactions.
+
+---
+
 ## 3. What We DO NOT Collect
 To protect your financial security:
 - **No Bank Credentials:** Rupeo never asks for, records, or stores your net-banking passwords, ATM PINs, UPI MPINs, or card CVVs.
 - **No Direct Fund Custody:** Rupeo is not a payment gateway, bank, or digital wallet. It does not hold, transmit, receive, or process actual money.
-- **No Unauthorized SMS Scraping:** Rupeo does not read non-consented personal SMS messages.
+- **No SMS Permissions or Scraping:** Rupeo does not request `READ_SMS` or `RECEIVE_SMS` permissions and does not read your device SMS inbox.
+- **No Personal Notification Uploads:** Rupeo does not upload, log, or share notification contents from your device.
 
 ---
 
@@ -79,11 +89,13 @@ To protect your financial security:
 
 | Permission | Technical Name | Purpose |
 | :--- | :--- | :--- |
+| **Notification Access** | `android.permission.BIND_NOTIFICATION_LISTENER_SERVICE` | Used exclusively to detect transaction alert notifications from approved banking and UPI apps locally on your device for Auto-Add tracking. Never uploaded. |
+| **Post Notifications** | `android.permission.POST_NOTIFICATIONS` | Delivers timely bill due date alerts, recharge expiration warnings, and auto-added transaction confirmation notices with Undo actions. |
+| **Ignore Battery Optimizations** | `android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | Ensures Android does not prematurely kill background notification processing for real-time transaction detection. |
 | **Microphone** | `android.permission.RECORD_AUDIO` | Enables hands-free Voice Quick Add to transcribe expense amounts and categories. Audio is processed on-device and never stored remotely. |
 | **Contacts** | `android.permission.READ_CONTACTS` | Allows you to quickly select friend names and numbers when adding contacts to the Friends & Udhar bookkeeping ledger. |
 | **Camera** | `android.permission.CAMERA` | Allows you to photograph physical bill receipts, invoices, or payment confirmations. |
 | **Media / Photos** | System Photo Picker (Zero Storage Permissions) | Allows you to select receipt photos using Android's privacy-preserving system photo picker. Rupeo does not request broad media storage permissions (`READ_MEDIA_IMAGES` / `READ_MEDIA_VIDEO`). |
-| **Notifications** | `android.permission.POST_NOTIFICATIONS` | Delivers timely bill due date alerts, recharge expiration warnings, and budget notifications. |
 
 ---
 

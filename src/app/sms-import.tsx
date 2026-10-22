@@ -20,10 +20,7 @@ import Toast from 'react-native-toast-message';
 import { useAuth } from '@/context/AuthContext';
 import { useBankImport, ImportRange } from '@/hooks/useBankImport';
 import { DraftTransactionItem } from '@/lib/bankDraftDetector';
-import { isSmsInboxSupported, requestSmsPermission } from '@/lib/smsReader';
 import {
-  hasCompletedSmsPrivacyDisclosure,
-  markSmsPrivacyDisclosureDone,
   addCustomBank,
   removeCustomBank,
 } from '@/lib/smsSettings';
@@ -55,8 +52,8 @@ export default function SmsImportScreen() {
   const { user } = useAuth();
   const userId = user?.uid || 'local';
 
-  // Feature detection for direct Android inbox access
-  const hasInboxFeature = isSmsInboxSupported();
+  // Feature detection for direct Android inbox access (disabled: replaced by notification listener)
+  const hasInboxFeature = false;
 
   // Orchestration Hook
   const {
@@ -103,65 +100,21 @@ export default function SmsImportScreen() {
   const [isSaving, setIsSaving] = useState(false);
   const [isUndoing, setIsUndoing] = useState(false);
 
-  // 1-Tap Trigger for State 1 (Ready)
+  // 1-Tap Trigger for State 1 (Ready): Read from clipboard
   const handlePrimaryOneTap = async () => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch { }
 
-    if (hasInboxFeature) {
-      // Check if consent has been given before
-      const hasConsented = await hasCompletedSmsPrivacyDisclosure(userId);
-      if (!hasConsented) {
-        setShowConsentModal(true);
-        return;
-      }
-
-      // Request 1-time SMS permission from Android OS
-      const granted = await requestSmsPermission();
-      if (!granted) {
-        Toast.show({
-          type: 'error',
-          text1: 'SMS Permission Needed',
-          text2: 'Permission is required once to read bank messages on device. You can also paste messages below.',
-        });
-        setShowPasteBox(true);
-        return;
-      }
-
-      // Start reading automatically
-      await startReading();
-    } else {
-      // Play flavor / Web: Read from clipboard in 1 tap
-      const res = await readFromClipboard();
-      if (res.found === 0) {
-        Toast.show({
-          type: 'info',
-          text1: 'No Bank Alerts in Clipboard',
-          text2: 'Copy your bank messages or paste them in the box below.',
-        });
-        setShowPasteBox(true);
-      }
-    }
-  };
-
-  // Handle Consent Acceptance
-  const handleAcceptConsent = async () => {
-    setShowConsentModal(false);
-    await markSmsPrivacyDisclosureDone(userId);
-
-    const granted = await requestSmsPermission();
-    if (!granted) {
+    const res = await readFromClipboard();
+    if (res.found === 0) {
       Toast.show({
-        type: 'error',
-        text1: 'Permission Denied',
-        text2: 'You can still import by pasting message text below.',
+        type: 'info',
+        text1: 'No Bank Alerts in Clipboard',
+        text2: 'Copy your bank messages or paste them in the box below.',
       });
       setShowPasteBox(true);
-      return;
     }
-
-    await startReading();
   };
 
   // Handle Pasted Text submission
@@ -789,74 +742,7 @@ export default function SmsImportScreen() {
       {/* MODALS                                                               */}
       {/* ==================================================================== */}
 
-      {/* 1. First-time Consent Bottom Sheet */}
-      <Modal
-        visible={showConsentModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowConsentModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.consentSheetCard}>
-            <View style={styles.consentIconWrap}>
-              <Ionicons name="shield-checkmark" size={30} color="#4F46E5" />
-            </View>
 
-            <Text style={styles.consentTitle}>Private On-Device Import</Text>
-            <Text style={styles.consentSubtitle}>
-              Rupeo analyzes SMS solely on your device to detect your past bank &amp; UPI expenses.
-            </Text>
-
-            <View style={styles.consentPointsList}>
-              <View style={styles.consentPointRow}>
-                <Ionicons name="lock-closed-outline" size={18} color="#059669" style={{ marginRight: 10 }} />
-                <Text style={styles.consentPointText}>
-                  <Text style={{ fontWeight: '700' }}>100% On-Device:</Text> Message text is never uploaded to any external server.
-                </Text>
-              </View>
-              <View style={styles.consentPointRow}>
-                <Ionicons name="filter-outline" size={18} color="#2563EB" style={{ marginRight: 10 }} />
-                <Text style={styles.consentPointText}>
-                  <Text style={{ fontWeight: '700' }}>Bank Alerts Only:</Text> Personal chats, OTPs, and spam are strictly ignored.
-                </Text>
-              </View>
-              <View style={styles.consentPointRow}>
-                <Ionicons name="card-outline" size={18} color="#7C3AED" style={{ marginRight: 10 }} />
-                <Text style={styles.consentPointText}>
-                  <Text style={{ fontWeight: '700' }}>Masked Accounts:</Text> Bank accounts are masked, keeping only the last 4 digits.
-                </Text>
-              </View>
-              <View style={styles.consentPointRow}>
-                <Ionicons name="checkmark-circle-outline" size={18} color="#D97706" style={{ marginRight: 10 }} />
-                <Text style={styles.consentPointText}>
-                  <Text style={{ fontWeight: '700' }}>You&apos;re In Control:</Text> Nothing is added to your accounts until you confirm.
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.consentActionsRow}>
-              <TouchableOpacity
-                style={styles.consentDeclineBtn}
-                onPress={() => {
-                  setShowConsentModal(false);
-                  setShowPasteBox(true);
-                }}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.consentDeclineBtnText}>Not now</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.consentAcceptBtn}
-                onPress={handleAcceptConsent}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.consentAcceptBtnText}>Allow &amp; Read Messages</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
 
       {/* 2. Range Selector Modal */}
       <Modal

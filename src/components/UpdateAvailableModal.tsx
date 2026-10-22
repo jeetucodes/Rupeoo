@@ -22,6 +22,8 @@ interface UpdateAvailableModalProps {
   mode: UpdateMode;
   title?: string;
   message?: string;
+  updateUrl?: string;
+  latestVersion?: string;
   onDismiss?: () => void;
 }
 
@@ -30,6 +32,8 @@ export function UpdateAvailableModal({
   mode,
   title,
   message,
+  updateUrl,
+  latestVersion,
   onDismiss,
 }: UpdateAvailableModalProps) {
   const { t } = useTranslation();
@@ -59,7 +63,7 @@ export function UpdateAvailableModal({
 
     setIsUpdating(true);
     try {
-      await startAppUpdate();
+      await startAppUpdate(updateUrl);
     } catch (err) {
       if (__DEV__) {
         console.warn('[UpdateAvailableModal] Error triggering update:', err);
@@ -82,7 +86,11 @@ export function UpdateAvailableModal({
   // Content configuration based on mode
   const modalTitle = title || (isForce ? t('update_critical_title') : t('update_available_title'));
   const modalMessage = message || (isForce ? t('update_critical_msg') : t('update_available_msg'));
-  const badgeText = isForce ? 'MANDATORY' : 'NEW VERSION';
+  const badgeText = isForce
+    ? 'MANDATORY'
+    : latestVersion
+    ? `v${latestVersion.replace(/^v/i, '')} AVAILABLE`
+    : 'NEW VERSION';
   const badgeBg = isForce ? '#FEE2E2' : '#EFF6FF';
   const badgeColor = isForce ? '#DC2626' : '#2563EB';
   const gradientColors: [string, string] = isForce

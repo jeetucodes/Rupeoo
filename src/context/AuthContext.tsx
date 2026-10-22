@@ -48,11 +48,17 @@ export interface AppConfig {
   supportPhone: string;
   supportEmail: string;
   // In-App & Remote Version Updates
+  updatePromptEnabled?: boolean;
+  latestVersion?: string;
   latestVersionCode?: number;
+  minSupportedVersion?: string;
   minSupportedVersionCode?: number;
+  forceUpdate?: boolean;
   updateTitle?: string;
   updateMessage?: string;
+  updateUrl?: string;
   updateCooldownHours?: number;
+  updatedAt?: number;
 }
 
 export const DEFAULT_APP_CONFIG: AppConfig = {
@@ -81,11 +87,16 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   maintenanceMessage: 'We are performing critical upgrades. Please check back shortly.',
   supportPhone: '+91 98765 43210',
   supportEmail: 'innovatexlab.services@gmail.com',
+  updatePromptEnabled: true,
+  latestVersion: undefined,
   latestVersionCode: undefined,
+  minSupportedVersion: undefined,
   minSupportedVersionCode: undefined,
+  forceUpdate: false,
   updateTitle: undefined,
   updateMessage: undefined,
-  updateCooldownHours: 24,
+  updateUrl: undefined,
+  updateCooldownHours: 0,
 };
 
 /**
@@ -156,7 +167,7 @@ export function parseAppConfig(d: any): AppConfig {
     customAdsEnabled: customAdsRaw,
     adsStrategy: (d.adsStrategy as AdsStrategy) || 'custom_first',
     hideAdsForProUsers: parseBool(d.hideAdsForProUsers, true),
-    adMobTestMode: parseBool(d.adMobTestMode, false),
+    adMobTestMode: parseBool(d.adMobTestMode ?? d.admob_test_mode ?? d.testMode ?? d.test_mode, false),
     interstitialInterval: typeof d.interstitialInterval === 'number' && d.interstitialInterval > 0 ? d.interstitialInterval : 3,
     adMobBannerEnabled: parseBool(d.adMobBannerEnabled ?? d.admob_banner_enabled ?? d.bannerAdsEnabled, true),
     adMobInterstitialEnabled: parseBool(d.adMobInterstitialEnabled ?? d.admob_interstitial_enabled ?? d.interstitialAdsEnabled, true),
@@ -177,27 +188,50 @@ export function parseAppConfig(d: any): AppConfig {
     maintenanceMessage: d.maintenanceMessage || 'We are performing critical upgrades. Please check back shortly.',
     supportPhone: d.supportPhone || DEFAULT_APP_CONFIG.supportPhone,
     supportEmail: d.supportEmail || DEFAULT_APP_CONFIG.supportEmail,
+    updatePromptEnabled: parseBool(
+      d.updatePromptEnabled ?? d.update_prompt_enabled ?? d.enableUpdatePrompt ?? d.updateEnabled ?? d.update_enabled ?? d.showUpdatePopup,
+      true
+    ),
+    latestVersion: typeof (d.latestVersion ?? d.latest_version ?? d.latestVersionName) === 'string' && (d.latestVersion ?? d.latest_version ?? d.latestVersionName).trim().length > 0
+      ? (d.latestVersion ?? d.latest_version ?? d.latestVersionName).trim()
+      : undefined,
     latestVersionCode: (() => {
       const v = d.latestVersionCode ?? d.latest_version_code;
       if (v === undefined || v === null || v === '') return undefined;
       const n = Number(v);
       return isNaN(n) ? undefined : n;
     })(),
+    minSupportedVersion: typeof (d.minSupportedVersion ?? d.min_supported_version) === 'string' && (d.minSupportedVersion ?? d.min_supported_version).trim().length > 0
+      ? (d.minSupportedVersion ?? d.min_supported_version).trim()
+      : undefined,
     minSupportedVersionCode: (() => {
       const v = d.minSupportedVersionCode ?? d.min_supported_version_code;
       if (v === undefined || v === null || v === '') return undefined;
       const n = Number(v);
       return isNaN(n) ? undefined : n;
     })(),
+    forceUpdate: parseBool(d.forceUpdate ?? d.force_update ?? d.isForceUpdate ?? d.mandatoryUpdate, false),
     updateTitle: typeof (d.updateTitle ?? d.update_title) === 'string' && (d.updateTitle ?? d.update_title).trim().length > 0
       ? (d.updateTitle ?? d.update_title).trim()
       : undefined,
     updateMessage: typeof (d.updateMessage ?? d.update_message) === 'string' && (d.updateMessage ?? d.update_message).trim().length > 0
       ? (d.updateMessage ?? d.update_message).trim()
       : undefined,
-    updateCooldownHours: typeof (d.updateCooldownHours ?? d.update_cooldown_hours) === 'number' && (d.updateCooldownHours ?? d.update_cooldown_hours) > 0
+    updateUrl: typeof (d.updateUrl ?? d.update_url) === 'string' && (d.updateUrl ?? d.update_url).trim().length > 0
+      ? (d.updateUrl ?? d.update_url).trim()
+      : undefined,
+    updatedAt: (() => {
+      const u = d.updatedAt ?? d.updated_at ?? d.broadcastAt ?? d.broadcast_at;
+      if (!u) return undefined;
+      if (typeof u === 'number') return u;
+      if (typeof u.toMillis === 'function') return u.toMillis();
+      if (typeof u.toDate === 'function') return u.toDate().getTime();
+      const parsed = new Date(u).getTime();
+      return isNaN(parsed) ? undefined : parsed;
+    })(),
+    updateCooldownHours: typeof (d.updateCooldownHours ?? d.update_cooldown_hours) === 'number' && (d.updateCooldownHours ?? d.update_cooldown_hours) >= 0
       ? Number(d.updateCooldownHours ?? d.update_cooldown_hours)
-      : 24,
+      : 0,
   };
 }
 

@@ -14,7 +14,7 @@ import { getSmsImportSettings, formatTransactionNote } from './smsSettings.ts';
 import { addPendingAlert } from './pendingInbox.ts';
 import { recordImportBatch, type SmsImportBatch } from './smsBatchUndo.ts';
 import { insertTransaction, normalizeDate, getAllTransactions } from './database.ts';
-import { RawSmsMessage, readSmsInbox } from './smsReader.ts';
+import { RawSmsMessage } from './smsReader.ts';
 import { warn } from './logger.ts';
 
 export interface ImportProgress {
@@ -379,63 +379,6 @@ export async function runSmsImport(
   }
 
   return result;
-}
-
-/**
- * Imports messages directly from the device SMS inbox.
- * Only available on Android direct flavor with READ_SMS permission.
- */
-export async function importFromSmsInbox(
-  userId: string,
-  options: {
-    minDate?: number;
-    maxDate?: number;
-    limit?: number;
-    onProgress?: (progress: SmsImportProgress) => void;
-    cancelController?: { cancel: () => void; isCancelled?: boolean };
-  }
-): Promise<SmsImportResult> {
-  const cancelToken: CancelToken = { isCancelled: false };
-  if (options.cancelController) {
-    options.cancelController.cancel = () => {
-      cancelToken.isCancelled = true;
-    };
-  }
-
-  const minDate = options.minDate ?? (Date.now() - 30 * 24 * 60 * 60 * 1000);
-  const maxDate = options.maxDate ?? Date.now();
-  const limit = options.limit ?? 2500;
-
-  options.onProgress?.({
-    phase: 'scanning',
-    scannedCount: 0,
-    detectedCount: 0,
-    duplicatesSkipped: 0,
-    addedCount: 0,
-    reviewCount: 0,
-    totalToScan: 0,
-    statusText: 'Reading SMS inbox...',
-  });
-
-  const messages = await readSmsInbox({ minDate, maxDate, limit });
-
-  return runSmsImport(userId, messages, {
-    dateRangeLabel: `From ${new Date(minDate).toLocaleDateString()}`,
-    cancelToken,
-    onProgress: (p) => {
-      options.onProgress?.({
-        phase: p.isComplete ? 'complete' : p.isCancelled ? 'cancelled' : 'parsing',
-        scannedCount: p.scanned,
-        detectedCount: p.detected,
-        duplicatesSkipped: p.duplicatesSkipped,
-        addedCount: p.added,
-        reviewCount: p.needsReview,
-        totalToScan: messages.length,
-        statusText: p.statusText,
-        isComplete: p.isComplete,
-      });
-    },
-  });
 }
 
 /**

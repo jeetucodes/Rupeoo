@@ -16,7 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { saveStartingBalance } from '@/lib/database';
-import { error } from '@/lib/logger';
+import OnboardingPermissionStep from '@/features/autoAdd/OnboardingPermissionStep';
 
 export default function StartingBalanceScreen() {
   const router = useRouter();
@@ -31,13 +31,13 @@ export default function StartingBalanceScreen() {
     try {
       await saveStartingBalance(user.uid, value);
       await refreshUser();
-      if (Platform.OS === 'android' || Platform.OS === 'web') {
+      if (Platform.OS === 'android') {
         setStep('import_prompt');
       } else {
         router.replace('/(tabs)/dashboard');
       }
     } catch (err) {
-      error('Could not save starting balance:', err);
+      console.error('Could not save starting balance:', err);
     } finally {
       setLoading(false);
     }
@@ -45,85 +45,10 @@ export default function StartingBalanceScreen() {
 
   if (step === 'import_prompt') {
     return (
-      <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
-        <ScrollView
-          contentContainerStyle={styles.content}
-          showsVerticalScrollIndicator={false}
-        >
-          {/* Badge */}
-          <View style={styles.badgeWrap}>
-            <View style={styles.badge}>
-              <Ionicons name="sparkles" size={13} color="#4F46E5" style={{ marginRight: 5 }} />
-              <Text style={styles.badgeText}>INSTANT SETUP</Text>
-            </View>
-          </View>
-
-          {/* Icon */}
-          <View style={[styles.iconCircle, { backgroundColor: '#EEF2FF', borderColor: '#E0E7FF', borderWidth: 1 }]}>
-            <Ionicons name="chatbubbles" size={38} color="#4F46E5" />
-          </View>
-
-          <Text style={styles.title}>Import past expenses?</Text>
-          <Text style={styles.subtitle}>
-            Instantly populate your Rupeo dashboard by scanning recent bank &amp; UPI messages from your phone.
-          </Text>
-
-          {/* Benefits Card */}
-          <View style={styles.benefitsCard}>
-            <View style={styles.benefitRow}>
-              <View style={[styles.benefitIconBg, { backgroundColor: '#ECFDF5' }]}>
-                <Ionicons name="shield-checkmark" size={18} color="#059669" />
-              </View>
-              <View style={styles.benefitTextWrap}>
-                <Text style={styles.benefitTitle}>100% Private &amp; On-Device</Text>
-                <Text style={styles.benefitDesc}>Your messages never leave your phone or upload anywhere.</Text>
-              </View>
-            </View>
-
-            <View style={styles.benefitDivider} />
-
-            <View style={styles.benefitRow}>
-              <View style={[styles.benefitIconBg, { backgroundColor: '#EFF6FF' }]}>
-                <Ionicons name="git-merge-outline" size={18} color="#2563EB" />
-              </View>
-              <View style={styles.benefitTextWrap}>
-                <Text style={styles.benefitTitle}>Smart Deduplication</Text>
-                <Text style={styles.benefitDesc}>Bank SMS + UPI app alert = 1 clean transaction. Zero duplicates.</Text>
-              </View>
-            </View>
-
-            <View style={styles.benefitDivider} />
-
-            <View style={styles.benefitRow}>
-              <View style={[styles.benefitIconBg, { backgroundColor: '#FFFBEB' }]}>
-                <Ionicons name="time-outline" size={18} color="#D97706" />
-              </View>
-              <View style={styles.benefitTextWrap}>
-                <Text style={styles.benefitTitle}>Always in Your Control</Text>
-                <Text style={styles.benefitDesc}>You can also import anytime later from Settings.</Text>
-              </View>
-            </View>
-          </View>
-
-          {/* Action Buttons */}
-          <TouchableOpacity
-            style={[styles.primaryButton, { backgroundColor: '#4F46E5', borderColor: '#4338CA' }]}
-            onPress={() => router.replace({ pathname: '/sms-import', params: { fromOnboarding: 'true' } })}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="arrow-down-circle-outline" size={20} color="#FFFFFF" />
-            <Text style={[styles.primaryText, { color: '#FFFFFF' }]}>Import from Messages</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.skipButton}
-            onPress={() => router.replace('/(tabs)/dashboard')}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.skipText}>Skip &amp; Go to Dashboard</Text>
-          </TouchableOpacity>
-        </ScrollView>
-      </SafeAreaView>
+      <OnboardingPermissionStep
+        onComplete={() => router.replace('/(tabs)/dashboard')}
+        onSkip={() => router.replace('/(tabs)/dashboard')}
+      />
     );
   }
 

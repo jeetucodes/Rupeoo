@@ -1,5 +1,10 @@
-import { Platform, NativeModules, PermissionsAndroid } from 'react-native';
-import { warn } from './logger';
+/**
+ * Message text parser & splitter for clipboard and pasted text import.
+ *
+ * NOTE: Direct SMS inbox reading and Android SMS permissions (READ_SMS, RECEIVE_SMS)
+ * have been completely removed in favor of the 100% on-device Notification Listener.
+ * This module retains only client-side text splitting for clipboard/paste fallbacks.
+ */
 
 export interface RawSmsMessage {
   _id?: string;
@@ -9,130 +14,14 @@ export interface RawSmsMessage {
   date_sent?: number;
 }
 
-export interface ReadSmsOptions {
-  minDate?: number;
-  maxDate?: number;
-  limit?: number;
-  offset?: number;
-}
-
 /**
- * Checks if native SMS reading is supported in the current runtime.
- * Safely feature-detects native modules so Expo Go, iOS, and Web never crash.
+ * Native SMS inbox reading is completely disabled/removed.
  */
 export function isInboxImportSupported(): boolean {
-  if (Platform.OS !== 'android') {
-    return false;
-  }
-
-  try {
-    const hasRupeoSms = Boolean(NativeModules.RupeoSms && typeof NativeModules.RupeoSms.readSms === 'function');
-    const hasSmsAndroid = Boolean(NativeModules.SmsAndroid && typeof NativeModules.SmsAndroid.list === 'function');
-    return hasRupeoSms || hasSmsAndroid;
-  } catch {
-    return false;
-  }
+  return false;
 }
 
-/**
- * Checks if READ_SMS Android runtime permission is currently granted.
- */
-export async function checkSmsPermission(): Promise<boolean> {
-  if (Platform.OS !== 'android') return false;
-
-  try {
-    return await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.READ_SMS);
-  } catch (err) {
-    warn('checkSmsPermission error:', err);
-    return false;
-  }
-}
-
-/**
- * Requests READ_SMS permission from the user.
- */
-export async function requestSmsPermission(): Promise<boolean> {
-  if (Platform.OS !== 'android') return false;
-
-  try {
-    const granted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.READ_SMS, {
-      title: 'Rupeo SMS Import Permission',
-      message: 'Rupeo analyzes your bank and payment SMS alerts locally on your device to import your past transactions without typing.',
-      buttonPositive: 'Allow',
-      buttonNegative: 'Not now',
-    });
-
-    return granted === PermissionsAndroid.RESULTS.GRANTED;
-  } catch (err) {
-    warn('requestSmsPermission error:', err);
-    return false;
-  }
-}
-
-/**
- * Reads SMS messages in batches from native ContentResolver with date filtering.
- */
-export async function readSmsInbox(options: ReadSmsOptions = {}): Promise<RawSmsMessage[]> {
-  if (!isInboxImportSupported()) {
-    return [];
-  }
-
-  const { minDate = 0, maxDate = Date.now(), limit = 200, offset = 0 } = options;
-
-  try {
-    // 1. Check custom RupeoSmsModule (direct sideload flavor)
-    if (NativeModules.RupeoSms?.readSms) {
-      const messages: RawSmsMessage[] = await NativeModules.RupeoSms.readSms(
-        minDate,
-        maxDate,
-        limit,
-        offset
-      );
-      return messages || [];
-    }
-
-    // 2. Check third-party react-native-get-sms-android (if present)
-    if (NativeModules.SmsAndroid?.list) {
-      return new Promise<RawSmsMessage[]>((resolve) => {
-        const filter = {
-          box: 'inbox',
-          minDate,
-          maxDate,
-          maxCount: limit,
-          indexFrom: offset,
-        };
-
-        NativeModules.SmsAndroid.list(
-          JSON.stringify(filter),
-          (fail: any) => {
-            warn('SmsAndroid.list failed:', fail);
-            resolve([]);
-          },
-          (count: number, smsList: string) => {
-            try {
-              const list: any[] = JSON.parse(smsList);
-              const mapped: RawSmsMessage[] = list.map((item) => ({
-                _id: String(item._id || item.id || ''),
-                address: String(item.address || ''),
-                body: String(item.body || ''),
-                date: Number(item.date || Date.now()),
-                date_sent: Number(item.date_sent || 0),
-              }));
-              resolve(mapped);
-            } catch (err) {
-              warn('Error parsing smsList JSON:', err);
-              resolve([]);
-            }
-          }
-        );
-      });
-    }
-  } catch (err) {
-    warn('readSmsInbox native exception:', err);
-  }
-
-  return [];
-}
+export const isSmsInboxSupported = isInboxImportSupported;
 
 /**
  * Splits a multi-message pasted text string into distinct messages.
@@ -180,6 +69,4 @@ export function splitMultiMessagePaste(rawText: string): Array<{ sender: string;
   return [{ sender: '', body: text, timestamp: Date.now() }];
 }
 
-// Convenient aliases for UI consumers
-export const isSmsInboxSupported = isInboxImportSupported;
 export const splitMultiMessageText = splitMultiMessagePaste;

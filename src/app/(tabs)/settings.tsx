@@ -43,6 +43,7 @@ import { HelpSupportModal } from '@/components/help-support-modal';
 import { requestGooglePlayReview, openPlayStorePageDirectly, setUserReviewPrompted, clearReviewPending } from '@/lib/review';
 import { GooglePlayReviewModal } from '@/components/GooglePlayReviewModal';
 import Constants from 'expo-constants';
+import { APP_VERSION_DISPLAY, APP_PLATFORM } from '@/constants/version';
 import {
   getSmsImportSettings,
   saveSmsImportSettings,
@@ -796,7 +797,7 @@ export default function SettingsScreen() {
       Toast.show({
         type: 'info',
         text1: 'Developer Diagnostics',
-        text2: `Rupeo v2.1.10 (37) • UID: ${user?.uid?.slice(0, 8)}... • Platform: ${Platform.OS}`,
+        text2: `Rupeo ${APP_VERSION_DISPLAY} • UID: ${user?.uid?.slice(0, 8)}... • Platform: ${APP_PLATFORM}`,
         visibilityTime: 4000,
       });
     }
@@ -876,13 +877,13 @@ export default function SettingsScreen() {
       {
         id: 'bank_alerts',
         section: 'AUTOMATION',
-        label: 'Bank Messages & Auto-Add',
-        subtitle: 'On-device bank & UPI detection, auto-add rules & senders',
+        label: 'Auto-Add Transactions',
+        subtitle: 'Detects bank & UPI alerts on your device. Nothing is uploaded.',
         icon: 'flash' as const,
         iconBg: '#ECFDF5',
         iconColor: '#059669',
         action: () => router.push('/settings/bank-alerts'),
-        keywords: ['bank', 'sms', 'messages', 'auto add', 'auto-add', 'upi alerts', 'detection', 'import'],
+        keywords: ['bank', 'notification', 'alerts', 'auto add', 'auto-add', 'upi alerts', 'detection'],
       },
       {
         id: 'sms_import',
@@ -910,12 +911,12 @@ export default function SettingsScreen() {
         id: 'notifications',
         section: 'NOTIFICATIONS',
         label: 'Notification Settings',
-        subtitle: 'Daily routine schedules, test alerts & quiet hours',
+        subtitle: 'Master notifications toggle and alert preferences',
         icon: 'notifications' as const,
         iconBg: '#EEF2FF',
         iconColor: '#4F46E5',
         action: () => router.push('/settings/notifications'),
-        keywords: ['notifications', 'reminders', 'routine', 'nudges', 'alerts', 'sound', 'daily'],
+        keywords: ['notifications', 'alerts', 'mute', 'push', 'sound'],
       },
       {
         id: 'advanced',
@@ -1450,8 +1451,8 @@ export default function SettingsScreen() {
                     icon="flash-outline"
                     iconBg="#ECFDF5"
                     iconColor="#059669"
-                    label="Bank messages & auto-add"
-                    subtitle="On-device bank & UPI detection, rules & senders"
+                    label="Auto-Add Transactions"
+                    subtitle="Detects bank & UPI alerts on your device. Nothing is uploaded."
                     badge={smsSettings.autoAddEnabled ? 'ACTIVE' : 'CONFIG'}
                     badgeBg={smsSettings.autoAddEnabled ? '#ECFDF5' : '#F1F5F9'}
                     badgeColor={smsSettings.autoAddEnabled ? '#059669' : '#64748B'}
@@ -1479,10 +1480,7 @@ export default function SettingsScreen() {
                   iconBg="#EEF2FF"
                   iconColor="#4F46E5"
                   label="Notification settings"
-                  subtitle="Daily routine schedules, test alerts & quiet hours"
-                  badge="4 DAILY"
-                  badgeBg="#EEF2FF"
-                  badgeColor="#4F46E5"
+                  subtitle="Master notifications toggle & system access"
                   isLast
                   onPress={() => router.push('/settings/notifications')}
                 />
@@ -1638,7 +1636,7 @@ export default function SettingsScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="App version diagnostics"
               >
-                <Text style={styles.versionText}>Rupeo Version v2.1.10</Text>
+                <Text style={styles.versionText}>Rupeo Version {APP_VERSION_DISPLAY}</Text>
                 <Text style={styles.versionSubText}>Tap 7 times for diagnostics</Text>
               </TouchableOpacity>
             </>
@@ -2243,7 +2241,7 @@ export default function SettingsScreen() {
 
                 <Text style={styles.legalSectionHeading}>2. Device Permissions We Request</Text>
                 <Text style={styles.legalText}>
-                  • <Text style={styles.legalTextSemibold}>SMS & Bank Alerts (READ_SMS / Notification Listener):</Text> On supported Android builds, allows Rupeo to detect incoming bank transactional SMS and payment alerts in real time so you can log or review expenses instantly. This permission is strictly optional, purely operates on-device, and never uploads your personal conversations or inbox.{'\n'}
+                  • <Text style={styles.legalTextSemibold}>Bank & UPI Alerts (Notification Listener):</Text> On supported Android builds, allows Rupeo to detect incoming bank transactional notifications and payment alerts in real time so you can log or review expenses instantly. This permission is strictly optional, purely operates on-device, and never uploads your alerts or notifications.{'\n'}
                   • <Text style={styles.legalTextSemibold}>Microphone (RECORD_AUDIO):</Text> Enables hands-free Voice Quick Add to transcribe expense amounts and categories. Audio is processed on-device and never stored remotely.{'\n'}
                   • <Text style={styles.legalTextSemibold}>Contacts (READ_CONTACTS):</Text> Allows you to select friend names and numbers when adding contacts to the Friends & Udhar ledger. Your contacts list is never uploaded or scraped.{'\n'}
                   • <Text style={styles.legalTextSemibold}>Camera (CAMERA):</Text> Used solely to allow you to photograph bills, receipts, or payment confirmations directly within the app.{'\n'}

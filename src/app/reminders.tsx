@@ -40,7 +40,7 @@ import {
   calculateNextCycleDueDate,
   RecurringBill,
 } from '@/lib/database';
-import { scheduleBillReminder } from '@/lib/notifications';
+
 import { safeGoBack } from '@/lib/navigation';
 import { getLocalDateString, getRelativeDateString } from '@/lib/dateUtils';
 import { ConfirmDialogModal } from '@/components/confirm-dialog-modal';

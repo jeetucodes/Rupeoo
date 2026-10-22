@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth, AppConfig } from '@/context/AuthContext';
 import {
   shouldShowAd,
@@ -49,16 +50,11 @@ let interstitialRetryCount = 0;
 let interstitialRetryTimeout: any = null;
 const MAX_INTERSTITIAL_RETRIES = 3;
 
-const TEST_INTERSTITIAL_ID = TestIds?.INTERSTITIAL || 'ca-app-pub-3940256099942544/1033173712';
-const TEST_BANNER_ID = TestIds?.BANNER || 'ca-app-pub-3940256099942544/6300978111';
+export const TEST_INTERSTITIAL_ID = TestIds?.INTERSTITIAL || 'ca-app-pub-3940256099942544/1033173712';
+export const TEST_BANNER_ID = TestIds?.BANNER || 'ca-app-pub-3940256099942544/6300978111';
 
 /**
  * Diagnostic helper mapping AdMob error codes to readable explanations.
- * Standard Android AdMob codes:
- * - Code 0: ERROR_CODE_INTERNAL_ERROR (Internal server/response error)
- * - Code 1: ERROR_CODE_INVALID_REQUEST (Invalid request; e.g. ad unit ID, app ID, or clock)
- * - Code 2: ERROR_CODE_NETWORK_ERROR (Network connectivity problem)
- * - Code 3: ERROR_CODE_NO_FILL (Inventory unavailable or newly created unit)
  */
 export function formatAdError(error: any): string {
   if (!error) return 'Unknown error';
@@ -86,6 +82,58 @@ export function formatAdError(error: any): string {
 
 export function isMobileAdsInitialized(): boolean {
   return isSdkInitialized;
+}
+
+/**
+ * Visual AdMob Test Banner Preview Component
+ * Renders in Expo Go, non-native environments, or as fallback when test mode is active
+ */
+export function AdMobTestBannerPreview({
+  unitId = TEST_BANNER_ID,
+  style,
+  compact = false,
+  errorText,
+}: {
+  unitId?: string;
+  style?: any;
+  compact?: boolean;
+  errorText?: string;
+}) {
+  return (
+    <View style={[styles.outerWrapper, compact && styles.compactOuterWrapper, style]}>
+      <TouchableOpacity
+        activeOpacity={0.88}
+        onPress={() => {
+          Alert.alert(
+            'Google AdMob Test Mode Active',
+            `Status: Test Ads Enabled via Admin\nAd Unit ID: ${unitId}\nMode: Google Sample Test ID (100% Fill Rate)\n\nNote: In Expo Go, AdMob native SDK is mocked with this card. On Android APK / Dev Client builds, Google Mobile Ads SDK renders real test ads directly.`,
+            [{ text: 'OK' }]
+          );
+        }}
+        style={[styles.testBannerBox, compact && styles.compactTestBannerBox]}
+      >
+        <View style={styles.testBannerLeft}>
+          <View style={styles.testAdBadge}>
+            <Text style={styles.testAdBadgeText}>Ad</Text>
+          </View>
+          <View style={styles.testBannerTextWrap}>
+            <View style={styles.testBannerTitleRow}>
+              <Text style={styles.testBannerTitle}>Google AdMob Test Banner</Text>
+              <View style={styles.testActivePill}>
+                <Text style={styles.testActivePillText}>TEST MODE ON</Text>
+              </View>
+            </View>
+            <Text style={styles.testBannerSub} numberOfLines={1}>
+              {errorText ? `Notice: ${errorText}` : `Unit: ${unitId}`}
+            </Text>
+          </View>
+        </View>
+        <View style={styles.testInfoIcon}>
+          <Ionicons name="information-circle-outline" size={16} color="#94A3B8" />
+        </View>
+      </TouchableOpacity>
+    </View>
+  );
 }
 
 /**
@@ -145,7 +193,6 @@ export async function initializeAds(config?: AppConfig): Promise<void> {
 
 /**
  * Preload the Transaction Save Interstitial Ad
- * Release builds only use real ad unit IDs; __DEV__ or explicit testMode uses test IDs.
  */
 export function preloadTransactionSaveAd(forceTest: boolean = false, customUnitId?: string) {
   if (!InterstitialAd || !AdEventType) return;
@@ -227,7 +274,7 @@ export function preloadTransactionSaveAd(forceTest: boolean = false, customUnitI
 
 /**
  * Show Transaction Save Ad (Interstitial) after a transaction is successfully saved
- * Strictly honors Pro-User suppression, remote master toggles, and interstitial interval.
+ * In test mode, triggers on every transaction for instant verification.
  */
 export async function showTransactionSaveAd(
   isUserPremium: boolean = false,
@@ -255,11 +302,15 @@ export async function showTransactionSaveAd(
     return;
   }
 
-  // 3. Interstitial Frequency Interval check (Default: every 3 transactions)
-  const interval =
-    config?.interstitialInterval && config.interstitialInterval > 0
+  const isTest = __DEV__ || Boolean(config?.adMobTestMode);
+
+  // 3. Interstitial Frequency Interval check (In test mode, test on every entry)
+  const interval = isTest
+    ? 1
+    : (config?.interstitialInterval && config.interstitialInterval > 0
       ? config.interstitialInterval
-      : 3;
+      : 3);
+
   expenseEntryCount += 1;
 
   if (expenseEntryCount % interval !== 0) {
@@ -272,13 +323,22 @@ export async function showTransactionSaveAd(
     return;
   }
 
+  // If in Expo Go or non-native environment where InterstitialAd is undefined
+  if (!InterstitialAd) {
+    if (isTest) {
+      log('ℹ️ AdMob Test Interstitial triggered (Expo Go preview — native ad renders on APK/Dev Build)');
+    }
+    dismiss();
+    return;
+  }
+
   // 4. Show Interstitial
   try {
     if (interstitial && isInterstitialLoaded) {
       onInterstitialClosedCallback = dismiss;
       await interstitial.show();
     } else {
-      log('Interstitial ad not ready yet, continuing flow');
+      log('Interstitial ad not ready yet, preloading for next time and continuing flow');
       interstitialRetryCount = 0;
       preloadTransactionSaveAd(Boolean(config?.adMobTestMode), config?.adMobInterstitialUnitId);
       dismiss();
@@ -362,18 +422,38 @@ export function RupeoAdBanner({
 
   // Case 2: Google AdMob Banner
   if (decision.type === 'admob') {
-    // If native module is missing (Expo Go) or AdMob failed to load after retries, or SDK not ready yet
-    if (!BannerAd || !BannerAdSize || admobError || !sdkReady) {
-      // If custom ads are allowed and candidate exists, fallback to custom ad!
+    const isTestMode = __DEV__ || Boolean(appConfig?.adMobTestMode);
+    const configuredUnitId = appConfig?.adMobBannerUnitId || ADMOB_CONFIG.homeBannerId;
+    const adUnitId = isTestMode ? TEST_BANNER_ID : configuredUnitId;
+
+    // Check if native module is missing (e.g. Expo Go)
+    if (!BannerAd || !BannerAdSize) {
+      if (isTestMode) {
+        return <AdMobTestBannerPreview unitId={adUnitId} style={style} compact={compact} />;
+      }
       if (fallbackAd && appConfig?.customAdsEnabled !== false && appConfig?.showAds !== false) {
         return <CustomAdBanner ad={fallbackAd} style={style} compact={compact} />;
       }
       return null;
     }
 
-    const isTestMode = __DEV__ || Boolean(appConfig?.adMobTestMode);
-    const configuredUnitId = appConfig?.adMobBannerUnitId || ADMOB_CONFIG.homeBannerId;
-    const adUnitId = isTestMode ? TEST_BANNER_ID : configuredUnitId;
+    // Check if AdMob failed after retries
+    if (admobError) {
+      if (isTestMode) {
+        return (
+          <AdMobTestBannerPreview
+            unitId={adUnitId}
+            style={style}
+            compact={compact}
+            errorText="Ad failed on device. Check internet / Google Play Services."
+          />
+        );
+      }
+      if (fallbackAd && appConfig?.customAdsEnabled !== false && appConfig?.showAds !== false) {
+        return <CustomAdBanner ad={fallbackAd} style={style} compact={compact} />;
+      }
+      return null;
+    }
 
     if (!adUnitId) {
       if (fallbackAd && appConfig?.customAdsEnabled !== false && appConfig?.showAds !== false) {
@@ -384,11 +464,11 @@ export function RupeoAdBanner({
 
     return (
       <View style={[styles.outerWrapper, compact && styles.compactOuterWrapper, style]}>
-        <View style={[styles.bannerContainer, !admobLoaded && styles.hiddenBanner]}>
+        <View style={styles.bannerContainer}>
           <BannerAd
             key={`${adUnitId}_${retryKey}`}
             unitId={adUnitId}
-            size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
+            size={BannerAdSize.BANNER}
             requestOptions={{
               requestNonPersonalizedAdsOnly: false,
             }}
@@ -403,9 +483,9 @@ export function RupeoAdBanner({
               warn(`[AdMob Banner Diagnostic] Failed to load (unitId: ${adUnitId}): ${diagnostic}`);
               setAdmobLoaded(false);
 
-              // Capped exponential backoff (max 3 retries: 2s, 4s, 8s)
-              if (retryCountRef.current < 3) {
-                const delay = Math.pow(2, retryCountRef.current + 1) * 1000;
+              // Retry once after 2 seconds
+              if (retryCountRef.current < 2) {
+                const delay = (retryCountRef.current + 1) * 2000;
                 retryCountRef.current += 1;
                 log(`AdMob Banner: Scheduling retry #${retryCountRef.current} in ${delay}ms`);
                 if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
@@ -413,7 +493,7 @@ export function RupeoAdBanner({
                   setRetryKey((k) => k + 1);
                 }, delay);
               } else {
-                log('AdMob Banner: Reached maximum retry limit (3). Switching to fallback.');
+                log('AdMob Banner: Reached maximum retry limit (2).');
                 setAdmobError(true);
               }
             }}
@@ -447,17 +527,82 @@ const styles = StyleSheet.create({
   },
   bannerContainer: {
     width: '100%',
-    maxWidth: 480,
+    minHeight: 50,
     alignItems: 'center',
     justifyContent: 'center',
+    borderRadius: 8,
     overflow: 'hidden',
-    borderRadius: 14,
   },
-  hiddenBanner: {
-    height: 0,
-    marginVertical: 0,
-    paddingVertical: 0,
-    opacity: 0,
-    overflow: 'hidden',
+  testBannerBox: {
+    width: '100%',
+    maxWidth: 420,
+    minHeight: 52,
+    backgroundColor: '#1E293B',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#334155',
+    borderStyle: 'dashed',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  compactTestBannerBox: {
+    minHeight: 46,
+    paddingVertical: 6,
+  },
+  testBannerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 10,
+  },
+  testAdBadge: {
+    backgroundColor: '#F59E0B',
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  testAdBadgeText: {
+    color: '#000000',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  testBannerTextWrap: {
+    flex: 1,
+  },
+  testBannerTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  testBannerTitle: {
+    color: '#F8FAFC',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  testActivePill: {
+    backgroundColor: 'rgba(16, 185, 129, 0.18)',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.35)',
+  },
+  testActivePillText: {
+    color: '#34D399',
+    fontSize: 9,
+    fontWeight: '800',
+  },
+  testBannerSub: {
+    color: '#94A3B8',
+    fontSize: 10,
+    marginTop: 2,
+  },
+  testInfoIcon: {
+    marginLeft: 6,
   },
 });
+

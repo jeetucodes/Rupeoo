@@ -16,7 +16,7 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
-import { initDatabase, syncUserOfflineData } from '@/lib/database';
+import { initDatabase, syncUserOfflineData, deleteTransaction } from '@/lib/database';
 import { initializeAds } from '@/lib/ads';
 import Toast from 'react-native-toast-message';
 import { customToastConfig } from '@/components/custom-toast';
@@ -30,6 +30,8 @@ import { syncWidgetWithTransactions } from '@/lib/widgetSync';
 import { preloadFriendsAndUdhar } from '@/lib/udharStorage';
 import { auth } from '@/lib/firebase';
 import { isVerificationRequired } from '@/lib/authVerification';
+import { requestRebind } from '@/features/autoAdd/nativeModule';
+import { setupAutoAddNotificationChannel } from '@/features/autoAdd/notifTask';
 
 interface ErrorBoundaryProps {
   children: React.ReactNode;
@@ -91,7 +93,6 @@ import {
   requestNotificationPermissions,
   registerDeviceForPushNotifications,
   sendWelcomeNotification,
-  setupPeriodicSmartNotifications,
   startRealtimeNotificationWatcher
 } from '@/lib/notifications';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -141,6 +142,9 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!user?.uid) return;
 
+    // Store active user ID for background headless notification task
+    AsyncStorage.setItem('@rupeo_active_user_id', user.uid).catch(() => {});
+
     // Preload friends and udhar into memory cache instantly (<1ms)
     preloadFriendsAndUdhar(user.uid).catch(() => {});
 
@@ -162,9 +166,42 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     };
   }, [user?.uid]);
 
+  // Android startup: rebind notification listener & configure notification channel
   useEffect(() => {
-    const sub = Notifications.addNotificationResponseReceivedListener(response => {
+    if (Platform.OS === 'android') {
+      requestRebind().catch(() => {});
+      setupAutoAddNotificationChannel().catch(() => {});
+    }
+  }, []);
+
+  useEffect(() => {
+    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
       const data = response.notification.request.content.data;
+
+      // Handle Undo Action for auto-added transactions
+      if (
+        response.actionIdentifier === 'UNDO_ACTION' ||
+        data?.type === 'AUTO_ADD_TRANSACTION'
+      ) {
+        if (response.actionIdentifier === 'UNDO_ACTION' && data?.transactionId) {
+          const targetUid = (data.userId as string) || user?.uid || 'local';
+          deleteTransaction(targetUid, data.transactionId as string)
+            .then(() => {
+              Toast.show({
+                type: 'info',
+                text1: 'Transaction Undone',
+                text2: 'The auto-added transaction was removed.',
+                visibilityTime: 3500,
+              });
+            })
+            .catch(() => {});
+          return;
+        }
+
+        router.push('/(tabs)/dashboard');
+        return;
+      }
+
       if (data?.type === 'budget_alert' || data?.type === 'budget') {
         router.push('/budget');
       } else {
@@ -173,7 +210,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     });
 
     return () => sub.remove();
-  }, [router]);
+  }, [router, user?.uid]);
 
   useEffect(() => {
     if (loading) return;
@@ -298,6 +335,8 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
         mode={updateState.mode}
         title={updateState.title}
         message={updateState.message}
+        updateUrl={updateState.updateUrl}
+        latestVersion={updateState.latestVersion}
         onDismiss={dismissSoftUpdate}
       />
     </>
@@ -312,12 +351,25 @@ export default function RootLayout() {
 
   useEffect(() => {
     initDatabase().catch((e) => logError('Database init error:', e));
+
+    // One-time migration: Cancel all previously scheduled routines, bills & quiet hours local notifications
+    const CANCEL_MIGRATION_KEY = '@rupeo_cancelled_legacy_scheduled_notifs_v1';
+    AsyncStorage.getItem(CANCEL_MIGRATION_KEY).then(async (migrated) => {
+      if (!migrated) {
+        try {
+          await Notifications.cancelAllScheduledNotificationsAsync();
+          await AsyncStorage.setItem(CANCEL_MIGRATION_KEY, 'true');
+        } catch {
+          // ignore
+        }
+      }
+    }).catch(() => {});
+
     const task = InteractionManager.runAfterInteractions(() => {
       requestNotificationPermissions()
         .then((granted) => {
           if (granted) {
             sendWelcomeNotification().catch(() => { });
-            setupPeriodicSmartNotifications().catch(() => { });
           }
         })
         .catch((e) => logError('Notification permission error:', e));

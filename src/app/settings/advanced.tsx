@@ -18,6 +18,7 @@ import { useAuth } from '@/context/AuthContext';
 import { SettingsSection } from '@/components/settings/SettingsSection';
 import { SettingsRow } from '@/components/settings/SettingsRow';
 import { ConfirmDialogModal } from '@/components/confirm-dialog-modal';
+import { AdminUpdateModal } from '@/components/AdminUpdateModal';
 import { syncWidgetWithTransactions } from '@/lib/widgetSync';
 import { resetImportHistory } from '@/lib/smsDedupe';
 import { exportTransactions, importTransactionsFromText, pickBackupFileContent } from '@/lib/backup';
@@ -25,17 +26,27 @@ import { deleteAllTransactions, getAllTransactions } from '@/lib/database';
 import { generateAndShareTransactionStatementPDF } from '@/lib/statementPdf';
 import { getLocalMonthString } from '@/lib/dateUtils';
 import Constants from 'expo-constants';
+import { APP_VERSION_DISPLAY, APP_PLATFORM } from '@/constants/version';
 
 export default function AdvancedSettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user, settings } = useAuth();
+  const { user, settings, appConfig } = useAuth();
 
   const [isSyncingWidget, setIsSyncingWidget] = useState(false);
   const [isResettingHistory, setIsResettingHistory] = useState(false);
   const [resetHistoryModalVisible, setResetHistoryModalVisible] = useState(false);
   const [deleteDataModalVisible, setDeleteDataModalVisible] = useState(false);
   const [isDeletingData, setIsDeletingData] = useState(false);
+  const [adminUpdateModalVisible, setAdminUpdateModalVisible] = useState(false);
+  const [versionTapCount, setVersionTapCount] = useState(0);
+
+  const isAdmin =
+    user?.email === 'admin@rupeo.app' ||
+    user?.email === 'ya041304@gmail.com' ||
+    user?.email === 'innovatexlab.services@gmail.com' ||
+    (user as any)?.admin === true ||
+    versionTapCount >= 5;
 
   // Quick export state
   const [isExporting, setIsExporting] = useState(false);
@@ -311,24 +322,50 @@ export default function AdvancedSettingsScreen() {
           />
         </SettingsSection>
 
-        {/* SECTION 4: DIAGNOSTICS & INFO */}
-        <SettingsSection title="Diagnostics & Build">
+        {/* SECTION 4: APP INFORMATION */}
+        <SettingsSection title="App Information">
           <SettingsRow
             icon="information-circle"
             iconBg="#F1F5F9"
             iconColor="#475569"
             label="App Version"
-            value={`v${Constants.expoConfig?.version || '2.1.10'} (Build ${Constants.expoConfig?.android?.versionCode || 37})`}
+            value={APP_VERSION_DISPLAY}
             showChevron={false}
+            onPress={() => {
+              const next = versionTapCount + 1;
+              setVersionTapCount(next);
+              if (next >= 5) {
+                Toast.show({
+                  type: 'info',
+                  text1: 'Admin Controls Unlocked 🔓',
+                  text2: 'Remote update broadcast manager is now available.',
+                });
+              }
+            }}
           />
           <SettingsRow
             icon="phone-portrait"
             iconBg="#F1F5F9"
             iconColor="#475569"
             label="Platform"
-            value={`${Platform.OS.toUpperCase()} • Expo SDK 57`}
+            value={APP_PLATFORM}
             showChevron={false}
           />
+          {isAdmin && (
+            <SettingsRow
+              icon="cloud-upload"
+              iconBg="#EEF2FF"
+              iconColor="#4F46E5"
+              label="Remote Update Manager"
+              subtitle={
+                appConfig.updatePromptEnabled !== false &&
+                (appConfig.latestVersion || appConfig.latestVersionCode)
+                  ? `Active: v${appConfig.latestVersion || '2.1.11'} • ${appConfig.forceUpdate ? 'Mandatory' : 'Optional'}`
+                  : 'Broadcast update popup to users (Play Store)'
+              }
+              onPress={() => setAdminUpdateModalVisible(true)}
+            />
+          )}
           <SettingsRow
             icon="trash"
             iconBg="#FEF2F2"
@@ -366,6 +403,12 @@ export default function AdvancedSettingsScreen() {
         type="danger"
         icon="trash-outline"
         loading={isDeletingData}
+      />
+
+      {/* Admin Remote Update Broadcast Modal */}
+      <AdminUpdateModal
+        visible={adminUpdateModalVisible}
+        onClose={() => setAdminUpdateModalVisible(false)}
       />
     </SafeAreaView>
   );

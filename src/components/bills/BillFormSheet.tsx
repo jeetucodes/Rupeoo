@@ -35,7 +35,7 @@ import {
   calculateNextCycleDueDate,
   getRecurringBills,
 } from '@/lib/database';
-import { scheduleBillReminder } from '@/lib/notifications';
+
 import { checkReminderLimit } from '@/lib/limits';
 import { getLocalDateString, getRelativeDateString } from '@/lib/dateUtils';
 import { ConfirmDialogModal } from '@/components/confirm-dialog-modal';
@@ -389,14 +389,7 @@ export function BillFormSheet({
 
       await saveRecurringBill(user.uid, billData);
 
-      scheduleBillReminder(
-        billData.title,
-        billData.amount,
-        billData.nextDueDate,
-        resolvedCurrency.symbol,
-        user.uid,
-        billData.autoReminderDays
-      ).catch(() => {});
+
 
       Toast.show({
         type: 'success',

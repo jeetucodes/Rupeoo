@@ -27,7 +27,7 @@ import Toast from 'react-native-toast-message';
 import {
   requestNotificationPermissions,
   sendWelcomeNotification,
-  setupPeriodicSmartNotifications,
+
 } from '@/lib/notifications';
 import { warn, error } from '@/lib/logger';
 
@@ -150,7 +150,7 @@ export default function VerifyEmailScreen() {
           has_set_starting_balance: false,
         }, { merge: true });
         requestNotificationPermissions().then((g) => {
-          if (g) setupPeriodicSmartNotifications().catch(() => {});
+
         }).catch(() => {});
         sendWelcomeNotification(uid).catch(() => {});
       }

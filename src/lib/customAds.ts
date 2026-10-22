@@ -270,6 +270,11 @@ export function shouldShowAd(
   const customAllowed = config.customAdsEnabled !== false;
   const admobAllowed = config.networkAdsEnabled !== false && isAdMobPlacementEnabled(config, placement);
 
+  // If Admin has enabled Test Mode, prioritize AdMob test ads directly
+  if (config?.adMobTestMode && admobAllowed) {
+    return { show: true, type: 'admob' };
+  }
+
   if (strategy === 'custom_only') {
     if (customAllowed && topCustomAd) return { show: true, type: 'custom', customAd: topCustomAd };
     return { show: false, type: 'none' };

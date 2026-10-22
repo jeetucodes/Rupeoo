@@ -7,6 +7,9 @@ import {
   TouchableOpacity,
   Platform,
   Linking,
+  Switch,
+  AppState,
+  AppStateStatus,
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -14,86 +17,116 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 import * as Haptics from 'expo-haptics';
+import * as IntentLauncher from 'expo-intent-launcher';
+import * as Application from 'expo-application';
 import Toast from 'react-native-toast-message';
-import { useAuth } from '@/context/AuthContext';
-import { SettingsSection } from '@/components/settings/SettingsSection';
-import { SettingsRow } from '@/components/settings/SettingsRow';
 import {
+  isMasterNotificationsEnabled,
+  setMasterNotificationsEnabled,
   requestNotificationPermissions,
-  sendTestNotification,
-  setupPeriodicSmartNotifications,
 } from '@/lib/notifications';
 
 export default function NotificationsSettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
 
-  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
-  const [isSendingTest, setIsSendingTest] = useState(false);
+  const [masterEnabled, setMasterEnabled] = useState<boolean>(true);
+  const [hasSystemPermission, setHasSystemPermission] = useState<boolean | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
 
-  const checkPermission = useCallback(async () => {
-    if (Platform.OS === 'web') {
-      setHasPermission(false);
-      return;
-    }
+  // Check system permission and master setting
+  const refreshStatus = useCallback(async () => {
     try {
+      const isEnabled = await isMasterNotificationsEnabled();
+      setMasterEnabled(isEnabled);
+
+      if (Platform.OS === 'web') {
+        setHasSystemPermission(false);
+        setLoading(false);
+        return;
+      }
+
       const { status } = await Notifications.getPermissionsAsync();
-      setHasPermission(status === 'granted');
+      setHasSystemPermission(status === 'granted');
     } catch {
-      setHasPermission(false);
+      setHasSystemPermission(false);
+    } finally {
+      setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    checkPermission();
-  }, [checkPermission]);
+    refreshStatus();
+  }, [refreshStatus]);
 
-  const handleRequestPermission = async () => {
+  // Re-check when app regains focus from system settings
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state: AppStateStatus) => {
+      if (state === 'active') {
+        refreshStatus();
+      }
+    });
+    return () => sub.remove();
+  }, [refreshStatus]);
+
+  // Handle master toggle change
+  const handleToggleMaster = async (value: boolean) => {
     try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch { }
 
-    if (Platform.OS === 'web') {
-      Toast.show({ type: 'info', text1: 'Push Notifications', text2: 'Push notifications are available on mobile devices.' });
-      return;
-    }
+    setMasterEnabled(value);
+    await setMasterNotificationsEnabled(value);
 
-    const granted = await requestNotificationPermissions();
-    setHasPermission(granted);
-
-    if (granted) {
-      await setupPeriodicSmartNotifications(true);
+    if (value) {
+      // If toggled ON and system permission is not granted, prompt user
+      if (hasSystemPermission === false && Platform.OS !== 'web') {
+        const granted = await requestNotificationPermissions();
+        setHasSystemPermission(granted);
+      }
       Toast.show({
         type: 'success',
-        text1: 'Notifications Enabled! 🔔',
-        text2: 'You will receive reminders & budget updates right on time.',
+        text1: 'Notifications Enabled 🔔',
+        text2: 'You will receive transaction alerts & updates.',
+        visibilityTime: 2500,
       });
+    } else {
+      Toast.show({
+        type: 'info',
+        text1: 'Notifications Silenced 🔕',
+        text2: 'All transaction alerts & app notifications are turned off.',
+        visibilityTime: 2500,
+      });
+    }
+  };
+
+  // Open system settings for notification permission
+  const handleOpenSystemSettings = async () => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch { }
+
+    if (Platform.OS === 'android') {
+      try {
+        const pkg = Application.applicationId || 'com.rupeo.app';
+        await IntentLauncher.startActivityAsync(
+          IntentLauncher.ActivityAction.APP_NOTIFICATION_SETTINGS,
+          {
+            extra: {
+              'android.provider.extra.APP_PACKAGE': pkg,
+            },
+          }
+        );
+        return;
+      } catch {
+        Linking.openSettings().catch(() => {});
+      }
     } else {
       Linking.openSettings().catch(() => {});
     }
   };
 
-  const handleSendTest = async () => {
-    if (Platform.OS === 'web') {
-      Toast.show({ type: 'info', text1: 'Mobile Feature', text2: 'Test notifications are sent to mobile device trays.' });
-      return;
-    }
-    setIsSendingTest(true);
-    try {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch { }
-
-    await sendTestNotification(user?.uid);
-    setIsSendingTest(false);
-
-    Toast.show({
-      type: 'success',
-      text1: 'Test Notification Sent! 🔔',
-      text2: 'Check your notification tray to confirm.',
-      visibilityTime: 4000,
-    });
-  };
+  const isFullyActive = masterEnabled && hasSystemPermission;
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -110,27 +143,27 @@ export default function NotificationsSettingsScreen() {
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>Notification Settings</Text>
-          <Text style={styles.headerSubtitle}>Reminders, daily routines & nudges</Text>
+          <Text style={styles.headerSubtitle}>Alerts &amp; push preferences</Text>
         </View>
         <View
           style={[
             styles.headerBadge,
-            { backgroundColor: hasPermission ? '#ECFDF5' : '#FEF2F2' },
+            { backgroundColor: isFullyActive ? '#ECFDF5' : '#FEF2F2' },
           ]}
         >
           <Ionicons
-            name={hasPermission ? 'checkmark-circle' : 'alert-circle'}
+            name={isFullyActive ? 'checkmark-circle' : 'close-circle'}
             size={13}
-            color={hasPermission ? '#059669' : '#DC2626'}
+            color={isFullyActive ? '#059669' : '#DC2626'}
             style={{ marginRight: 4 }}
           />
           <Text
             style={[
               styles.headerBadgeText,
-              { color: hasPermission ? '#059669' : '#DC2626' },
+              { color: isFullyActive ? '#059669' : '#DC2626' },
             ]}
           >
-            {hasPermission === null ? 'CHECKING' : hasPermission ? 'ACTIVE' : 'OFF'}
+            {loading ? '...' : isFullyActive ? 'ACTIVE' : 'OFF'}
           </Text>
         </View>
       </View>
@@ -140,140 +173,67 @@ export default function NotificationsSettingsScreen() {
         contentContainerStyle={[styles.scrollContent, { paddingBottom: 40 + insets.bottom }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Permission Status Card */}
-        <View
-          style={[
-            styles.statusCard,
-            hasPermission ? styles.statusCardActive : styles.statusCardInactive,
-          ]}
-        >
-          <View style={styles.statusLeft}>
+        {/* Master Toggle Card */}
+        <View style={styles.card}>
+          <View style={styles.toggleRow}>
             <View
               style={[
-                styles.statusIconBg,
-                { backgroundColor: hasPermission ? '#DCFCE7' : '#FEE2E2' },
+                styles.iconWrap,
+                { backgroundColor: masterEnabled ? '#EEF2FF' : '#F1F5F9' },
               ]}
             >
               <Ionicons
-                name={hasPermission ? 'notifications' : 'notifications-off'}
+                name={masterEnabled ? 'notifications' : 'notifications-off'}
                 size={22}
-                color={hasPermission ? '#15803D' : '#DC2626'}
+                color={masterEnabled ? '#4F46E5' : '#64748B'}
               />
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.statusTitle}>
-                {hasPermission ? 'Notifications are Active' : 'Notifications are Disabled'}
-              </Text>
-              <Text style={styles.statusDesc}>
-                {hasPermission
-                  ? 'Daily spend reminders, bill alerts & budget limits are running.'
-                  : 'Enable notifications to get reminded to log daily expenses & bills.'}
+            <View style={{ flex: 1, marginRight: 12 }}>
+              <Text style={styles.toggleTitle}>Notifications</Text>
+              <Text style={styles.toggleDesc}>
+                Show transaction alerts, auto-add confirmations with Undo, and budget warnings.
               </Text>
             </View>
+            {loading ? (
+              <ActivityIndicator size="small" color="#4F46E5" />
+            ) : (
+              <Switch
+                value={masterEnabled}
+                onValueChange={handleToggleMaster}
+                trackColor={{ false: '#CBD5E1', true: '#4F46E5' }}
+                thumbColor="#FFFFFF"
+              />
+            )}
           </View>
-          {!hasPermission && (
-            <TouchableOpacity
-              style={styles.enableBtn}
-              onPress={handleRequestPermission}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.enableBtnText}>Enable Notifications</Text>
-            </TouchableOpacity>
-          )}
         </View>
 
-        {/* SECTION 1: MASTER CONTROLS & TEST */}
-        <SettingsSection title="System & Testing">
-          <SettingsRow
-            icon="notifications"
-            iconBg="#EEF2FF"
-            iconColor="#4F46E5"
-            label="System Permission"
-            subtitle={hasPermission ? 'Granted in Android system settings' : 'Tap to open settings and allow'}
-            value={hasPermission ? 'Allowed' : 'Disabled'}
-            onPress={() => {
-              if (Platform.OS === 'android') {
-                Linking.openSettings().catch(() => {});
-              } else {
-                handleRequestPermission();
-              }
-            }}
-          />
-          <SettingsRow
-            icon="send"
-            iconBg="#F0FDF4"
-            iconColor="#16A34A"
-            label="Send Test Notification"
-            subtitle="Trigger an immediate test alert to verify delivery"
-            loading={isSendingTest}
-            onPress={handleSendTest}
-            isLast
-          />
-        </SettingsSection>
+        {/* System Permission Row if not granted */}
+        {hasSystemPermission === false && (
+          <TouchableOpacity
+            style={styles.warningCard}
+            onPress={handleOpenSystemSettings}
+            activeOpacity={0.8}
+          >
+            <View style={styles.warningIconBg}>
+              <Ionicons name="alert-circle" size={20} color="#D97706" />
+            </View>
+            <View style={{ flex: 1, marginRight: 8 }}>
+              <Text style={styles.warningTitle}>Allow in system settings</Text>
+              <Text style={styles.warningDesc}>
+                Device notifications are disabled. Tap to allow Rupeo to show alerts in your notification shade.
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+          </TouchableOpacity>
+        )}
 
-        {/* SECTION 2: FIXED DAILY ROUTINE */}
-        <SettingsSection title="Daily Routines (Fixed Times)">
-          <SettingsRow
-            icon="sunny"
-            iconBg="#FEF3C7"
-            iconColor="#D97706"
-            label="Morning Spending Goal"
-            subtitle="Start fresh & set today's target"
-            value="9:00 AM"
-            showChevron={false}
-          />
-          <SettingsRow
-            icon="restaurant"
-            iconBg="#EFF6FF"
-            iconColor="#2563EB"
-            label="Lunch & Snack Check-in"
-            subtitle="Quick 5-second log for afternoon expenses"
-            value="2:00 PM"
-            showChevron={false}
-          />
-          <SettingsRow
-            icon="cart"
-            iconBg="#F5F3FF"
-            iconColor="#7C3AED"
-            label="Evening Shopping & Travel"
-            subtitle="Tea, commute or evening shopping reminders"
-            value="7:30 PM"
-            showChevron={false}
-          />
-          <SettingsRow
-            icon="moon"
-            iconBg="#F1F5F9"
-            iconColor="#475569"
-            label="Day End Review"
-            subtitle="Review total spend before sleep"
-            value="10:00 PM"
-            showChevron={false}
-            isLast
-          />
-        </SettingsSection>
-
-        {/* SECTION 3: BILLS & RECURRING */}
-        <SettingsSection title="Bills & Payments">
-          <SettingsRow
-            icon="calendar"
-            iconBg="#EEF2FF"
-            iconColor="#4F46E5"
-            label="Bill & Recurring Reminders"
-            subtitle="Manage scheduled electricity, rent, recharge, and EMI alerts"
-            onPress={() => router.push('/reminders')}
-            badge="MANAGE"
-          />
-          <SettingsRow
-            icon="volume-mute"
-            iconBg="#FEF2F2"
-            iconColor="#DC2626"
-            label="Quiet Hours (Auto-Silent)"
-            subtitle="No routine notifications are sent between 11:00 PM and 8:00 AM"
-            value="11 PM - 8 AM"
-            showChevron={false}
-            isLast
-          />
-        </SettingsSection>
+        {/* Information Callout */}
+        <View style={styles.infoBox}>
+          <Ionicons name="shield-checkmark-outline" size={16} color="#64748B" style={{ marginRight: 8 }} />
+          <Text style={styles.infoBoxText}>
+            When Notifications are OFF, Rupeo runs silently and never triggers sound or banners in your status bar.
+          </Text>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -327,56 +287,80 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingTop: 16,
-  },
-  statusCard: {
-    marginHorizontal: 16,
-    marginBottom: 20,
     padding: 16,
+  },
+  card: {
+    backgroundColor: '#FFFFFF',
     borderRadius: 18,
+    padding: 16,
     borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginBottom: 14,
   },
-  statusCardActive: {
-    backgroundColor: '#F0FDF4',
-    borderColor: '#DCFCE7',
-  },
-  statusCardInactive: {
-    backgroundColor: '#FEF2F2',
-    borderColor: '#FEE2E2',
-  },
-  statusLeft: {
+  toggleRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  statusIconBg: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
+  iconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: 14,
   },
-  statusTitle: {
-    fontSize: 15,
+  toggleTitle: {
+    fontSize: 16,
     fontWeight: '700',
     color: '#0F172A',
     marginBottom: 3,
   },
-  statusDesc: {
-    fontSize: 12,
+  toggleDesc: {
+    fontSize: 13,
     color: '#64748B',
-    lineHeight: 17,
+    lineHeight: 18,
   },
-  enableBtn: {
-    marginTop: 14,
-    backgroundColor: '#4F46E5',
-    paddingVertical: 11,
-    borderRadius: 12,
+  warningCard: {
+    flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: '#FFFBEB',
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    marginBottom: 14,
   },
-  enableBtnText: {
+  warningIconBg: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#FEF3C7',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  warningTitle: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: '#92400E',
+    marginBottom: 2,
+  },
+  warningDesc: {
+    fontSize: 12,
+    color: '#B45309',
+    lineHeight: 16,
+  },
+  infoBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F1F5F9',
+    borderRadius: 12,
+    padding: 12,
+  },
+  infoBoxText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#64748B',
+    lineHeight: 16,
   },
 });

@@ -38,7 +38,7 @@ import Toast from 'react-native-toast-message';
 import {
   requestNotificationPermissions,
   sendWelcomeNotification,
-  setupPeriodicSmartNotifications,
+
 } from '@/lib/notifications';
 import { warn, error } from '@/lib/logger';
 import { LegalModal } from '@/components/LegalModal';
@@ -140,7 +140,7 @@ export default function AuthScreen() {
         const cred = await signInWithEmailAndPassword(auth, trimmedEmail, trimmedPassword);
         if (cred.user) {
           requestNotificationPermissions().then((granted) => {
-            if (granted) setupPeriodicSmartNotifications().catch(() => {});
+
           }).catch(() => {});
 
           const userDoc = await getDoc(doc(db, 'users', cred.user.uid));
@@ -187,7 +187,7 @@ export default function AuthScreen() {
       if (result?.user) {
         requestNotificationPermissions().then((granted) => {
           if (granted) {
-            setupPeriodicSmartNotifications().catch(() => {});
+
           }
         }).catch(() => {});
 

@@ -310,8 +310,8 @@ export default function PendingInboxScreen() {
             onPress={() => router.push('/sms-import')}
             activeOpacity={0.8}
           >
-            <Ionicons name="download-outline" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
-            <Text style={styles.importShortcutBtnText}>Import Messages</Text>
+            <Ionicons name="chatbubbles-outline" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+            <Text style={styles.importShortcutBtnText}>Missed something? Import from messages</Text>
           </TouchableOpacity>
         </View>
       ) : (
@@ -321,6 +321,16 @@ export default function PendingInboxScreen() {
           renderItem={renderItem}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          ListFooterComponent={
+            <TouchableOpacity
+              style={styles.listFooterFallbackBtn}
+              onPress={() => router.push('/sms-import')}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="chatbubbles-outline" size={17} color="#4F46E5" style={{ marginRight: 6 }} />
+              <Text style={styles.listFooterFallbackText}>Missed something? Import from messages</Text>
+            </TouchableOpacity>
+          }
         />
       )}
 
@@ -750,5 +760,22 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '800',
+  },
+  listFooterFallbackBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EEF2FF',
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginVertical: 16,
+  },
+  listFooterFallbackText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#4F46E5',
   },
 });

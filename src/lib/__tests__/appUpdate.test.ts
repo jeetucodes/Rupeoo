@@ -144,4 +144,101 @@ test('App Update Logic Unit Tests', async (t) => {
     });
     assert.strictEqual(res, 'SOFT');
   });
+
+  await t.test('12. Master switch updatePromptEnabled: false -> returns NONE', () => {
+    const res = determineUpdateMode({
+      installedVersionCode: 30,
+      latestVersionCode: 35,
+      updatePromptEnabled: false,
+      now: baseTime,
+    });
+    assert.strictEqual(res, 'NONE');
+  });
+
+  await t.test('13. forceUpdate: true -> returns FORCE regardless of minSupportedVersionCode', () => {
+    const res = determineUpdateMode({
+      installedVersionCode: 30,
+      latestVersionCode: 35,
+      forceUpdate: true,
+      lastPromptedAt: baseTime - 100, // inside cooldown
+      now: baseTime,
+    });
+    assert.strictEqual(res, 'FORCE');
+  });
+
+  await t.test('14. Semantic version update (2.1.10 < 2.1.11) -> returns SOFT', () => {
+    const res = determineUpdateMode({
+      installedVersionCode: 37,
+      installedVersion: '2.1.10',
+      latestVersion: '2.1.11',
+      now: baseTime,
+    });
+    assert.strictEqual(res, 'SOFT');
+  });
+
+  await t.test('15. Semantic version equal or older -> returns NONE', () => {
+    const res1 = determineUpdateMode({
+      installedVersionCode: 37,
+      installedVersion: '2.1.10',
+      latestVersion: '2.1.10',
+      now: baseTime,
+    });
+    assert.strictEqual(res1, 'NONE');
+
+    const res2 = determineUpdateMode({
+      installedVersionCode: 37,
+      installedVersion: '2.1.11',
+      latestVersion: '2.1.10',
+      now: baseTime,
+    });
+    assert.strictEqual(res2, 'NONE');
+  });
+
+  await t.test('16. User tapped Later (inside 24h cooldown), but admin broadcast is newer -> returns SOFT', () => {
+    const promptedAt = baseTime - 60000; // tapped Later 1 minute ago
+    const adminBroadcastAt = baseTime - 10000; // admin broadcasted 10 seconds ago (NEWER!)
+
+    const res = determineUpdateMode({
+      installedVersionCode: 37,
+      installedVersion: '2.1.10',
+      latestVersion: '2.1.11',
+      latestVersionCode: 38,
+      lastPromptedAt: promptedAt,
+      adminUpdatedAt: adminBroadcastAt,
+      cooldownHours: 24,
+      now: baseTime,
+    });
+    // Cooldown is superseded because admin explicitly broadcasted after user dismissed
+    assert.strictEqual(res, 'SOFT');
+  });
+
+  await t.test('17. User tapped Later, and admin did NOT broadcast new update -> returns NONE (cooldown respected)', () => {
+    const promptedAt = baseTime - 60000; // tapped Later 1 minute ago
+    const adminBroadcastAt = baseTime - 120000; // admin broadcast was 2 minutes ago (OLDER)
+
+    const res = determineUpdateMode({
+      installedVersionCode: 37,
+      installedVersion: '2.1.10',
+      latestVersion: '2.1.11',
+      latestVersionCode: 38,
+      lastPromptedAt: promptedAt,
+      adminUpdatedAt: adminBroadcastAt,
+      cooldownHours: 24,
+      now: baseTime,
+    });
+    assert.strictEqual(res, 'NONE');
+  });
+
+  await t.test('18. cooldownHours: 0 -> always returns SOFT even if prompted 1 second ago', () => {
+    const res = determineUpdateMode({
+      installedVersionCode: 37,
+      installedVersion: '2.1.10',
+      latestVersion: '2.1.11',
+      latestVersionCode: 38,
+      lastPromptedAt: baseTime - 1000,
+      cooldownHours: 0,
+      now: baseTime,
+    });
+    assert.strictEqual(res, 'SOFT');
+  });
 });

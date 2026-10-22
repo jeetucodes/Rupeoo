@@ -24,39 +24,77 @@ export const DEFAULT_SMS_SETTINGS: SmsImportSettings = {
 const getSmsSettingsKey = (userId: string) => `@rupeo_sms_settings_${userId}`;
 const WRONG_PARSES_KEY = '@rupeo_sms_wrong_parses';
 
-let cachedSettingsMap = new Map<string, SmsImportSettings>();
+export const AUTO_ADD_PAUSED_UNTIL_KEY = '@rupeo_auto_add_paused_until';
 
 /**
- * Loads SMS import settings for user.
+ * Gets the timestamp until which Auto-Add is paused (0 = not paused).
  */
-export async function getSmsImportSettings(userId: string): Promise<SmsImportSettings> {
-  if (!userId) return DEFAULT_SMS_SETTINGS;
-
-  if (cachedSettingsMap.has(userId)) {
-    return cachedSettingsMap.get(userId)!;
+export async function getAutoAddPausedUntil(): Promise<number> {
+  try {
+    const raw = await AsyncStorage.getItem(AUTO_ADD_PAUSED_UNTIL_KEY);
+    return raw ? parseInt(raw, 10) || 0 : 0;
+  } catch {
+    return 0;
   }
+}
+
+/**
+ * Temporarily pauses Auto-Add for the specified number of hours (default: 1 hour).
+ */
+export async function pauseAutoAddFor(hours: number = 1): Promise<number> {
+  const pausedUntil = Date.now() + Math.round(hours * 60 * 60 * 1000);
+  try {
+    await AsyncStorage.setItem(AUTO_ADD_PAUSED_UNTIL_KEY, pausedUntil.toString());
+  } catch (err) {
+    warn('Error saving auto-add paused until:', err);
+  }
+  return pausedUntil;
+}
+
+/**
+ * Resumes Auto-Add by clearing the pausedUntil timestamp.
+ */
+export async function resumeAutoAdd(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(AUTO_ADD_PAUSED_UNTIL_KEY);
+  } catch (err) {
+    warn('Error clearing auto-add pause:', err);
+  }
+}
+
+/**
+ * Checks whether Auto-Add is currently in a paused state.
+ */
+export async function isAutoAddPaused(): Promise<boolean> {
+  const until = await getAutoAddPausedUntil();
+  return until > Date.now();
+}
+
+/**
+ * Loads SMS & Auto-Add import settings for user. Always reads fresh from AsyncStorage
+ * so changes in UI or headless background tasks take effect immediately with no stale cache.
+ */
+export async function getSmsImportSettings(userId: string, _fresh = true): Promise<SmsImportSettings> {
+  if (!userId) return DEFAULT_SMS_SETTINGS;
 
   try {
     const raw = await AsyncStorage.getItem(getSmsSettingsKey(userId));
     if (raw) {
       const parsed = JSON.parse(raw);
-      const merged: SmsImportSettings = {
+      return {
         ...DEFAULT_SMS_SETTINGS,
         ...parsed,
       };
-      cachedSettingsMap.set(userId, merged);
-      return merged;
     }
   } catch (err) {
     warn('Error loading SMS settings:', err);
   }
 
-  cachedSettingsMap.set(userId, DEFAULT_SMS_SETTINGS);
   return DEFAULT_SMS_SETTINGS;
 }
 
 /**
- * Saves SMS import settings for user.
+ * Saves SMS & Auto-Add import settings for user and updates persistent storage.
  */
 export async function saveSmsImportSettings(
   userId: string,
@@ -64,13 +102,11 @@ export async function saveSmsImportSettings(
 ): Promise<SmsImportSettings> {
   if (!userId) return DEFAULT_SMS_SETTINGS;
 
-  const current = await getSmsImportSettings(userId);
+  const current = await getSmsImportSettings(userId, true);
   const updated: SmsImportSettings = {
     ...current,
     ...settings,
   };
-
-  cachedSettingsMap.set(userId, updated);
 
   try {
     await AsyncStorage.setItem(getSmsSettingsKey(userId), JSON.stringify(updated));

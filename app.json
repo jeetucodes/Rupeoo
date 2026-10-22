@@ -30,7 +30,8 @@
         "android.permission.RECORD_AUDIO",
         "com.android.vending.BILLING",
         "android.permission.READ_CONTACTS",
-        "android.permission.WRITE_CONTACTS"
+        "android.permission.WRITE_CONTACTS",
+        "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"
       ],
       "blockedPermissions": [
         "android.permission.READ_MEDIA_IMAGES",
@@ -51,6 +52,8 @@
     },
     "plugins": [
       "expo-router",
+      "./plugins/withNotificationListener.js",
+      "expo-sqlite",
       [
         "react-native-google-mobile-ads/app.plugin.js",
         {
@@ -74,7 +77,7 @@
             "enableProguardInReleaseBuilds": true,
             "enableShrinkResourcesInReleaseBuilds": true,
             "enableMinifyInReleaseBuilds": true,
-            "extraProguardRules": "-keep class com.reactnativeandroidwidget.** { *; }\n-keep class * extends com.reactnativeandroidwidget.RNWidgetProvider { *; }\n-keep class expo.modules.speechrecognition.** { *; }\n-keepclassmembers class expo.modules.speechrecognition.** { *; }\n-dontwarn expo.modules.speechrecognition.**\n-keep class android.speech.** { *; }\n-keep interface android.speech.** { *; }\n-keep class com.innovatexlabs.paisewaise.RupeoShare** { *; }\n-keep class com.innovatexlabs.paisewaise.RupeoFileProvider { *; }\n-dontwarn com.innovatexlabs.paisewaise.**"
+            "extraProguardRules": "-keep class com.reactnativeandroidwidget.** { *; }\n-keep class * extends com.reactnativeandroidwidget.RNWidgetProvider { *; }\n-keep class expo.modules.speechrecognition.** { *; }\n-keepclassmembers class expo.modules.speechrecognition.** { *; }\n-dontwarn expo.modules.speechrecognition.**\n-keep class android.speech.** { *; }\n-keep interface android.speech.** { *; }\n-keep class com.innovatexlabs.paisewaise.RupeoShare** { *; }\n-keep class com.innovatexlabs.paisewaise.RupeoFileProvider { *; }\n-keep class com.innovatexlabs.paisewaise.RupeoNotification** { *; }\n-keep class com.innovatexlabs.paisewaise.RupeoNotif** { *; }\n-dontwarn com.innovatexlabs.paisewaise.**"
           },
           "ios": {
             "useFrameworks": "static"

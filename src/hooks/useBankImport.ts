@@ -7,8 +7,6 @@ import {
   DetectionProgress,
 } from '@/lib/bankDraftDetector';
 import {
-  isSmsInboxSupported,
-  readSmsInbox,
   splitMultiMessageText,
   RawSmsMessage,
 } from '@/lib/smsReader';
@@ -92,7 +90,7 @@ export function useBankImport({ userId }: UseBankImportOptions) {
     setSmsSettings(s);
   }, [userId]);
 
-  // Start Reading: Android Inbox or Clipboard
+  // Start Reading from custom messages (clipboard / pasted text)
   const startReading = useCallback(
     async (options?: { range?: ImportRange; customMessages?: RawSmsMessage[] }) => {
       const range = options?.range || selectedRange;
@@ -109,15 +107,6 @@ export function useBankImport({ userId }: UseBankImportOptions) {
 
         if (options?.customMessages && options.customMessages.length > 0) {
           messages = options.customMessages;
-        } else if (isSmsInboxSupported()) {
-          const now = Date.now();
-          let minDate = now - 90 * 86400000; // default 3 months
-          if (range === '30d') minDate = now - 30 * 86400000;
-          else if (range === '90d') minDate = now - 90 * 86400000;
-          else if (range === '365d') minDate = now - 365 * 86400000;
-          else if (range === 'all') minDate = 0;
-
-          messages = await readSmsInbox({ minDate, limit: 3000 });
         }
 
         if (cancelToken.isCancelled) {
