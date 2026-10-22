@@ -318,7 +318,7 @@ export default function AdvancedSettingsScreen() {
             iconBg="#F1F5F9"
             iconColor="#475569"
             label="App Version"
-            value="v2.1.9 (Build 219)"
+            value={`v${Constants.expoConfig?.version || '2.1.10'} (Build ${Constants.expoConfig?.android?.versionCode || 37})`}
             showChevron={false}
           />
           <SettingsRow
