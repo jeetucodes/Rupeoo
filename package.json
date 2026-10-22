@@ -68,7 +68,7 @@
     "web": "expo start --web",
     "build": "expo export",
     "export": "expo export",
-    "test": "node --test src/lib/__tests__/voiceParser.test.ts src/lib/__tests__/alertParser.test.ts src/lib/__tests__/smsDedupe.test.ts src/lib/__tests__/bankImport.test.ts",
+    "test": "node --test src/lib/__tests__/voiceParser.test.ts src/lib/__tests__/alertParser.test.ts src/lib/__tests__/smsDedupe.test.ts src/lib/__tests__/bankImport.test.ts src/lib/__tests__/autoAddNotesAndDirectAdd.test.ts src/features/bills/__tests__/matchBill.test.ts",
     "eval:parser": "node scripts/evalParser.mjs",
     "check:images": "python scripts/check-images.py",
     "generate:widgets": "node scripts/generate-widget-previews.js",

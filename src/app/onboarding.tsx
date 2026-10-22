@@ -22,6 +22,7 @@ import Animated, {
   Easing,
 } from 'react-native-reanimated';
 import { requestNotificationPermissions } from '@/lib/notifications';
+import OnboardingPermissionStep from '@/features/autoAdd/OnboardingPermissionStep';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -48,12 +49,13 @@ const SLIDES = [
     titleHighlight: 'Private',
     description: 'Your data stays on your device.\nSafe and secure.',
     image: require('@/assets/images/onboarding_private.png'),
-    buttonText: 'Get Started',
+    buttonText: 'Next: Auto-Add Setup',
   },
 ];
 
 export default function OnboardingScreen() {
   const [currentSlide, setCurrentSlide] = useState(0);
+  const [step, setStep] = useState<'slides' | 'auto_add'>('slides');
   const router = useRouter();
 
   // Gentle ambient background animation
@@ -94,7 +96,7 @@ export default function OnboardingScreen() {
     if (currentSlide < SLIDES.length - 1) {
       setCurrentSlide(currentSlide + 1);
     } else {
-      router.replace('/login');
+      setStep('auto_add');
     }
   };
 
@@ -115,7 +117,7 @@ export default function OnboardingScreen() {
         if (currentSlide < SLIDES.length - 1) {
           setCurrentSlide((prev) => prev + 1);
         } else {
-          router.replace('/login');
+          setStep('auto_add');
         }
       } else if (gestureState.dx > 50) {
         // Swiped Right -> Previous
@@ -125,6 +127,16 @@ export default function OnboardingScreen() {
       }
     },
   });
+
+  if (step === 'auto_add') {
+    return (
+      <OnboardingPermissionStep
+        onComplete={() => router.replace('/login')}
+        onSkip={() => router.replace('/login')}
+        onBack={() => setStep('slides')}
+      />
+    );
+  }
 
   const slide = SLIDES[currentSlide];
 

@@ -111,6 +111,9 @@ export function BillFormSheet({
   const [billBrandColor, setBillBrandColor] = useState<string | undefined>(undefined);
   const [billBrandBadge, setBillBrandBadge] = useState<string | undefined>(undefined);
   const [billIconKey, setBillIconKey] = useState<string | undefined>(undefined);
+  const [billAutoConfirm, setBillAutoConfirm] = useState(true);
+  const [billKeywords, setBillKeywords] = useState('');
+  const [billAmountTolerance, setBillAmountTolerance] = useState('0');
 
   const [isSaving, setIsSaving] = useState(false);
   const [amountError, setAmountError] = useState<string | null>(null);
@@ -157,6 +160,9 @@ export function BillFormSheet({
       setBillBrandColor(editingBill.brandColor);
       setBillBrandBadge(editingBill.brandBadge);
       setBillIconKey(editingBill.iconKey);
+      setBillAutoConfirm(editingBill.autoConfirm !== false);
+      setBillKeywords(editingBill.keywords || '');
+      setBillAmountTolerance(editingBill.amountTolerance != null ? String(editingBill.amountTolerance) : '0');
     } else {
       // ADD MODE: Neutral, empty defaults (no India-specific hardcoding)
       setSelectedProviderId(null);
@@ -173,6 +179,9 @@ export function BillFormSheet({
       setBillBrandColor(undefined);
       setBillBrandBadge(undefined);
       setBillIconKey(undefined);
+      setBillAutoConfirm(true);
+      setBillKeywords('');
+      setBillAmountTolerance('0');
     }
     setAmountError(null);
   }, [visible, editingBill, todayStr]);
@@ -385,6 +394,9 @@ export function BillFormSheet({
         reminderDays: billReminderDays,
         reminderEnabled: true,
         nextDueDate: nextDue,
+        autoConfirm: billAutoConfirm !== false,
+        keywords: billKeywords.trim() || undefined,
+        amountTolerance: Math.max(0, parseFloat(billAmountTolerance) || 0),
       };
 
       await saveRecurringBill(user.uid, billData);
@@ -525,6 +537,12 @@ export function BillFormSheet({
                 onChangeNotes={setBillNotes}
                 reminderDays={billReminderDays}
                 onChangeReminderDays={setBillReminderDays}
+                autoConfirm={billAutoConfirm}
+                onChangeAutoConfirm={setBillAutoConfirm}
+                keywords={billKeywords}
+                onChangeKeywords={setBillKeywords}
+                amountTolerance={billAmountTolerance}
+                onChangeAmountTolerance={setBillAmountTolerance}
               />
             </ScrollView>
 

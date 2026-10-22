@@ -1268,6 +1268,29 @@ export default function DashboardScreen() {
             </View>
 
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              {Platform.OS === 'android' && (
+                <TouchableOpacity
+                  style={[
+                    styles.autoAddBalanceBtn,
+                    isAutoAddActive
+                      ? styles.autoAddBalanceBtnOn
+                      : isAutoAddPausedNow
+                      ? styles.autoAddBalanceBtnPaused
+                      : styles.autoAddBalanceBtnOff,
+                  ]}
+                  onPress={() => setShowAutoAddModal(true)}
+                  activeOpacity={0.75}
+                  accessibilityLabel="Auto-Add Status"
+                >
+                  <Ionicons
+                    name={isAutoAddActive ? 'flash' : isAutoAddPausedNow ? 'time' : 'flash-off'}
+                    size={14}
+                    color={isAutoAddActive ? '#059669' : isAutoAddPausedNow ? '#D97706' : '#DC2626'}
+                  />
+                  {isAutoAddActive && <View style={styles.autoAddActiveDot} />}
+                </TouchableOpacity>
+              )}
+
               {monthlyBudget > 0 && (
                 <TouchableOpacity
                   onPress={() => router.push('/budget')}
@@ -2137,6 +2160,43 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
     shadowRadius: 3,
     elevation: 2,
+  },
+  autoAddBalanceBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    position: 'relative',
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: 1 },
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  autoAddBalanceBtnOn: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#A7F3D0',
+  },
+  autoAddBalanceBtnPaused: {
+    backgroundColor: '#FEF3C7',
+    borderColor: '#FDE68A',
+  },
+  autoAddBalanceBtnOff: {
+    backgroundColor: '#FEE2E2',
+    borderColor: '#FECACA',
+  },
+  autoAddActiveDot: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#10B981',
+    borderWidth: 1,
+    borderColor: '#FFFFFF',
   },
   balanceAmountWrap: {
     marginTop: 2,

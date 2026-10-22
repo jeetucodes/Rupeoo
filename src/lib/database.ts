@@ -35,6 +35,14 @@ import { syncWidgetWithTransactions } from './widgetSync';
 import { flushUdharSyncQueue } from './udharStorage';
 import { formatCurrency } from './formatCurrency';
 import { recordIgnoredPayKey } from './smsDedupe';
+import {
+  saveRecurringBillToSQLite,
+  syncRecurringBillsToSQLite,
+  getRecurringBillsFromSQLite,
+  deleteRecurringBillFromSQLite,
+  markBillPaidInSQLite,
+  undoBillPaymentInSQLite,
+} from '@/features/autoAdd/sqliteStorage';
 import { warn, error } from '@/lib/logger';
 
 export {
@@ -74,6 +82,7 @@ export interface Transaction {
   source_statement_id?: number | null;
   is_manually_edited?: number | boolean;
   created_at?: number | string;
+  billId?: string | null;
   [key: string]: unknown;
 }
 
@@ -930,12 +939,23 @@ export async function getCategoryTotals(
 
 // ==================== RECURRING BILLS & REMINDERS ====================
 
+export interface BillPaymentRecord {
+  id?: string;
+  transactionId?: string;
+  amount: number;
+  date: string;       // YYYY-MM-DD
+  paidAt: number | string;
+  note?: string;
+  paymentMode?: string;
+}
+
 export interface RecurringBill {
   id?: string;
   title: string;          // e.g. "Flat Rent", "Jio Recharge", "Airtel Fiber", "Electricity"
   amount: number;         // e.g. 8000
   category: string;       // e.g. "Rent", "Subscriptions", "Bills"
   type: 'monthly_date' | 'cycle_days'; // 'monthly_date' for monthly day (e.g. 30th) or 'cycle_days' (e.g. 28 days)
+  frequency?: 'monthly' | 'quarterly' | 'yearly';
   provider?: string;      // e.g. 'jio', 'airtel', 'vi', 'bsnl', 'netflix', 'spotify', 'prime', 'rent'
   brandColor?: string;    // e.g. '#0A2885', '#ED1C24', '#E50914'
   brandBadge?: string;    // e.g. 'Jio', 'airtel', 'Vi', 'BSNL'
@@ -943,16 +963,23 @@ export interface RecurringBill {
   cycleDays?: number;     // e.g. 28, 56, 84, 365
   startDate?: string;     // YYYY-MM-DD
   lastPaidDate?: string;  // YYYY-MM-DD
+  lastPaidAt?: number;
   nextDueDate: string;    // YYYY-MM-DD
   notes?: string;
   autoReminderDays?: number; // default 3 days
   reminderDays?: number;
   reminderEnabled?: boolean;
   receiptImage?: string;  // Last payment proof screenshot
-  status?: 'due_soon' | 'due_today' | 'overdue' | 'paid';
+  status?: 'due_soon' | 'due_today' | 'overdue' | 'paid' | 'pending';
   iconKey?: string;       // Optional Ionicons icon name for custom / auto-generated icon
   regionCode?: string;    // Optional region code preset (e.g. 'INR', 'USD')
   created_at?: any;
+  // Bill Matching & Automation
+  autoConfirm?: boolean;       // default true
+  keywords?: string;           // comma-separated keywords e.g. "jio, reliance"
+  amountTolerance?: number;    // default 0
+  linkedTransactionId?: string;
+  paymentHistory?: BillPaymentRecord[];
 }
 
 export interface CustomBillProvider {
@@ -993,6 +1020,8 @@ export function calculateNextCycleDueDate(cycleDays: number, baseDateStr?: strin
   return getLocalDateString(next);
 }
 
+const OFFLINE_BILLS_KEY = (userId: string) => `@rupeo_offline_bills_${userId}`;
+
 export async function getRecurringBills(userId: string, forceRefresh = false): Promise<RecurringBill[]> {
   if (!userId) return [];
 
@@ -1002,15 +1031,36 @@ export async function getRecurringBills(userId: string, forceRefresh = false): P
     return cached.data;
   }
 
+  let offlineBills: RecurringBill[] = [];
+  try {
+    const raw = await AsyncStorage.getItem(OFFLINE_BILLS_KEY(userId));
+    if (raw) {
+      offlineBills = JSON.parse(raw);
+    }
+  } catch {}
+
   try {
     const billsRef = collection(db, `users/${userId}/recurring_bills`);
     const snap = await getDocs(billsRef);
     const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as RecurringBill));
     const sorted = list.sort((a, b) => (a.nextDueDate || '').localeCompare(b.nextDueDate || ''));
     memoryCache.recurringBills.set(userId, { data: sorted, timestamp: now });
+
+    AsyncStorage.setItem(OFFLINE_BILLS_KEY(userId), JSON.stringify(sorted)).catch(() => {});
+    syncRecurringBillsToSQLite(sorted);
+
     return sorted;
   } catch (err) {
     warn('Error fetching recurring bills:', err);
+    if (offlineBills.length > 0) {
+      memoryCache.recurringBills.set(userId, { data: offlineBills, timestamp: now });
+      syncRecurringBillsToSQLite(offlineBills);
+      return offlineBills;
+    }
+    const sqliteBills = getRecurringBillsFromSQLite();
+    if (sqliteBills.length > 0) {
+      return sqliteBills as RecurringBill[];
+    }
     return [];
   }
 }
@@ -1035,6 +1085,7 @@ export async function saveRecurringBill(userId: string, bill: RecurringBill): Pr
     amount: Number(bill.amount) || 0,
     category: bill.category || 'Bills',
     type: bill.type || 'monthly_date',
+    frequency: bill.frequency || null,
     provider: bill.provider || null,
     brandColor: bill.brandColor || null,
     brandBadge: bill.brandBadge || null,
@@ -1042,10 +1093,16 @@ export async function saveRecurringBill(userId: string, bill: RecurringBill): Pr
     cycleDays: bill.cycleDays ? Number(bill.cycleDays) : null,
     startDate: bill.startDate || getLocalDateString(),
     lastPaidDate: bill.lastPaidDate || null,
+    lastPaidAt: bill.lastPaidAt ? Number(bill.lastPaidAt) : null,
     nextDueDate: nextDue,
     notes: bill.notes?.trim() || null,
     autoReminderDays: bill.autoReminderDays ?? 3,
     receiptImage: bill.receiptImage || null,
+    autoConfirm: bill.autoConfirm !== false,
+    keywords: bill.keywords ? String(bill.keywords).trim() : null,
+    amountTolerance: Number(bill.amountTolerance) || 0,
+    linkedTransactionId: bill.linkedTransactionId || null,
+    paymentHistory: bill.paymentHistory || [],
     created_at: serverTimestamp(),
   };
 
@@ -1059,6 +1116,9 @@ export async function saveRecurringBill(userId: string, bill: RecurringBill): Pr
     resId = docRef.id;
   }
 
+  const savedBill = { ...payload, id: resId } as unknown as RecurringBill;
+  saveRecurringBillToSQLite(savedBill);
+
   invalidateBillsCache(userId);
   syncWidgetWithTransactions(userId).catch(() => { });
   return resId;
@@ -1066,9 +1126,95 @@ export async function saveRecurringBill(userId: string, bill: RecurringBill): Pr
 
 export async function deleteRecurringBill(userId: string, billId: string) {
   if (!userId || !billId) return;
-  await deleteDoc(doc(db, `users/${userId}/recurring_bills/${billId}`));
+  try {
+    await deleteDoc(doc(db, `users/${userId}/recurring_bills/${billId}`));
+  } catch (err) {
+    warn('Error deleting remote recurring bill:', err);
+  }
+  deleteRecurringBillFromSQLite(billId);
   invalidateBillsCache(userId);
   syncWidgetWithTransactions(userId).catch(() => { });
+}
+
+export async function recordMatchedBillPayment(
+  userId: string,
+  billId: string,
+  txId: string,
+  amount: number,
+  dateStr: string,
+  nextDueDate: string,
+  paymentRecord: BillPaymentRecord
+): Promise<void> {
+  if (!userId || !billId) return;
+
+  try {
+    markBillPaidInSQLite(billId, txId, amount, dateStr, nextDueDate, paymentRecord);
+
+    const billDocRef = doc(db, `users/${userId}/recurring_bills`, billId);
+    const snap = await getDoc(billDocRef).catch(() => null);
+    let history: BillPaymentRecord[] = [];
+    if (snap && snap.exists()) {
+      const data = snap.data() as RecurringBill;
+      history = data.paymentHistory || [];
+    }
+    history = [paymentRecord, ...history];
+
+    await updateDoc(billDocRef, {
+      status: 'paid',
+      lastPaidDate: dateStr,
+      lastPaidAt: Date.now(),
+      nextDueDate: nextDueDate,
+      linkedTransactionId: txId,
+      paymentHistory: history,
+      updated_at: serverTimestamp(),
+    }).catch(() => {});
+
+    invalidateBillsCache(userId);
+    syncWidgetWithTransactions(userId).catch(() => {});
+  } catch (err) {
+    warn('Error recording matched bill payment:', err);
+  }
+}
+
+export async function undoBillPayment(
+  userId: string,
+  billId: string,
+  transactionId?: string,
+  prevDueDate?: string,
+  deleteTx: boolean = true
+): Promise<void> {
+  if (!userId || !billId) return;
+
+  try {
+    undoBillPaymentInSQLite(billId, transactionId || '', prevDueDate);
+
+    const billDocRef = doc(db, `users/${userId}/recurring_bills`, billId);
+    const snap = await getDoc(billDocRef).catch(() => null);
+    if (snap && snap.exists()) {
+      const data = snap.data() as RecurringBill;
+      const history = (data.paymentHistory || []).filter(
+        (p) => !transactionId || p.transactionId !== transactionId
+      );
+      const targetDue = prevDueDate || data.nextDueDate;
+
+      await updateDoc(billDocRef, {
+        status: 'pending',
+        linkedTransactionId: null,
+        nextDueDate: targetDue,
+        paymentHistory: history,
+        updated_at: serverTimestamp(),
+      }).catch(() => {});
+    }
+
+    if (deleteTx && transactionId) {
+      await deleteTransaction(userId, transactionId).catch(() => {});
+    }
+
+    invalidateBillsCache(userId);
+    syncWidgetWithTransactions(userId).catch(() => {});
+  } catch (err) {
+    warn('Error undoing bill payment:', err);
+  }
 }
 
 // ==================== CUSTOM BILL PROVIDERS ====================
@@ -1251,79 +1397,9 @@ export async function payRecurringBill(
 }
 
 export async function checkBillReminders(userId: string) {
-  if (!userId) return;
-  try {
-    const bills = await getRecurringBills(userId);
-    const todayStr = getLocalDateString();
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    for (const bill of bills) {
-      if (!bill.nextDueDate) continue;
-      const dueDate = new Date(bill.nextDueDate);
-      dueDate.setHours(0, 0, 0, 0);
-      const diffMs = dueDate.getTime() - today.getTime();
-      const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
-      const reminderThreshold = bill.autoReminderDays || 3;
-
-      if (diffDays >= 0 && diffDays <= reminderThreshold) {
-        let title = '';
-        let message = '';
-        if (diffDays === 0) {
-          title = `🚨 Due Today: ${bill.title}`;
-          message = `Your ${bill.title} of ₹${bill.amount.toLocaleString('en-IN')} is due TODAY!`;
-        } else {
-          title = `⏰ Reminder: ${bill.title} due in ${diffDays} days`;
-          message = `Your ${bill.title} of ₹${bill.amount.toLocaleString('en-IN')} is due on ${bill.nextDueDate} (${diffDays} days left).`;
-        }
-
-        const now = new Date();
-        const currentHour = now.getHours();
-        let currentPeriod = 'evening';
-        if (currentHour >= 5 && currentHour < 12) currentPeriod = 'morning';
-        else if (currentHour >= 12 && currentHour < 17) currentPeriod = 'afternoon';
-
-        const notifs = await getUserNotifications(userId).catch(() => []);
-        const alreadyNotifiedThisPeriod = notifs.some(n => {
-          if (n.title !== title || !n.createdAt) return false;
-          const notifDate = new Date(n.createdAt);
-          const notifHour = notifDate.getHours();
-          let notifPeriod = 'evening';
-          if (notifHour >= 5 && notifHour < 12) notifPeriod = 'morning';
-          else if (notifHour >= 12 && notifHour < 17) notifPeriod = 'afternoon';
-
-          return (
-            notifDate.getFullYear() === now.getFullYear() &&
-            notifDate.getMonth() === now.getMonth() &&
-            notifDate.getDate() === now.getDate() &&
-            notifPeriod === currentPeriod
-          );
-        });
-
-        if (!alreadyNotifiedThisPeriod) {
-          await createNotification(userId, {
-            title,
-            message,
-            type: 'reminder',
-            silentPush: true,
-          });
-
-          // Trigger OS local push notification
-          try {
-            const { sendLocalPushNotification } = await import('@/lib/notifications');
-            await sendLocalPushNotification(title, message, 'reminders', {
-              type: 'bill_reminder',
-              billId: bill.id,
-            });
-          } catch (notifErr) {
-            warn('Could not fire local push for bill reminder:', notifErr);
-          }
-        }
-      }
-    }
-  } catch (err) {
-    warn('checkBillReminders error:', err);
-  }
+  // Bill reminder push notifications are removed from the app.
+  // Bill matching now works silently via the notification listener.
+  return;
 }
 
 // ==================== BUDGET & GOALS ====================

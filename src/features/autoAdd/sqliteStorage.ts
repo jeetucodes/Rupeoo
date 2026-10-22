@@ -1,7 +1,7 @@
 /**
  * Local SQLite Storage for Auto-Add System via expo-sqlite
  *
- * Persists detected alerts, auto-added transactions, and settings directly in SQLite
+ * Persists detected alerts, auto-added transactions, recurring bills, and settings directly in SQLite
  * so background headless JS tasks execute reliably when the app is killed.
  */
 
@@ -34,6 +34,7 @@ function initDatabaseSchema(db: SQLite.SQLiteDatabase): void {
         channel TEXT,
         rawText TEXT,
         status TEXT,
+        billId TEXT,
         created_at INTEGER NOT NULL
       );
 
@@ -56,11 +57,111 @@ function initDatabaseSchema(db: SQLite.SQLiteDatabase): void {
         channel TEXT,
         confidence REAL,
         rawText TEXT,
+        billId TEXT,
+        candidateBills TEXT,
+        suggestedBillId TEXT,
         created_at INTEGER NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS recurring_bills (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        amount REAL NOT NULL,
+        category TEXT,
+        type TEXT,
+        frequency TEXT,
+        provider TEXT,
+        brandColor TEXT,
+        brandBadge TEXT,
+        dueDay INTEGER,
+        cycleDays INTEGER,
+        startDate TEXT,
+        lastPaidDate TEXT,
+        lastPaidAt INTEGER,
+        nextDueDate TEXT NOT NULL,
+        notes TEXT,
+        status TEXT,
+        autoConfirm INTEGER DEFAULT 1,
+        keywords TEXT,
+        amountTolerance REAL DEFAULT 0,
+        linkedTransactionId TEXT,
+        paymentHistory TEXT,
+        updated_at INTEGER NOT NULL
+      );
     `);
+
+    // Run safe migrations for existing tables
+    runSqliteMigrations(db);
   } catch (err) {
     warn('Failed to initialize auto-add SQLite schema:', err);
+  }
+}
+
+/**
+ * Migration routine: adds columns if upgrading from an older DB version.
+ */
+function runSqliteMigrations(db: SQLite.SQLiteDatabase): void {
+  try {
+    const billCols = new Set(
+      db.getAllSync<{ name: string }>('PRAGMA table_info(recurring_bills);').map((c) => c.name)
+    );
+    if (!billCols.has('autoConfirm')) {
+      db.execSync('ALTER TABLE recurring_bills ADD COLUMN autoConfirm INTEGER DEFAULT 1;');
+    }
+    if (!billCols.has('keywords')) {
+      db.execSync('ALTER TABLE recurring_bills ADD COLUMN keywords TEXT;');
+    }
+    if (!billCols.has('amountTolerance')) {
+      db.execSync('ALTER TABLE recurring_bills ADD COLUMN amountTolerance REAL DEFAULT 0;');
+    }
+    if (!billCols.has('lastPaidAt')) {
+      db.execSync('ALTER TABLE recurring_bills ADD COLUMN lastPaidAt INTEGER;');
+    }
+    if (!billCols.has('linkedTransactionId')) {
+      db.execSync('ALTER TABLE recurring_bills ADD COLUMN linkedTransactionId TEXT;');
+    }
+    if (!billCols.has('paymentHistory')) {
+      db.execSync('ALTER TABLE recurring_bills ADD COLUMN paymentHistory TEXT;');
+    }
+    if (!billCols.has('frequency')) {
+      db.execSync('ALTER TABLE recurring_bills ADD COLUMN frequency TEXT;');
+    }
+    if (!billCols.has('brandColor')) {
+      db.execSync('ALTER TABLE recurring_bills ADD COLUMN brandColor TEXT;');
+    }
+    if (!billCols.has('brandBadge')) {
+      db.execSync('ALTER TABLE recurring_bills ADD COLUMN brandBadge TEXT;');
+    }
+  } catch (err) {
+    warn('[SQLite] Migration error for recurring_bills:', err);
+  }
+
+  try {
+    const txCols = new Set(
+      db.getAllSync<{ name: string }>('PRAGMA table_info(auto_added_transactions);').map((c) => c.name)
+    );
+    if (!txCols.has('billId')) {
+      db.execSync('ALTER TABLE auto_added_transactions ADD COLUMN billId TEXT;');
+    }
+  } catch (err) {
+    warn('[SQLite] Migration error for auto_added_transactions:', err);
+  }
+
+  try {
+    const pendingCols = new Set(
+      db.getAllSync<{ name: string }>('PRAGMA table_info(auto_add_pending_alerts);').map((c) => c.name)
+    );
+    if (!pendingCols.has('billId')) {
+      db.execSync('ALTER TABLE auto_add_pending_alerts ADD COLUMN billId TEXT;');
+    }
+    if (!pendingCols.has('candidateBills')) {
+      db.execSync('ALTER TABLE auto_add_pending_alerts ADD COLUMN candidateBills TEXT;');
+    }
+    if (!pendingCols.has('suggestedBillId')) {
+      db.execSync('ALTER TABLE auto_add_pending_alerts ADD COLUMN suggestedBillId TEXT;');
+    }
+  } catch (err) {
+    warn('[SQLite] Migration error for auto_add_pending_alerts:', err);
   }
 }
 
@@ -77,6 +178,7 @@ export interface SQLiteTransactionRecord {
   channel: string;
   rawText: string;
   status: string;
+  billId?: string | null;
   created_at: number;
 }
 
@@ -88,8 +190,8 @@ export function saveTransactionToSQLite(tx: SQLiteTransactionRecord): void {
     const db = getAutoAddDatabase();
     db.runSync(
       `INSERT OR REPLACE INTO auto_added_transactions 
-       (id, amount, type, merchant, category, bankName, accountLast4, refNo, timestamp, channel, rawText, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+       (id, amount, type, merchant, category, bankName, accountLast4, refNo, timestamp, channel, rawText, status, billId, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
       [
         tx.id,
         tx.amount,
@@ -103,6 +205,7 @@ export function saveTransactionToSQLite(tx: SQLiteTransactionRecord): void {
         tx.channel,
         tx.rawText,
         tx.status,
+        tx.billId || null,
         tx.created_at || Date.now(),
       ]
     );
@@ -129,13 +232,16 @@ export function savePendingAlertToSQLite(alert: {
   channel: string;
   confidence: number;
   rawText: string;
+  billId?: string | null;
+  candidateBills?: any[] | null;
+  suggestedBillId?: string | null;
 }): void {
   try {
     const db = getAutoAddDatabase();
     db.runSync(
       `INSERT OR REPLACE INTO auto_add_pending_alerts
-       (id, payKey, amount, type, merchant, category, bankName, accountLast4, refNo, timestamp, channel, confidence, rawText, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+       (id, payKey, amount, type, merchant, category, bankName, accountLast4, refNo, timestamp, channel, confidence, rawText, billId, candidateBills, suggestedBillId, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
       [
         alert.id,
         alert.payKey,
@@ -150,11 +256,258 @@ export function savePendingAlertToSQLite(alert: {
         alert.channel,
         alert.confidence,
         alert.rawText,
+        alert.billId || null,
+        alert.candidateBills ? JSON.stringify(alert.candidateBills) : null,
+        alert.suggestedBillId || null,
         Date.now(),
       ]
     );
   } catch (err) {
     warn('[SQLite] Error saving pending alert:', err);
+  }
+}
+
+/**
+ * Saves or updates a single recurring bill in SQLite.
+ */
+export function saveRecurringBillToSQLite(bill: any): void {
+  if (!bill || !bill.id || !bill.title) return;
+  try {
+    const db = getAutoAddDatabase();
+    const historyStr = Array.isArray(bill.paymentHistory)
+      ? JSON.stringify(bill.paymentHistory)
+      : typeof bill.paymentHistory === 'string'
+      ? bill.paymentHistory
+      : '[]';
+
+    db.runSync(
+      `INSERT OR REPLACE INTO recurring_bills
+       (id, title, amount, category, type, frequency, provider, brandColor, brandBadge, dueDay, cycleDays, startDate, lastPaidDate, lastPaidAt, nextDueDate, notes, status, autoConfirm, keywords, amountTolerance, linkedTransactionId, paymentHistory, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+      [
+        bill.id,
+        bill.title,
+        Number(bill.amount) || 0,
+        bill.category || 'Bills',
+        bill.type || 'monthly_date',
+        bill.frequency || null,
+        bill.provider || null,
+        bill.brandColor || null,
+        bill.brandBadge || null,
+        bill.dueDay ? Number(bill.dueDay) : null,
+        bill.cycleDays ? Number(bill.cycleDays) : null,
+        bill.startDate || null,
+        bill.lastPaidDate || null,
+        bill.lastPaidAt ? Number(bill.lastPaidAt) : null,
+        bill.nextDueDate || '',
+        bill.notes || null,
+        bill.status || 'pending',
+        bill.autoConfirm !== false ? 1 : 0,
+        bill.keywords ? (Array.isArray(bill.keywords) ? bill.keywords.join(', ') : String(bill.keywords)) : null,
+        Number(bill.amountTolerance) || 0,
+        bill.linkedTransactionId || null,
+        historyStr,
+        Date.now(),
+      ]
+    );
+  } catch (err) {
+    warn('[SQLite] Error saving recurring bill to SQLite:', err);
+  }
+}
+
+/**
+ * Synchronizes the full list of recurring bills into SQLite cache.
+ */
+export function syncRecurringBillsToSQLite(bills: any[]): void {
+  if (!Array.isArray(bills)) return;
+  try {
+    const db = getAutoAddDatabase();
+    db.runSync('BEGIN TRANSACTION;');
+    for (const bill of bills) {
+      if (!bill || !bill.id) continue;
+      const historyStr = Array.isArray(bill.paymentHistory)
+        ? JSON.stringify(bill.paymentHistory)
+        : typeof bill.paymentHistory === 'string'
+        ? bill.paymentHistory
+        : '[]';
+
+      db.runSync(
+        `INSERT OR REPLACE INTO recurring_bills
+         (id, title, amount, category, type, frequency, provider, brandColor, brandBadge, dueDay, cycleDays, startDate, lastPaidDate, lastPaidAt, nextDueDate, notes, status, autoConfirm, keywords, amountTolerance, linkedTransactionId, paymentHistory, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+        [
+          bill.id,
+          bill.title,
+          Number(bill.amount) || 0,
+          bill.category || 'Bills',
+          bill.type || 'monthly_date',
+          bill.frequency || null,
+          bill.provider || null,
+          bill.brandColor || null,
+          bill.brandBadge || null,
+          bill.dueDay ? Number(bill.dueDay) : null,
+          bill.cycleDays ? Number(bill.cycleDays) : null,
+          bill.startDate || null,
+          bill.lastPaidDate || null,
+          bill.lastPaidAt ? Number(bill.lastPaidAt) : null,
+          bill.nextDueDate || '',
+          bill.notes || null,
+          bill.status || 'pending',
+          bill.autoConfirm !== false ? 1 : 0,
+          bill.keywords ? (Array.isArray(bill.keywords) ? bill.keywords.join(', ') : String(bill.keywords)) : null,
+          Number(bill.amountTolerance) || 0,
+          bill.linkedTransactionId || null,
+          historyStr,
+          Date.now(),
+        ]
+      );
+    }
+    db.runSync('COMMIT;');
+    log('[SQLite] Synced', bills.length, 'recurring bills into SQLite.');
+  } catch (err) {
+    warn('[SQLite] Error syncing recurring bills to SQLite:', err);
+  }
+}
+
+/**
+ * Reads all recurring bills from local SQLite (synchronous & reliable in background headless tasks).
+ */
+export function getRecurringBillsFromSQLite(): any[] {
+  try {
+    const db = getAutoAddDatabase();
+    const rows = db.getAllSync<any>('SELECT * FROM recurring_bills ORDER BY nextDueDate ASC;');
+    return rows.map((r) => {
+      let paymentHistory: any[] = [];
+      if (r.paymentHistory) {
+        try {
+          paymentHistory = JSON.parse(r.paymentHistory);
+        } catch {}
+      }
+      return {
+        ...r,
+        amount: Number(r.amount) || 0,
+        dueDay: r.dueDay ? Number(r.dueDay) : undefined,
+        cycleDays: r.cycleDays ? Number(r.cycleDays) : undefined,
+        amountTolerance: Number(r.amountTolerance) || 0,
+        autoConfirm: r.autoConfirm === 1 || r.autoConfirm === true || r.autoConfirm == null,
+        paymentHistory,
+      };
+    });
+  } catch (err) {
+    warn('[SQLite] Error reading recurring bills:', err);
+    return [];
+  }
+}
+
+/**
+ * Marks a bill as paid directly in SQLite, advances next due date, links transaction, and appends payment history.
+ */
+export function markBillPaidInSQLite(
+  billId: string,
+  txId: string,
+  amount: number,
+  paidDate: string,
+  nextDueDate: string,
+  paymentRecord?: any
+): void {
+  try {
+    const db = getAutoAddDatabase();
+    const existing = db.getFirstSync<{ paymentHistory: string }>(
+      'SELECT paymentHistory FROM recurring_bills WHERE id = ?;',
+      [billId]
+    );
+
+    let history: any[] = [];
+    if (existing?.paymentHistory) {
+      try {
+        history = JSON.parse(existing.paymentHistory);
+      } catch {}
+    }
+    if (paymentRecord) {
+      history = [paymentRecord, ...history];
+    }
+
+    db.runSync(
+      `UPDATE recurring_bills 
+       SET status = 'paid',
+           lastPaidDate = ?,
+           lastPaidAt = ?,
+           nextDueDate = ?,
+           linkedTransactionId = ?,
+           paymentHistory = ?,
+           updated_at = ?
+       WHERE id = ?;`,
+      [
+        paidDate,
+        Date.now(),
+        nextDueDate,
+        txId,
+        JSON.stringify(history),
+        Date.now(),
+        billId,
+      ]
+    );
+    log('[SQLite] Successfully marked bill as paid in SQLite:', billId);
+  } catch (err) {
+    warn('[SQLite] Error marking bill as paid in SQLite:', err);
+  }
+}
+
+/**
+ * Reverts a bill's paid status, restores previous due date, and unlinks the transaction.
+ */
+export function undoBillPaymentInSQLite(
+  billId: string,
+  txId: string,
+  prevDueDate?: string
+): void {
+  try {
+    const db = getAutoAddDatabase();
+    const existing = db.getFirstSync<{ paymentHistory: string; nextDueDate: string }>(
+      'SELECT paymentHistory, nextDueDate FROM recurring_bills WHERE id = ?;',
+      [billId]
+    );
+
+    let history: any[] = [];
+    if (existing?.paymentHistory) {
+      try {
+        history = JSON.parse(existing.paymentHistory);
+      } catch {}
+    }
+    const filteredHistory = history.filter((p) => p.transactionId !== txId);
+    const targetDue = prevDueDate || existing?.nextDueDate || '';
+
+    db.runSync(
+      `UPDATE recurring_bills 
+       SET status = 'pending',
+           linkedTransactionId = NULL,
+           nextDueDate = CASE WHEN ? != '' THEN ? ELSE nextDueDate END,
+           paymentHistory = ?,
+           updated_at = ?
+       WHERE id = ?;`,
+      [
+        targetDue,
+        targetDue,
+        JSON.stringify(filteredHistory),
+        Date.now(),
+        billId,
+      ]
+    );
+    log('[SQLite] Successfully undid bill payment in SQLite:', billId);
+  } catch (err) {
+    warn('[SQLite] Error undoing bill payment in SQLite:', err);
+  }
+}
+
+/**
+ * Deletes a recurring bill from SQLite.
+ */
+export function deleteRecurringBillFromSQLite(billId: string): void {
+  try {
+    const db = getAutoAddDatabase();
+    db.runSync('DELETE FROM recurring_bills WHERE id = ?;', [billId]);
+  } catch (err) {
+    warn('[SQLite] Error deleting bill from SQLite:', err);
   }
 }
 

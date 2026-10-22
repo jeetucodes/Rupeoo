@@ -12,6 +12,9 @@ export interface PendingAlertItem {
   alert: ParsedAlert;
   createdAt: number;
   batchId?: string;
+  candidateBills?: any[];
+  suggestedBillId?: string;
+  billId?: string | null;
 }
 
 const getInboxKey = (userId: string) => `@rupeo_sms_pending_inbox_${userId}`;
@@ -81,6 +84,7 @@ export async function confirmPendingAlert(
     type?: 'expense' | 'income' | 'transfer';
     payment_mode?: string;
     date?: string;
+    billId?: string | null;
   }
 ): Promise<string | null> {
   if (!userId || !pendingId) return null;
@@ -94,8 +98,24 @@ export async function confirmPendingAlert(
 
   const finalAmount = overrides?.amount ?? target.alert.amount ?? 0;
   const finalType = overrides?.type ?? target.alert.type ?? 'expense';
-  const finalCategory = overrides?.category ?? target.alert.category ?? 'Others';
+  let finalCategory = overrides?.category ?? target.alert.category ?? 'Others';
   const finalMerchant = overrides?.merchant_name ?? target.alert.merchantNormalized ?? target.alert.merchant ?? null;
+
+  // Check if a bill is linked
+  const chosenBillId = overrides?.billId !== undefined ? overrides.billId : (target.billId || target.suggestedBillId || null);
+
+  // If linked to a bill, adopt bill's category if category was not manually changed
+  let matchedBillObj: any = null;
+  if (chosenBillId) {
+    try {
+      const { getRecurringBillsFromSQLite } = await import('../features/autoAdd/sqliteStorage.ts');
+      const bills = getRecurringBillsFromSQLite();
+      matchedBillObj = bills.find((b: any) => b.id === chosenBillId);
+      if (matchedBillObj && !overrides?.category && matchedBillObj.category) {
+        finalCategory = matchedBillObj.category;
+      }
+    } catch {}
+  }
 
   // Format note if user enabled note saving
   const formattedNote = formatTransactionNote(target.alert.sender, target.alert.rawText, settings);
@@ -120,11 +140,33 @@ export async function confirmPendingAlert(
     sourceHash: target.msgHash,
     payKey: target.payKey,
     batchId: target.batchId || null,
+    billId: chosenBillId || null,
     importedAt: Date.now(),
   };
 
   // 1. Call existing insertTransaction
   const createdId = await insertTransaction(userId, txPayload);
+  const finalTxId = createdId || deterministicId;
+
+  // 1.1 If bill matched, mark bill as paid, advance due date & record history
+  if (chosenBillId && matchedBillObj) {
+    try {
+      const { calculateAdvancedDueDate } = await import('../features/bills/matchBill.ts');
+      const { recordMatchedBillPayment } = await import('./database.ts');
+      const nextDue = calculateAdvancedDueDate(matchedBillObj, dateStr);
+      const paymentRecord = {
+        id: `pay_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        transactionId: finalTxId,
+        amount: finalAmount,
+        date: dateStr,
+        paidAt: Date.now(),
+        paymentMode: txPayload.payment_mode,
+      };
+      await recordMatchedBillPayment(userId, chosenBillId, finalTxId, finalAmount, dateStr, nextDue, paymentRecord);
+    } catch (billErr) {
+      warn('Error marking matched bill as paid on pending confirm:', billErr);
+    }
+  }
 
   // 2. Remove from pending inbox
   const remaining = current.filter((p) => p.id !== pendingId);
@@ -134,7 +176,7 @@ export async function confirmPendingAlert(
   // 3. Mark msgHash as processed in dedupe store
   await markMsgsProcessedBatch(userId, [{ msgHash: target.msgHash }]);
 
-  return createdId || deterministicId;
+  return finalTxId;
 }
 
 /**

@@ -199,7 +199,7 @@ export default function AutoAddSettings() {
             iconBg="#ECFDF5"
             iconColor="#059669"
             label="Auto-add Transactions"
-            subtitle="Save high-confidence (≥90%) bank &amp; UPI alerts directly"
+            subtitle="Directly record bank &amp; UPI payments to transactions"
             isSwitch
             switchValue={settings.autoAddEnabled}
             onSwitchChange={(val) => handleToggle('autoAddEnabled', val)}

@@ -7,13 +7,13 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { sha256 } from '@/lib/cryptoUtils';
-import { normalizeWhitespace } from '@/lib/alertParser';
-import { warn } from '@/lib/logger';
+import { sha256 } from '../../lib/cryptoUtils.ts';
+import { normalizeWhitespace } from '../../lib/alertParser.ts';
+import { warn } from '../../lib/logger.ts';
 
 const NOTIF_HASHES_KEY = '@rupeo_notif_processed_hashes';
 const RECENT_PAYMENTS_KEY = '@rupeo_notif_recent_payments';
-const TWO_MINUTES_MS = 2 * 60 * 1000;
+const DEDUPE_WINDOW_MS = 6 * 60 * 1000; // 6-minute window for cross-channel notifications (e.g. Bank App first, SMS later)
 const MAX_STORED_HASHES = 500;
 const MAX_RECENT_PAYMENTS = 200;
 
@@ -26,6 +26,8 @@ interface RecentPaymentEntry {
   timestamp: number;
   packageName: string;
   txId?: string;
+  refNo?: string | null;
+  accountLast4?: string | null;
 }
 let memoryRecentPayments: RecentPaymentEntry[] = [];
 let isCacheLoaded = false;
@@ -105,27 +107,47 @@ export async function markNotifProcessed(notifHash: string): Promise<void> {
 }
 
 /**
- * Layer 2: Checks if an identical payment event (amount + type) occurred within 2 minutes
- * across different sources (e.g. Bank SMS app vs UPI app like PhonePe/GPay).
+ * Layer 2: Checks if an identical payment event (amount + type) occurred across different sources
+ * (e.g. Bank app pushed first, and SMS arrived seconds or minutes later).
  */
 export async function checkCrossChannelDuplicate(
   amount: number,
   type: string,
   timestamp: number,
-  packageName: string
+  packageName: string,
+  refNo?: string | null,
+  accountLast4?: string | null
 ): Promise<{ isDuplicate: boolean; existingTxId?: string }> {
   await loadNotifDedupeCache();
 
   const now = timestamp || Date.now();
   const normType = (type || 'expense').toLowerCase();
+  const cleanRef = (refNo || '').trim().toLowerCase();
+  const cleanAcct = (accountLast4 || '').trim();
 
   for (const entry of memoryRecentPayments) {
-    // Match amount (exact) and type ('expense' vs 'income')
+    // 1. Direct Reference Number match (highest confidence, valid across 24h)
+    if (cleanRef && cleanRef.length >= 4 && entry.refNo && entry.refNo.toLowerCase() === cleanRef) {
+      return {
+        isDuplicate: true,
+        existingTxId: entry.txId,
+      };
+    }
+
+    // 2. Match amount (exact) and type ('expense' vs 'income')
     if (Math.abs(entry.amount - amount) < 0.01 && entry.type === normType) {
-      // Check if within 2-minute time window
       const timeDiff = Math.abs(entry.timestamp - now);
-      if (timeDiff <= TWO_MINUTES_MS) {
-        // Same real-world transaction from another app (e.g., SMS + UPI)
+
+      // If same bank account number and within 15 minutes
+      if (cleanAcct && entry.accountLast4 && entry.accountLast4 === cleanAcct && timeDiff <= 15 * 60 * 1000) {
+        return {
+          isDuplicate: true,
+          existingTxId: entry.txId,
+        };
+      }
+
+      // Check if within 6-minute cross-channel time window (e.g., Bank app + SMS)
+      if (timeDiff <= DEDUPE_WINDOW_MS) {
         return {
           isDuplicate: true,
           existingTxId: entry.txId,
@@ -145,13 +167,15 @@ export async function recordRecentPayment(
   type: string,
   timestamp: number,
   packageName: string,
-  txId?: string
+  txId?: string,
+  refNo?: string | null,
+  accountLast4?: string | null
 ): Promise<void> {
   await loadNotifDedupeCache();
 
   const now = timestamp || Date.now();
   const normType = (type || 'expense').toLowerCase();
-  const payKey = `${amount.toFixed(2)}_${normType}_${Math.floor(now / TWO_MINUTES_MS)}`;
+  const payKey = `${amount.toFixed(2)}_${normType}_${Math.floor(now / DEDUPE_WINDOW_MS)}`;
 
   memoryRecentPayments.unshift({
     payKey,
@@ -160,6 +184,8 @@ export async function recordRecentPayment(
     timestamp: now,
     packageName,
     txId,
+    refNo: refNo ? refNo.trim() : null,
+    accountLast4: accountLast4 ? accountLast4.trim() : null,
   });
 
   if (memoryRecentPayments.length > MAX_RECENT_PAYMENTS) {

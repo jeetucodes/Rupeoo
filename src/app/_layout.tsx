@@ -16,7 +16,7 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
-import { initDatabase, syncUserOfflineData, deleteTransaction } from '@/lib/database';
+import { initDatabase, syncUserOfflineData, deleteTransaction, undoBillPayment } from '@/lib/database';
 import { initializeAds } from '@/lib/ads';
 import Toast from 'react-native-toast-message';
 import { customToastConfig } from '@/components/custom-toast';
@@ -185,16 +185,29 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       ) {
         if (response.actionIdentifier === 'UNDO_ACTION' && data?.transactionId) {
           const targetUid = (data.userId as string) || user?.uid || 'local';
-          deleteTransaction(targetUid, data.transactionId as string)
-            .then(() => {
-              Toast.show({
-                type: 'info',
-                text1: 'Transaction Undone',
-                text2: 'The auto-added transaction was removed.',
-                visibilityTime: 3500,
-              });
-            })
-            .catch(() => {});
+          if (data.billId) {
+            undoBillPayment(targetUid, data.billId as string, data.transactionId as string, data.prevDueDate as string)
+              .then(() => {
+                Toast.show({
+                  type: 'info',
+                  text1: 'Bill Payment Undone',
+                  text2: 'Bill marked unpaid and transaction removed.',
+                  visibilityTime: 3500,
+                });
+              })
+              .catch(() => {});
+          } else {
+            deleteTransaction(targetUid, data.transactionId as string)
+              .then(() => {
+                Toast.show({
+                  type: 'info',
+                  text1: 'Transaction Undone',
+                  text2: 'The auto-added transaction was removed.',
+                  visibilityTime: 3500,
+                });
+              })
+              .catch(() => {});
+          }
           return;
         }
 

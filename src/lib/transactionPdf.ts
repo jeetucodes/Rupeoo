@@ -4,6 +4,7 @@ import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 import { formatTime12Hour } from './dateUtils';
 import type { ReceiptTheme } from './receiptTheme';
+import { getDisplayTransactionNote } from './smsSettings';
 import { warn, error } from '@/lib/logger';
 
 export type { ReceiptTheme };
@@ -787,17 +788,32 @@ function generateGradientSlipHtml(
         </div>
       </div>
 
-      ${description
-      ? `
-      <div class="slip-spec-row" style="align-items:flex-start;">
-        <div class="slip-spec-label">NOTE</div>
-        <div class="slip-spec-value" style="font-weight:600;color:#475569;max-width:65%;text-align:right;">
-          ${description}
+      ${(() => {
+        const noteToShow = getDisplayTransactionNote(description);
+        if (!noteToShow) return '';
+        const isOriginalMsg = noteToShow.startsWith('Original Message:');
+        const messageBody = isOriginalMsg
+          ? noteToShow.replace(/^Original Message:\s*/i, '').trim()
+          : noteToShow;
+
+        return `
+        <div class="slip-spec-row" style="align-items:flex-start;${isOriginalMsg ? 'flex-direction:column;padding:12px 0;' : ''}">
+          <div style="display:flex;align-items:center;gap:8px;${isOriginalMsg ? 'margin-bottom:6px;width:100%;' : ''}">
+            <div class="slip-spec-label">NOTE</div>
+            ${isOriginalMsg ? `
+              <div style="font-size:10px;font-weight:800;color:#2563EB;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:4px;padding:2px 6px;letter-spacing:0.3px;">
+                Original Message
+              </div>
+            ` : ''}
+          </div>
+          <div class="slip-spec-value" style="font-weight:600;color:#475569;${isOriginalMsg ? 'width:100%;text-align:left;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:8px 10px;box-sizing:border-box;' : 'max-width:65%;text-align:left;margin-left:auto;'}">
+            <div style="font-size:12.5px;line-height:1.45;color:#334155;text-align:left;">
+              ${isOriginalMsg ? messageBody : noteToShow}
+            </div>
+          </div>
         </div>
-      </div>
-      `
-      : ''
-    }
+        `;
+      })()}
 
       ${resolvedImageSrc
       ? `
@@ -1438,14 +1454,23 @@ export function generateTransactionReceiptHtml(
             ${isCredit ? 'Credit (Income)' : 'Debit (Expense)'}
           </span>
         </div>
-        ${description && description.trim().length > 0 ? `
-        <div class="ledger-row">
-          <span class="ledger-label">REMARKS</span>
-          <span class="ledger-val" style="color:#64748B;font-weight:600;max-width:65%;text-align:right;">
-            ${description.trim()}
-          </span>
-        </div>
-        ` : ''}
+        ${(() => {
+          const noteToShow = getDisplayTransactionNote(description);
+          if (!noteToShow) return '';
+          const isOriginalMsg = noteToShow.startsWith('Original Message:');
+          const messageBody = isOriginalMsg
+            ? noteToShow.replace(/^Original Message:\s*/i, '').trim()
+            : noteToShow;
+
+          return `
+          <div class="ledger-row" style="align-items:flex-start;">
+            <span class="ledger-label">${isOriginalMsg ? 'ORIGINAL MSG' : 'REMARKS'}</span>
+            <span class="ledger-val" style="color:#64748B;font-weight:600;max-width:65%;text-align:left;line-height:1.4;">
+              ${messageBody}
+            </span>
+          </div>
+          `;
+        })()}
       </div>
 
       <!-- ATTACHED RECEIPT IMAGE (if present) -->

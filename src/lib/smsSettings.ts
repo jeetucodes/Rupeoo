@@ -14,7 +14,7 @@ export interface SmsImportSettings {
 export const DEFAULT_SMS_SETTINGS: SmsImportSettings = {
   autoAddEnabled: true,
   reviewBeforeAdding: false,
-  saveOriginalInNote: false,
+  saveOriginalInNote: true,
   maskAccountNumbers: true,
   customCategoryRules: {},
   allowedSenders: [],
@@ -186,22 +186,100 @@ export function maskAccountNumbersInText(text: string): string {
 }
 
 /**
- * Formats note text for the transaction according to safety block rule 5:
- * "Imported from SMS · <bank sender> · <original text, masked>"
+ * Strips Android package names, system debug headers, and google.android strings from the text.
+ */
+export function cleanOriginalMessage(rawText: string): string {
+  if (!rawText) return '';
+  let cleaned = rawText.trim();
+
+  // 1. Remove any "Imported from SMS" or "Imported from Notification" header line(s)
+  cleaned = cleaned.replace(/Imported from (?:SMS|Notification)[^\n·]*[·\n]*/gi, '');
+
+  // 2. Remove Android package identifiers anywhere in the text (e.g. com.google.android.apps.messaging, com.phonepe.app, etc.)
+  cleaned = cleaned.replace(/\b[a-z0-9_]+(?:\.[a-z0-9_]+)+\b/gi, (match) => {
+    if (/^(?:com|in|net|org|io|ai|app)\./i.test(match) || /google|android/i.test(match)) {
+      return '';
+    }
+    return match;
+  });
+
+  // 3. Remove any occurrence of google.android (or typo google.andriod)
+  cleaned = cleaned.replace(/google\.(?:android|andriod)[a-zA-Z0-9_.]*/gi, '');
+
+  // 4. Split lines and filter out empty lines, standalone separator lines, or lines containing package/system metadata
+  const lines = cleaned
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => {
+      if (!l) return false;
+      if (/^[·\-\s:,\*•|]+$/.test(l)) return false;
+      if (/google\.(?:android|andriod)/i.test(l)) return false;
+      if (/^(?:com\.|in\.|net\.|org\.|io\.|app\.)/i.test(l)) return false;
+      if (/^Imported from/i.test(l)) return false;
+      return true;
+    });
+
+  cleaned = lines.join('\n').trim();
+
+  // Remove leading leftover separators like "·", "-", ":", ",", "•"
+  cleaned = cleaned.replace(/^[·\-\s:,•|]+/, '').trim();
+
+  // If text already has "Original Message:" header, strip it so we don't repeat
+  cleaned = cleaned.replace(/^Original (?:Message|SMS):\s*/i, '').trim();
+
+  return cleaned;
+}
+
+/**
+ * Returns clean, presentation-ready transaction note.
+ * Strips legacy prefixes like "Imported from SMS · com.google.android.apps.messaging · "
+ * and formats clean original SMS/Bank alert text with "Original Message:" header.
+ */
+export function getDisplayTransactionNote(description: string | null | undefined): string {
+  if (!description) return '';
+  const trimmed = description.trim();
+  if (!trimmed) return '';
+
+  const isImported =
+    trimmed.includes('Imported from SMS') ||
+    trimmed.includes('Imported from Notification') ||
+    /google\.(?:android|andriod)/i.test(trimmed) ||
+    /\b(?:com|in|net|org)\.[a-zA-Z0-9_.]+/i.test(trimmed) ||
+    /^Original (?:Message|SMS):\s*/i.test(trimmed);
+
+  if (isImported) {
+    const clean = cleanOriginalMessage(trimmed);
+    if (!clean) return '';
+    return `Original Message:\n${clean}`;
+  }
+
+  return trimmed;
+}
+
+/**
+ * Formats note text for the transaction.
+ * Saves cleanly formatted original message without system package metadata:
+ * "Original Message:
+ * <message body, masked>"
  */
 export function formatTransactionNote(
   sender: string,
   rawText: string,
-  settings: SmsImportSettings
+  settings?: Partial<SmsImportSettings>
 ): string | null {
-  if (!settings.saveOriginalInNote) {
+  if (settings && settings.saveOriginalInNote === false) {
     return null;
   }
 
-  const senderLabel = sender.trim() || 'Bank Alert';
-  const bodyText = settings.maskAccountNumbers ? maskAccountNumbersInText(rawText) : rawText;
+  const cleanBody = cleanOriginalMessage(rawText);
+  if (!cleanBody) {
+    return null;
+  }
 
-  return `Imported from SMS · ${senderLabel} · ${bodyText}`;
+  const mask = settings?.maskAccountNumbers !== false;
+  const bodyText = mask ? maskAccountNumbersInText(cleanBody) : cleanBody;
+
+  return `Original Message:\n${bodyText}`;
 }
 
 // ---------------------------------------------------------------------------

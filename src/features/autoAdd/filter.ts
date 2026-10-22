@@ -33,22 +33,54 @@ export const ALLOWED_UPI_AND_BANK_PACKAGES = new Set([
   'com.freecharge.android',                // Freecharge
   'com.mobikwik_new',                      // MobiKwik
   'in.amazon.mShop.android.shopping',      // Amazon Pay
+  'org.indyfin.slice',                     // Slice
+  'com.navi.finance',                      // Navi
+  'money.super.app',                       // super.money
+  'com.tatadigital.tcp',                   // Tata Neu
+  'com.myairtelapp',                       // Airtel Payments Bank
+  'com.jio.myjio',                         // MyJio UPI
+  'com.jio.finance',                       // JioFinance
+  'com.samsung.android.spay',              // Samsung Wallet
+  'com.samsung.android.raja.pay',          // Samsung Wallet India
 
   // Top Indian Banks
   'com.csam.icici.bank.imobile',           // ICICI iMobile
+  'com.icicibank.pockets',                 // ICICI Pockets
   'com.snapwork.hdfc',                     // HDFC Bank MobileBanking
+  'com.hdfcbank.payzapp',                  // HDFC PayZapp
+  'com.hdfc.mycards',                      // HDFC MyCards
   'com.sbi.SBIFreedomPlus',                // YONO SBI
+  'com.sbi.lotuslite',                     // YONO Lite SBI
+  'com.sbi.upi',                           // BHIM SBI Pay
   'com.axis.mobile',                       // Axis Mobile
-  'com.msf.kbank.mobile',                  // Kotak 811
+  'com.axis.netbanking',                   // Axis NetBanking
+  'com.msf.kbank.mobile',                  // Kotak 811 Mobile Banking
+  'com.kotak.mobile',                      // Kotak Bank
+  'com.kotak.mb',                          // Kotak Mobile
+  'com.kotak.cherry',                      // Kotak Cherry
   'com.rblbank.mobank',                    // RBL MoBank
   'com.bankofbaroda.mconnect',             // bob World
+  'com.bob.upi',                           // bob UPI
   'com.infrasofttech.canarabank',          // Canara ai1
+  'com.canarabank.mobility',               // Canara Bank
   'com.fss.pnb',                           // PNB One
-  'com.fedmobile',                         // Federal Bank
+  'com.pnb.upi',                           // PNB BHIM
+  'com.infrasofttech.uboi',                // Union Bank of India
+  'com.unionbank.unionrush',               // Union Bank
+  'com.unionbank.vyom',                    // Union Bank Vyom
+  'com.boimobile',                         // Bank of India Mobile
+  'com.bankofindia.bhim',                  // BOI BHIM UPI
+  'com.infrasoft.indianbank',              // Indian Bank IndOASIS
+  'com.infrasofttech.centralbank',         // Central Bank Cent Mobile
+  'com.fedmobile',                         // Federal Bank FedMobile
+  'com.federalbank.fedbook',               // FedBook
   'com.idfcfirstbank.optimus',             // IDFC FIRST Bank
   'com.indusind.indusmobile',              // IndusInd Bank
   'com.yesbank',                           // YES Bank
+  'com.yesbank.iris',                      // YES Bank IRIS
   'com.aubank.aupay',                      // AU 0101
+  'com.equitasbank.mobilebanking',         // Equitas Bank
+  'com.ujjivan.mobile',                    // Ujjivan SFB
 ]);
 
 export const ALL_ALLOWED_PACKAGES = new Set([
@@ -56,12 +88,107 @@ export const ALL_ALLOWED_PACKAGES = new Set([
   ...ALLOWED_UPI_AND_BANK_PACKAGES,
 ]);
 
+// Flexible banking & fintech package regex fallback for any Indian banking app
+export const BANK_OR_FINTECH_PACKAGE_REGEX =
+  /(?:bank|kbank|upi|paisa|payzapp|imobile|yono|canara|unionbank|bobworld|fednet|fedmobile|indusnet|idfc|kotak|hdfc|icici|axis|sbi|paytm|phonepe|cred|mobikwik|freecharge|slice|navi|super\.money)/i;
+
+export const PACKAGE_BRAND_NAMES: Record<string, string> = {
+  // UPI & Fintech
+  'com.google.android.apps.nbu.paisa.user': 'Google Pay',
+  'com.phonepe.app': 'PhonePe',
+  'net.one97.paytm': 'Paytm',
+  'in.org.npci.upiapp': 'BHIM UPI',
+  'com.dreamplug.androidapp': 'CRED',
+  'com.citrus.citruspay': 'LazyPay',
+  'com.jupiter.money': 'Jupiter',
+  'com.epifi': 'Fi Money',
+  'com.onecard': 'OneCard',
+  'com.freecharge.android': 'Freecharge',
+  'com.mobikwik_new': 'MobiKwik',
+  'in.amazon.mShop.android.shopping': 'Amazon Pay',
+  'org.indyfin.slice': 'Slice',
+  'com.navi.finance': 'Navi',
+  'money.super.app': 'super.money',
+  'com.tatadigital.tcp': 'Tata Neu',
+  'com.myairtelapp': 'Airtel Payments Bank',
+  'com.jio.myjio': 'Jio Payments',
+  'com.jio.finance': 'JioFinance',
+  'com.samsung.android.spay': 'Samsung Wallet',
+  'com.samsung.android.raja.pay': 'Samsung Wallet',
+
+  // Top Indian Banks
+  'com.csam.icici.bank.imobile': 'ICICI Bank',
+  'com.icicibank.pockets': 'ICICI Pockets',
+  'com.snapwork.hdfc': 'HDFC Bank',
+  'com.hdfcbank.payzapp': 'PayZapp',
+  'com.hdfc.mycards': 'HDFC Bank',
+  'com.sbi.SBIFreedomPlus': 'SBI YONO',
+  'com.sbi.lotuslite': 'SBI YONO Lite',
+  'com.sbi.upi': 'BHIM SBI Pay',
+  'com.axis.mobile': 'Axis Bank',
+  'com.axis.netbanking': 'Axis Bank',
+  'com.msf.kbank.mobile': 'Kotak Bank',
+  'com.kotak.mobile': 'Kotak Bank',
+  'com.kotak.mb': 'Kotak Bank',
+  'com.kotak.cherry': 'Kotak Cherry',
+  'com.rblbank.mobank': 'RBL Bank',
+  'com.bankofbaroda.mconnect': 'Bank of Baroda',
+  'com.bob.upi': 'Bank of Baroda',
+  'com.infrasofttech.canarabank': 'Canara Bank',
+  'com.canarabank.mobility': 'Canara Bank',
+  'com.fss.pnb': 'PNB One',
+  'com.pnb.upi': 'PNB One',
+  'com.infrasofttech.uboi': 'Union Bank',
+  'com.unionbank.unionrush': 'Union Bank',
+  'com.unionbank.vyom': 'Union Bank Vyom',
+  'com.boimobile': 'Bank of India',
+  'com.bankofindia.bhim': 'Bank of India',
+  'com.infrasoft.indianbank': 'Indian Bank',
+  'com.infrasofttech.centralbank': 'Central Bank of India',
+  'com.fedmobile': 'Federal Bank',
+  'com.federalbank.fedbook': 'Federal Bank',
+  'com.idfcfirstbank.optimus': 'IDFC FIRST Bank',
+  'com.indusind.indusmobile': 'IndusInd Bank',
+  'com.yesbank': 'YES Bank',
+  'com.yesbank.iris': 'YES Bank IRIS',
+  'com.aubank.aupay': 'AU Small Finance Bank',
+  'com.equitasbank.mobilebanking': 'Equitas Bank',
+  'com.ujjivan.mobile': 'Ujjivan Bank',
+};
+
 /**
- * Checks if the notification package belongs to our approved allowlist.
+ * Resolves a human-friendly sender or bank name from package and title.
+ * Ensures package names like com.google.android.apps.messaging never leak to UI or notes.
+ */
+export function getFriendlySenderName(packageName: string, title?: string): string {
+  if (isSmsPackage(packageName)) {
+    const cleanTitle = (title || '').trim();
+    if (cleanTitle && !/^(?:messages|sms|mms|message)$/i.test(cleanTitle) && !cleanTitle.includes('.')) {
+      return cleanTitle;
+    }
+    return 'Bank SMS';
+  }
+
+  const brand = PACKAGE_BRAND_NAMES[packageName.toLowerCase()];
+  if (brand) return brand;
+
+  if (title && title.trim().length > 0 && !title.includes('.')) {
+    return title.trim();
+  }
+
+  return 'Bank Alert';
+}
+
+/**
+ * Checks if the notification package belongs to our approved allowlist or contains banking/UPI markers.
  */
 export function isPackageAllowed(packageName: string): boolean {
   if (!packageName) return false;
-  return ALL_ALLOWED_PACKAGES.has(packageName.trim().toLowerCase());
+  const clean = packageName.trim().toLowerCase();
+  if (ALL_ALLOWED_PACKAGES.has(clean)) {
+    return true;
+  }
+  return BANK_OR_FINTECH_PACKAGE_REGEX.test(clean);
 }
 
 /**
@@ -77,7 +204,8 @@ export function isSmsPackage(packageName: string): boolean {
  */
 export function isUpiOrBankPackage(packageName: string): boolean {
   if (!packageName) return false;
-  return ALLOWED_UPI_AND_BANK_PACKAGES.has(packageName.trim().toLowerCase());
+  const clean = packageName.trim().toLowerCase();
+  return ALLOWED_UPI_AND_BANK_PACKAGES.has(clean) || BANK_OR_FINTECH_PACKAGE_REGEX.test(clean);
 }
 
 /**

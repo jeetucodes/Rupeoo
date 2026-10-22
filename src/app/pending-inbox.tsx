@@ -59,22 +59,40 @@ export default function PendingInboxScreen() {
     loadAlerts();
   }, [loadAlerts]);
 
+  const [selectedBillMatches, setSelectedBillMatches] = useState<Record<string, string | null>>({});
+
   const handleConfirm = async (item: PendingAlertItem) => {
     setActionLoadingId(item.id);
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch { }
 
-    const success = await confirmPendingAlert(userId, item.id);
+    const chosenBillId =
+      selectedBillMatches[item.id] !== undefined
+        ? (selectedBillMatches[item.id] === 'none' ? null : selectedBillMatches[item.id])
+        : (item.suggestedBillId || item.billId || null);
+
+    const success = await confirmPendingAlert(userId, item.id, {
+      billId: chosenBillId,
+    });
     setActionLoadingId(null);
 
     if (success) {
       setAlerts(prev => prev.filter(a => a.id !== item.id));
-      Toast.show({
-        type: 'success',
-        text1: 'Transaction Added',
-        text2: `Added ₹${item.alert.amount} to transactions.`,
-      });
+      if (chosenBillId) {
+        const matched = item.candidateBills?.find((b: any) => b.id === chosenBillId);
+        Toast.show({
+          type: 'success',
+          text1: 'Bill Marked Paid ✅',
+          text2: `${matched?.title || 'Bill'} marked as paid & transaction linked.`,
+        });
+      } else {
+        Toast.show({
+          type: 'success',
+          text1: 'Transaction Added',
+          text2: `Added ₹${item.alert.amount} to transactions.`,
+        });
+      }
     } else {
       Toast.show({
         type: 'error',
@@ -213,6 +231,64 @@ export default function PendingInboxScreen() {
             </Text>
           </View>
         </View>
+
+        {/* Bill Matching Prompt */}
+        {item.candidateBills && item.candidateBills.length > 0 && (
+          <View style={styles.billMatchBox}>
+            <View style={styles.billMatchHeader}>
+              <Ionicons name="receipt-outline" size={15} color="#4F46E5" />
+              <Text style={styles.billMatchTitle}>Match to Bill?</Text>
+            </View>
+            <View style={styles.billCandidatesList}>
+              {item.candidateBills.map((b: any) => {
+                const isSelected =
+                  (selectedBillMatches[item.id] !== undefined
+                    ? selectedBillMatches[item.id] === b.id
+                    : (item.suggestedBillId === b.id || item.billId === b.id));
+                return (
+                  <TouchableOpacity
+                    key={b.id}
+                    style={[styles.billCandidateCard, isSelected && styles.billCandidateCardActive]}
+                    onPress={() => setSelectedBillMatches(prev => ({ ...prev, [item.id]: b.id }))}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.billRadio, isSelected && styles.billRadioActive]}>
+                      {isSelected && <View style={styles.billRadioInner} />}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.billCandidateTitle} numberOfLines={1}>{b.title}</Text>
+                      <Text style={styles.billCandidateMeta}>Due: {b.nextDueDate} • ₹{b.amount}</Text>
+                    </View>
+                    {b.id === item.suggestedBillId && (
+                      <View style={styles.suggestedBadge}>
+                        <Text style={styles.suggestedBadgeText}>Suggested</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+
+              <TouchableOpacity
+                style={[
+                  styles.billCandidateCard,
+                  selectedBillMatches[item.id] === 'none' && styles.billCandidateCardActive,
+                ]}
+                onPress={() => setSelectedBillMatches(prev => ({ ...prev, [item.id]: 'none' }))}
+                activeOpacity={0.7}
+              >
+                <View
+                  style={[
+                    styles.billRadio,
+                    selectedBillMatches[item.id] === 'none' && styles.billRadioActive,
+                  ]}
+                >
+                  {selectedBillMatches[item.id] === 'none' && <View style={styles.billRadioInner} />}
+                </View>
+                <Text style={styles.notABillText}>Not a bill (Standard expense)</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
 
         {/* Action Buttons */}
         <View style={styles.cardActions}>
@@ -777,5 +853,90 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: '#4F46E5',
+  },
+  billMatchBox: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 10,
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  billMatchHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 8,
+  },
+  billMatchTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#4F46E5',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+  billCandidatesList: {
+    gap: 6,
+  },
+  billCandidateCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  billCandidateCardActive: {
+    borderColor: '#4F46E5',
+    backgroundColor: '#EEF2FF',
+  },
+  billRadio: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: '#94A3B8',
+    marginRight: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  billRadioActive: {
+    borderColor: '#4F46E5',
+  },
+  billRadioInner: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#4F46E5',
+  },
+  billCandidateTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  billCandidateMeta: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 1,
+  },
+  suggestedBadge: {
+    backgroundColor: '#E0E7FF',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    marginLeft: 6,
+  },
+  suggestedBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#4338CA',
+  },
+  notABillText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748B',
   },
 });

@@ -38,6 +38,7 @@ import {
   deleteTransaction,
   getUserCategories,
   CategoryItem,
+  undoBillPayment,
 } from '@/lib/database';
 import { safeGoBack } from '@/lib/navigation';
 import { useTranslation } from '@/lib/i18n';
@@ -50,6 +51,7 @@ import Toast from 'react-native-toast-message';
 import Skeleton from '@/components/Skeleton';
 import ScannableBarcode from '@/components/ScannableBarcode';
 import ReceiptPaymentMethodBadge from '@/components/ReceiptPaymentMethodBadge';
+import { getDisplayTransactionNote } from '@/lib/smsSettings';
 import { warn, error } from '@/lib/logger';
 
 function formatDisplayDate(rawDate?: string): string {
@@ -138,6 +140,54 @@ export default function TransactionDetailScreen() {
   const receiptCardRef = useRef<View>(null);
   const scrollViewRef = useRef<ScrollView>(null);
   const [categories, setCategories] = useState<CategoryItem[]>([]);
+  const [linkedBillId, setLinkedBillId] = useState<string | null>(null);
+
+  const handleUnlinkBill = () => {
+    if (!linkedBillId || !user?.uid || !id) return;
+    Alert.alert(
+      'Undo Bill Match',
+      'Choose what to do with this transaction and the linked bill:',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Unlink & Keep Transaction',
+          onPress: async () => {
+            try {
+              await undoBillPayment(user.uid, linkedBillId, id, undefined, false);
+              setLinkedBillId(null);
+              Toast.show({
+                type: 'success',
+                text1: 'Bill Unlinked',
+                text2: 'Bill marked unpaid. Transaction kept as expense.',
+              });
+            } catch {
+              Toast.show({ type: 'error', text1: 'Error unlinking bill' });
+            }
+          },
+        },
+        {
+          text: 'Delete Transaction & Revert',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await undoBillPayment(user.uid, linkedBillId, id, undefined, true);
+              Toast.show({
+                type: 'info',
+                text1: 'Payment Undone',
+                text2: 'Transaction deleted and bill marked unpaid.',
+              });
+              safeGoBack(router);
+            } catch {
+              Toast.show({ type: 'error', text1: 'Error undoing payment' });
+            }
+          },
+        },
+      ]
+    );
+  };
 
   const barcodeValue = React.useMemo(() => {
     const raw = (id || 'TXN001').toUpperCase().replace(/[^0-9A-Z]/g, '');
@@ -265,6 +315,7 @@ export default function TransactionDetailScreen() {
           setCategory(tx.category || 'Food');
           setPaymentMode(tx.payment_mode || 'Cash');
           setReceiptImage(tx.receipt_image || tx.receiptImage || null);
+          setLinkedBillId((tx as any)?.billId || null);
 
           // Start entrance animations
           setTimeout(() => {
@@ -832,20 +883,76 @@ export default function TransactionDetailScreen() {
                       </View>
                     </View>
 
-                    {/* NOTE ROW (IF PRESENT) */}
-                    {description ? (
-                      <View style={[styles.slipRow, { alignItems: 'flex-start' }]}>
-                        <Text style={styles.slipRowLabel}>NOTE</Text>
-                        <Text
-                          style={[
-                            styles.slipRowValue,
-                            { flex: 1, textAlign: 'right', lineHeight: 20 },
-                          ]}
-                        >
-                          {description}
-                        </Text>
+                    {/* LINKED BILL ROW */}
+                    {linkedBillId && (
+                      <View style={styles.slipRow}>
+                        <Text style={styles.slipRowLabel}>LINKED BILL</Text>
+                        <View style={styles.slipRowValueContainer}>
+                          <View style={styles.linkedBillBadge}>
+                            <Ionicons name="receipt" size={13} color="#4F46E5" style={{ marginRight: 4 }} />
+                            <Text style={styles.linkedBillBadgeText}>Bill Payment</Text>
+                          </View>
+                          <TouchableOpacity
+                            onPress={handleUnlinkBill}
+                            style={styles.unlinkBillBtn}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={styles.unlinkBillBtnText}>Undo Match</Text>
+                          </TouchableOpacity>
+                        </View>
                       </View>
-                    ) : null}
+                    )}
+
+                    {/* NOTE ROW (IF PRESENT) */}
+                    {(() => {
+                      const noteToShow = getDisplayTransactionNote(description);
+                      if (!noteToShow) return null;
+                      const isOriginalMsg = noteToShow.startsWith('Original Message:');
+                      const messageBody = isOriginalMsg
+                        ? noteToShow.replace(/^Original Message:\s*/i, '').trim()
+                        : noteToShow;
+
+                      if (isOriginalMsg) {
+                        return (
+                          <View style={[styles.slipRow, { flexDirection: 'column', alignItems: 'flex-start', paddingVertical: 12 }]}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, width: '100%' }}>
+                              <Text style={styles.slipRowLabel}>NOTE</Text>
+                              <View style={styles.originalMsgBadge}>
+                                <Ionicons
+                                  name="chatbox-ellipses-outline"
+                                  size={11}
+                                  color="#2563EB"
+                                  style={{ marginRight: 4 }}
+                                />
+                                <Text style={styles.originalMsgBadgeText}>Original Message</Text>
+                              </View>
+                            </View>
+                            <View style={styles.originalMsgBox}>
+                              <Text style={styles.originalMsgText} selectable>
+                                {messageBody}
+                              </Text>
+                            </View>
+                          </View>
+                        );
+                      }
+
+                      return (
+                        <View style={[styles.slipRow, { alignItems: 'flex-start' }]}>
+                          <Text style={styles.slipRowLabel}>NOTE</Text>
+                          <View style={{ flex: 1, alignItems: 'flex-start', marginLeft: 16 }}>
+                            <Text
+                              style={[
+                                styles.slipRowValue,
+                                { textAlign: 'left', lineHeight: 20, fontSize: 13.5, color: '#334155' },
+                              ]}
+                              selectable
+                            >
+                              {noteToShow}
+                            </Text>
+                          </View>
+                        </View>
+                      );
+                    })()}
 
                     {/* PHOTO OR NO-PHOTO PLACEHOLDER */}
                     {receiptImage ? (
@@ -1709,6 +1816,40 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
+  originalMsgBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  originalMsgBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#2563EB',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  originalMsgBox: {
+    width: '100%',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: 6,
+  },
+  originalMsgText: {
+    fontSize: 12.5,
+    lineHeight: 19,
+    fontWeight: '600',
+    color: '#334155',
+    textAlign: 'left',
+  },
   slipInnerDash: {
     height: 1,
     borderWidth: 1,
@@ -2238,6 +2379,31 @@ const styles = StyleSheet.create({
     color: '#0F172A',
     letterSpacing: 0.2,
   },
-
-
+  linkedBillBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EEF2FF',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginRight: 8,
+  },
+  linkedBillBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#4F46E5',
+  },
+  unlinkBillBtn: {
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  unlinkBillBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#DC2626',
+  },
 });
