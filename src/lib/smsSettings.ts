@@ -8,6 +8,7 @@ export interface SmsImportSettings {
   maskAccountNumbers: boolean;      // Default: true (Keep only last 4 digits)
   customCategoryRules: Record<string, string>; // e.g. { "swiggy": "Food" }
   allowedSenders: string[];         // Empty = all known Indian banks
+  customBanks: string[];            // Custom banks or international senders added by user (e.g. Chase, Emirates NBD)
 }
 
 export const DEFAULT_SMS_SETTINGS: SmsImportSettings = {
@@ -17,6 +18,7 @@ export const DEFAULT_SMS_SETTINGS: SmsImportSettings = {
   maskAccountNumbers: true,
   customCategoryRules: {},
   allowedSenders: [],
+  customBanks: [],
 };
 
 const getSmsSettingsKey = (userId: string) => `@rupeo_sms_settings_${userId}`;
@@ -77,6 +79,40 @@ export async function saveSmsImportSettings(
   }
 
   return updated;
+}
+
+/**
+ * Adds a custom bank name or country sender code.
+ */
+export async function addCustomBank(userId: string, bankName: string): Promise<SmsImportSettings> {
+  const clean = bankName.trim().toUpperCase();
+  if (!clean) return getSmsImportSettings(userId);
+
+  const current = await getSmsImportSettings(userId);
+  const existing = current.customBanks || [];
+  if (existing.includes(clean)) {
+    return current;
+  }
+
+  const updatedBanks = [...existing, clean];
+  return saveSmsImportSettings(userId, {
+    customBanks: updatedBanks,
+    allowedSenders: updatedBanks,
+  });
+}
+
+/**
+ * Removes a custom bank name or country sender code.
+ */
+export async function removeCustomBank(userId: string, bankName: string): Promise<SmsImportSettings> {
+  const clean = bankName.trim().toUpperCase();
+  const current = await getSmsImportSettings(userId);
+  const updatedBanks = (current.customBanks || []).filter((b) => b !== clean);
+
+  return saveSmsImportSettings(userId, {
+    customBanks: updatedBanks,
+    allowedSenders: updatedBanks,
+  });
 }
 
 // ---------------------------------------------------------------------------

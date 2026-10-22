@@ -40,6 +40,20 @@ export interface SmsImportProgress {
   isComplete?: boolean;
 }
 
+export interface DetectedItem {
+  id: string;
+  amount: number;
+  type: 'expense' | 'income' | 'transfer';
+  merchant: string;
+  category: string;
+  bankName: string;
+  accountLast4?: string | null;
+  date: number;
+  channel: string;
+  status: 'added' | 'pending' | 'duplicate';
+  rawText: string;
+}
+
 export interface ImportResult {
   batchId: string;
   totalScanned: number;
@@ -50,6 +64,7 @@ export interface ImportResult {
   reviewCount: number;
   createdTxIds: string[];
   isCancelled: boolean;
+  detectedItems: DetectedItem[];
 }
 
 export type SmsImportResult = ImportResult;
@@ -108,6 +123,7 @@ export async function runSmsImport(
     reviewCount: 0,
     createdTxIds: [],
     isCancelled: false,
+    detectedItems: [],
   };
 
   if (!userId || !messages || messages.length === 0) {
@@ -154,11 +170,12 @@ export async function runSmsImport(
       continue;
     }
 
-    // Parse the message body
+    // Parse the message body with custom banks support
     const parsed = parseAlert(msg.body, {
       sender: msg.address,
       timestamp,
       customCategoryRules: settings.customCategoryRules,
+      customBanks: settings.customBanks || settings.allowedSenders,
     });
 
     // Skip OTPs, promos, non-financial messages, or missing amount
@@ -251,6 +268,19 @@ export async function runSmsImport(
           result.createdTxIds.push(createdId);
           existingDocIds.add(createdId);
           existingPayKeys.add(payKey);
+          result.detectedItems.push({
+            id: createdId,
+            amount: parsed.amount,
+            type: parsed.type,
+            merchant: parsed.merchantNormalized || parsed.merchant || (parsed.type === 'income' ? 'Income' : 'Expense'),
+            category: parsed.category,
+            bankName: parsed.sender || 'Bank Alert',
+            accountLast4: parsed.accountLast4,
+            date: timestamp,
+            channel: parsed.channel,
+            status: 'added',
+            rawText: parsed.rawText,
+          });
         }
       } catch (err) {
         warn('Error auto-adding transaction:', err);
@@ -268,6 +298,19 @@ export async function runSmsImport(
 
       if (addedToInbox) {
         result.reviewCount++;
+        result.detectedItems.push({
+          id: `pending_${payKey}`,
+          amount: parsed.amount,
+          type: parsed.type,
+          merchant: parsed.merchantNormalized || parsed.merchant || (parsed.type === 'income' ? 'Income' : 'Expense'),
+          category: parsed.category,
+          bankName: parsed.sender || 'Bank Alert',
+          accountLast4: parsed.accountLast4,
+          date: timestamp,
+          channel: parsed.channel,
+          status: 'pending',
+          rawText: parsed.rawText,
+        });
       }
     }
 

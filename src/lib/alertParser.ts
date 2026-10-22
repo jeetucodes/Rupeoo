@@ -40,13 +40,42 @@ export interface ParsedAlert {
 // ---------------------------------------------------------------------------
 
 export const KNOWN_BANK_CODES = new Set([
-  'HDFCBK', 'HDFC', 'SBIINB', 'SBISMS', 'SBI', 'ICICIB', 'ICICI', 'AXISBK', 'AXIS',
-  'KOTAKB', 'KOTAK', 'PNBSMS', 'PNB', 'CANBNK', 'CANARA', 'UNIONB', 'UBI',
-  'BOIIND', 'BOI', 'YESBNK', 'YES', 'INDUSB', 'INDB', 'IDFCSM', 'IDFCFB', 'IDFC',
-  'PAYTM', 'GPAY', 'PHNP', 'PHONEPE', 'CRED', 'AMEX', 'CITIBK', 'CITI',
-  'RBLBNK', 'RBL', 'FEDBNK', 'FEDERAL', 'AUBANK', 'SCBANK', 'SCB', 'HSBCBK', 'HSBC',
-  'IDBIBK', 'IDBI', 'BARBOD', 'BOB', 'CENTBK', 'IOB', 'MAHABK', 'UCOBNK',
-  'BANDHAN', 'AIRTEL', 'JIO', 'MOBIKWIK', 'FREECHARGE', 'AMZPAY'
+  // Public Sector Banks
+  'HDFCBK', 'HDFC', 'HDFCAM', 'SBIINB', 'SBISMS', 'SBI', 'SBIPAY', 'ICICIB', 'ICICI', 'ICICIT',
+  'AXISBK', 'AXIS', 'AXISTX', 'KOTAKB', 'KOTAK', 'KMBL', 'PNBSMS', 'PNB', 'PUNJAB',
+  'CANBNK', 'CANARA', 'CANMS', 'UNIONB', 'UBI', 'UBISMS', 'BOIIND', 'BOI', 'BOISMS',
+  'INDIANB', 'INDBNK', 'ALBK', 'CENTBK', 'CBI', 'CBINB', 'IOBIND', 'IOB',
+  'UCOBNK', 'UCO', 'MAHABK', 'BOM', 'MAHBK', 'PSBINB', 'PSB', 'BARBOD', 'BOB', 'BOBSMS',
+
+  // Private Sector Banks
+  'YESBNK', 'YES', 'YESB', 'INDUSB', 'INDB', 'IDFCSM', 'IDFCFB', 'IDFC',
+  'FEDBNK', 'FEDERAL', 'RBLBNK', 'RBL', 'BANDHAN', 'BNDHAN', 'KVBANK', 'KVB',
+  'SIBLTD', 'SIB', 'CSBBANK', 'CSB', 'CITYUB', 'CUB', 'JKBANK', 'JKB',
+  'KTKBNK', 'KARNATAKA', 'DCBBNK', 'DCB', 'TMBLTD', 'TMB', 'IDBIBK', 'IDBI',
+
+  // Small Finance Banks (SFBs)
+  'AUBANK', 'AU', 'EQUIF', 'EQUITAS', 'UJJIVN', 'UJJIVAN', 'ESAFSF', 'ESAF',
+  'JANABK', 'JANA', 'UTKMSH', 'UTKARSH', 'FINCRV', 'FINCARE', 'SURYOD', 'SURYODAY',
+  'CAPITL', 'CAPITAL', 'SHIVAM', 'SHIVALIK', 'NESFB', 'UNITY', 'UNITYSFB',
+
+  // Payments Banks
+  'PAYTM', 'PAYTMB', 'AIRTEL', 'AIRBNK', 'IPPB', 'POSTBK', 'FINO', 'FINOBK',
+  'NSDL', 'NSDLBK', 'JIO', 'JIOBNK',
+
+  // Foreign Banks in India
+  'SCBANK', 'SCB', 'STANCHAR', 'HSBCBK', 'HSBC', 'CITIBK', 'CITI', 'AMEX', 'AMEXIN',
+  'DBSBNK', 'DBS', 'DIGIBK', 'DEUTSC', 'DEUTSCHE', 'BARC', 'BARCLAYS',
+
+  // UPI Apps, Cards & Fintech
+  'GPAY', 'GOOGLEPAY', 'OKAXIS', 'OKHDFC', 'OKSBI', 'OKICICI',
+  'PHNP', 'PHONEPE', 'YESBPHONEPE', 'IBLPHONEPE',
+  'CRED', 'CREDAPP', 'BHIM', 'NPCI', 'AMZPAY', 'AMAZONPAY', 'AMAZON',
+  'MOBIKWIK', 'MOBIKW', 'FREECHARGE', 'FREECHG', 'SLICE', 'SLICECARD',
+  'JUPITER', 'JUPTR', 'FI', 'FIMONEY', 'ONECARD', 'FPLONECARD', 'UNI', 'UNICARD',
+  'LAZYPAY', 'SIMPL', 'POSTPE', 'EPAYLATER', 'PAYU', 'RAZORPAY', 'CASHFREE',
+
+  // Cooperative & Regional Banks
+  'SARASW', 'SARASWAT', 'COSMOS', 'SVCBNK', 'SVC', 'TJSB', 'NKGSB'
 ]);
 
 // ---------------------------------------------------------------------------
@@ -280,12 +309,28 @@ export interface DltSenderInfo {
   isKnownBank: boolean;
 }
 
-export function parseDltSender(sender: string): DltSenderInfo {
+export function parseDltSender(sender: string, customBanks?: string[]): DltSenderInfo {
   if (!sender) {
     return { isDlt: false, operatorPrefix: null, bankCode: null, suffix: null, isKnownBank: false };
   }
 
   const clean = sender.trim().toUpperCase();
+
+  // Check custom bank names or sender IDs first
+  if (customBanks && customBanks.length > 0) {
+    for (const b of customBanks) {
+      const upper = b.trim().toUpperCase();
+      if (upper && (clean.includes(upper) || upper.includes(clean))) {
+        return {
+          isDlt: false,
+          operatorPrefix: null,
+          bankCode: upper,
+          suffix: null,
+          isKnownBank: true,
+        };
+      }
+    }
+  }
 
   const dltMatch = clean.match(/^([A-Z]{2})-([A-Z0-9]{3,8})(?:-([A-Z]))?$/);
   if (dltMatch) {
@@ -298,6 +343,16 @@ export function parseDltSender(sender: string): DltSenderInfo {
       if (rawBankCode.includes(code) || code.includes(rawBankCode)) {
         matchedCode = code;
         break;
+      }
+    }
+
+    if (!matchedCode && customBanks && customBanks.length > 0) {
+      for (const b of customBanks) {
+        const upper = b.trim().toUpperCase();
+        if (upper && (rawBankCode.includes(upper) || upper.includes(rawBankCode))) {
+          matchedCode = upper;
+          break;
+        }
       }
     }
 
@@ -359,13 +414,14 @@ export function parseIndianNumber(numStr: string): number | null {
  */
 function extractAmount(text: string): { amount: number | null; matchIndex: number } {
   const verbAmountPatterns = [
-    /(?:debited|spent|paid|sent|withdrawn|withdrew|deposited|transferred|reversal\s+of|refund\s+of|cashback\s+of|credited|received)\s+(?:by|with|for|to|from|of)?\s*(?:rs\.?|inr|₹)\s*([0-9,]+(?:\.[0-9]{1,2})?)/i,
-    /(?:rs\.?|inr|₹)\s*([0-9,]+(?:\.[0-9]{1,2})?)\s+(?:is|has\s+been|was|bhej\s+diye)?\s*(?:debited|spent|paid|sent|withdrawn|deposited|transferred|credited|received|refunded|bhej\s+diye)/i,
-    /(?:dr|cr)\.?\s*(?:by|for)?\s*(?:rs\.?|inr|₹)?\s*([0-9,]+(?:\.[0-9]{1,2})?)/i,
-    /(?:rs\.?|inr|₹)\s*([0-9,]+(?:\.[0-9]{1,2})?)\s*(?:dr|cr)\b/i,
-    /purchase\s+of\s+(?:rs\.?|inr|₹)\s*([0-9,]+(?:\.[0-9]{1,2})?)/i,
-    /payment\s+of\s+(?:rs\.?|inr|₹)\s*([0-9,]+(?:\.[0-9]{1,2})?)/i,
-    /vpa\s+.*?\s+(?:for\s+)?(?:rs\.?|inr|₹)\s*([0-9,]+(?:\.[0-9]{1,2})?)/i,
+    /(?:debited|spent|paid|sent|withdrawn|withdrew|deposited|transferred|reversal\s+of|refund\s+of|cashback\s+of|credited|received|charged)\s+(?:by|with|for|to|from|of)?\s*(?:rs\.?|inr|₹|\$|usd|£|gbp|€|eur|aed|sar|cad|aud|sgd)\s*([0-9,]+(?:\.[0-9]{1,2})?)/i,
+    /(?:rs\.?|inr|₹|\$|usd|£|gbp|€|eur|aed|sar|cad|aud|sgd)\s*([0-9,]+(?:\.[0-9]{1,2})?)\s+(?:is|has\s+been|was|bhej\s+diye)?\s*(?:debited|spent|paid|sent|withdrawn|deposited|transferred|credited|received|refunded|charged|bhej\s+diye)/i,
+    /(?:dr|cr)\.?\s*(?:by|for)?\s*(?:rs\.?|inr|₹|\$|usd|£|gbp|€|eur|aed|sar|cad|aud|sgd)?\s*([0-9,]+(?:\.[0-9]{1,2})?)/i,
+    /(?:rs\.?|inr|₹|\$|usd|£|gbp|€|eur|aed|sar|cad|aud|sgd)\s*([0-9,]+(?:\.[0-9]{1,2})?)\s*(?:dr|cr)\b/i,
+    /purchase\s+of\s+(?:rs\.?|inr|₹|\$|usd|£|gbp|€|eur|aed|sar|cad|aud|sgd)\s*([0-9,]+(?:\.[0-9]{1,2})?)/i,
+    /payment\s+of\s+(?:rs\.?|inr|₹|\$|usd|£|gbp|€|eur|aed|sar|cad|aud|sgd)\s*([0-9,]+(?:\.[0-9]{1,2})?)/i,
+    /vpa\s+.*?\s+(?:for\s+)?(?:rs\.?|inr|₹|\$|usd|£|gbp|€|eur|aed|sar|cad|aud|sgd)\s*([0-9,]+(?:\.[0-9]{1,2})?)/i,
+    /(?:charged|spent|paid|transferred)\s+([0-9,]+(?:\.[0-9]{1,2})?)\s*(?:usd|gbp|eur|aed|sar|cad|aud|sgd)/i,
   ];
 
   for (const regex of verbAmountPatterns) {
@@ -379,11 +435,11 @@ function extractAmount(text: string): { amount: number | null; matchIndex: numbe
   }
 
   // Fallback for generic amount pattern, ignoring anything preceded by balance words
-  const balMatch = text.match(/(?:bal|balance|avail\s+bal|available\s+bal|a\/c\s+bal|clear\s+bal)[^.]*?(?:rs\.?|inr|₹)?\s*([0-9,]+(?:\.[0-9]{1,2})?)/i);
+  const balMatch = text.match(/(?:bal|balance|avail\s+bal|available\s+bal|a\/c\s+bal|clear\s+bal)[^.]*?(?:rs\.?|inr|₹|\$|usd|£|gbp|€|eur|aed|sar|cad|aud|sgd)?\s*([0-9,]+(?:\.[0-9]{1,2})?)/i);
   const balIndex = balMatch?.index ?? -1;
   const balLength = balMatch?.[0]?.length ?? 0;
 
-  const genericMatches = Array.from(text.matchAll(/(?:rs\.?|inr|₹)\s*([0-9,]+(?:\.[0-9]{1,2})?)/gi));
+  const genericMatches = Array.from(text.matchAll(/(?:rs\.?|inr|₹|\$|usd|£|gbp|€|eur|aed|sar|cad|aud|sgd)\s*([0-9,]+(?:\.[0-9]{1,2})?)/gi));
   for (const gm of genericMatches) {
     const idx = gm.index ?? -1;
     if (balIndex !== -1 && idx >= balIndex && idx < balIndex + balLength + 10) {
@@ -403,7 +459,7 @@ function extractAmount(text: string): { amount: number | null; matchIndex: numbe
  */
 function extractBalance(text: string): number | null {
   const match = text.match(
-    /(?:bal|balance|avail\s+bal|available\s+bal|avail\s+balance|a\/c\s+bal|clear\s+bal)\s*(?:is|:)?\s*(?:rs\.?|inr|₹)?\s*([0-9,]+(?:\.[0-9]{1,2})?)/i
+    /(?:bal|balance|avail\s+bal|available\s+bal|avail\s+balance|a\/c\s+bal|clear\s+bal)\s*(?:is|:)?\s*(?:rs\.?|inr|₹|\$|usd|£|gbp|€|eur|aed|sar|cad|aud|sgd)?\s*([0-9,]+(?:\.[0-9]{1,2})?)/i
   );
   if (match && match[1]) {
     return parseIndianNumber(match[1]);
@@ -710,13 +766,29 @@ export interface ParseAlertOptions {
   sender?: string;
   timestamp?: number;
   customCategoryRules?: Record<string, string>;
+  customBanks?: string[];
+  allowedSenders?: string[];
 }
 
 export function parseAlert(body: string, options?: ParseAlertOptions): ParsedAlert {
   const rawText = body || '';
   const sender = options?.sender || '';
   const cleanBody = normalizeWhitespace(rawText);
-  const senderInfo = parseDltSender(sender);
+  const customBanks = options?.customBanks || options?.allowedSenders || [];
+  const senderInfo = parseDltSender(sender, customBanks);
+
+  // Check if message body explicitly mentions a custom bank name
+  if (!senderInfo.isKnownBank && customBanks.length > 0) {
+    const upperBody = cleanBody.toUpperCase();
+    for (const b of customBanks) {
+      const upper = b.trim().toUpperCase();
+      if (upper && upperBody.includes(upper)) {
+        senderInfo.isKnownBank = true;
+        if (!senderInfo.bankCode) senderInfo.bankCode = upper;
+        break;
+      }
+    }
+  }
 
   // 1. Negative Filter Check (Reject OTPs, promos, loan offers, mandates, failed txns, bills)
   const isOtp = OTP_PATTERNS.some(p => p.test(cleanBody));

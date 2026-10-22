@@ -48,10 +48,11 @@ import {
   saveSmsImportSettings,
   SmsImportSettings,
   DEFAULT_SMS_SETTINGS,
+  addCustomBank,
+  removeCustomBank,
 } from '@/lib/smsSettings';
 import { resetImportHistory } from '@/lib/smsDedupe';
 import { getPendingAlerts } from '@/lib/pendingInbox';
-import { SmsTestParserModal } from '@/components/SmsTestParserModal';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -290,14 +291,13 @@ export default function SettingsScreen() {
   // SMS Import & Bank Alert State
   const [smsSettings, setSmsSettings] = useState<SmsImportSettings>(DEFAULT_SMS_SETTINGS);
   const [pendingAlertCount, setPendingAlertCount] = useState<number>(0);
-  const [showTestParserModal, setShowTestParserModal] = useState<boolean>(false);
   const [resetHistoryModalVisible, setResetHistoryModalVisible] = useState<boolean>(false);
   const [isResettingHistory, setIsResettingHistory] = useState<boolean>(false);
-  const [allowedSendersModalVisible, setAllowedSendersModalVisible] = useState<boolean>(false);
-  const [allowedSendersInput, setAllowedSendersInput] = useState<string>('');
+  const [customBankModalVisible, setCustomBankModalVisible] = useState<boolean>(false);
+  const [customBankInput, setCustomBankInput] = useState<string>('');
 
   useEffect(() => {
-    if (Platform.OS !== 'android') return;
+    if (Platform.OS !== 'android' && Platform.OS !== 'web') return;
     const uid = user?.uid || 'local';
     getSmsImportSettings(uid).then((s) => setSmsSettings(s)).catch(() => {});
     getPendingAlerts(uid).then((alerts) => setPendingAlertCount(alerts.length)).catch(() => {});
@@ -1400,36 +1400,22 @@ export default function SettingsScreen() {
                   />
                 </View>
 
-                {/* Allowed Bank Senders */}
+                {/* Custom & International Banks */}
                 <SettingsRow
-                  icon="business"
-                  iconBg="#F8FAFC"
-                  iconColor="#475569"
-                  label="Allowed Bank Senders"
+                  icon="globe-outline"
+                  iconBg="#EEF2FF"
+                  iconColor="#4F46E5"
+                  label="Bank Senders & International"
                   value={
-                    smsSettings.allowedSenders?.length > 0
-                      ? `${smsSettings.allowedSenders.length} custom banks filtered`
-                      : 'All major Indian banks & UPI allowed'
+                    smsSettings.customBanks?.length > 0
+                      ? `${smsSettings.customBanks.length} custom banks added • 75+ Indian Banks active`
+                      : '75+ Indian Banks pre-configured • Add custom banks'
                   }
+                  badgeText={smsSettings.customBanks?.length ? `${smsSettings.customBanks.length} CUSTOM` : 'READY'}
+                  badgeBg="#EEF2FF"
+                  badgeColor="#4F46E5"
                   onPress={() => {
-                    setAllowedSendersInput((smsSettings.allowedSenders || []).join(', '));
-                    setAllowedSendersModalVisible(true);
-                  }}
-                />
-
-                {/* Test Parser Sandbox */}
-                <SettingsRow
-                  icon="flask"
-                  iconBg="#FDF4FF"
-                  iconColor="#C026D3"
-                  label="Test Parser Sandbox"
-                  value="Paste any message to test field extraction and confidence"
-                  badgeText="TEST"
-                  badgeBg="#FAE8FF"
-                  badgeColor="#A21CAF"
-                  onPress={() => {
-                    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch { }
-                    setShowTestParserModal(true);
+                    setCustomBankModalVisible(true);
                   }}
                 />
 
@@ -2460,64 +2446,124 @@ export default function SettingsScreen() {
         onCancel={() => setResetHistoryModalVisible(false)}
       />
 
-      {/* SMS Alert Parser Test Sandbox Modal */}
-      <SmsTestParserModal
-        visible={showTestParserModal}
-        onClose={() => setShowTestParserModal(false)}
-      />
-
-      {/* Allowed Bank Senders Modal */}
+      {/* Custom & International Banks Modal */}
       <BottomSheetModal
-        visible={allowedSendersModalVisible}
-        onClose={() => setAllowedSendersModalVisible(false)}
-        title="Allowed Bank Senders"
-        icon="business"
-        iconBg="#EFF6FF"
-        iconColor="#2563EB"
+        visible={customBankModalVisible}
+        onClose={() => setCustomBankModalVisible(false)}
+        title="Bank Senders & International"
+        icon="globe-outline"
+        iconBg="#EEF2FF"
+        iconColor="#4F46E5"
         autoHeight
       >
-        <Text style={styles.modalIntroText}>
-          Specify comma-separated sender codes (e.g. HDFCBK, SBIINB, ICICIB, AXISBK). Leave blank to accept all verified Indian DLT bank & UPI headers.
-        </Text>
-        <View style={styles.startingBalanceInputRow}>
-          <Ionicons name="filter-outline" size={20} color="#64748B" style={{ marginRight: 8 }} />
-          <TextInput
-            style={[styles.startingBalanceInput, { fontSize: 15, textAlign: 'left', flex: 1 }]}
-            value={allowedSendersInput}
-            onChangeText={setAllowedSendersInput}
-            placeholder="e.g. HDFCBK, SBIINB, ICICIB"
-            placeholderTextColor="#94A3B8"
-            autoCapitalize="characters"
-          />
-        </View>
-        <View style={{ flexDirection: 'row', gap: 12, marginTop: 16 }}>
+        <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={false}>
+          {/* Pre-Configured Info Card */}
+          <View style={{ backgroundColor: '#F0FDF4', borderRadius: 12, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: '#DCFCE7' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+              <Ionicons name="checkmark-circle" size={18} color="#16A34A" style={{ marginRight: 6 }} />
+              <Text style={{ fontSize: 14, fontWeight: '700', color: '#166534' }}>75+ Indian Banks Pre-Configured</Text>
+            </View>
+            <Text style={{ fontSize: 12, color: '#15803D', lineHeight: 18 }}>
+              SBI, HDFC, ICICI, Axis, Kotak, PNB, BOB, Canara, IndusInd, Federal, Union, PhonePe, Google Pay, Paytm, CRED &amp; all major UPI apps are verified out-of-the-box.
+            </Text>
+          </View>
+
+          {/* Add Other Country / Custom Bank Section */}
+          <Text style={{ fontSize: 14, fontWeight: '700', color: '#0F172A', marginBottom: 4 }}>
+            Add Custom Bank / Country Senders
+          </Text>
+          <Text style={{ fontSize: 12, color: '#64748B', marginBottom: 12, lineHeight: 18 }}>
+            Users outside India or using regional banks can add bank names or SMS headers (e.g. Chase, Emirates NBD, Barclays, ADCB). Messages from added banks will be automatically parsed and auto-added.
+          </Text>
+
+          {/* Input & Add Row */}
+          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', marginBottom: 16 }}>
+            <View style={[styles.startingBalanceInputRow, { flex: 1, marginBottom: 0 }]}>
+              <Ionicons name="business-outline" size={18} color="#64748B" style={{ marginRight: 8 }} />
+              <TextInput
+                style={[styles.startingBalanceInput, { fontSize: 14, textAlign: 'left', flex: 1 }]}
+                value={customBankInput}
+                onChangeText={setCustomBankInput}
+                placeholder="e.g. Chase, Emirates NBD"
+                placeholderTextColor="#94A3B8"
+                autoCapitalize="characters"
+              />
+            </View>
+            <TouchableOpacity
+              style={[styles.primaryBtn, { marginTop: 0, paddingHorizontal: 16, height: 46 }]}
+              onPress={async () => {
+                const clean = customBankInput.trim().toUpperCase();
+                if (!clean) return;
+                const uid = user?.uid || 'local';
+                const updated = await addCustomBank(uid, clean);
+                setSmsSettings(updated);
+                setCustomBankInput('');
+                Toast.show({
+                  type: 'success',
+                  text1: 'Bank Added',
+                  text2: `Messages from ${clean} will now be auto-detected.`,
+                });
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.primaryBtnText}>+ Add</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* List of Custom Banks */}
+          {(smsSettings.customBanks && smsSettings.customBanks.length > 0) ? (
+            <View style={{ marginBottom: 16 }}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: '#475569', marginBottom: 8, textTransform: 'uppercase' }}>
+                Your Added Banks ({smsSettings.customBanks.length})
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {smsSettings.customBanks.map((bank) => (
+                  <View
+                    key={bank}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      backgroundColor: '#EEF2FF',
+                      borderColor: '#C7D2FE',
+                      borderWidth: 1,
+                      paddingVertical: 6,
+                      paddingHorizontal: 10,
+                      borderRadius: 20,
+                    }}
+                  >
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#4338CA', marginRight: 6 }}>
+                      {bank}
+                    </Text>
+                    <TouchableOpacity
+                      onPress={async () => {
+                        const uid = user?.uid || 'local';
+                        const updated = await removeCustomBank(uid, bank);
+                        setSmsSettings(updated);
+                        Toast.show({
+                          type: 'info',
+                          text1: 'Bank Removed',
+                          text2: `Removed ${bank} from custom banks list.`,
+                        });
+                      }}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Ionicons name="close-circle" size={16} color="#6366F1" />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            </View>
+          ) : null}
+
+          {/* Done Button */}
           <TouchableOpacity
-            style={[styles.cancelBtn, { flex: 1 }]}
-            onPress={() => setAllowedSendersModalVisible(false)}
-            activeOpacity={0.7}
+            style={[styles.primaryBtn, { marginTop: 8 }]}
+            onPress={() => setCustomBankModalVisible(false)}
+            activeOpacity={0.85}
           >
-            <Text style={styles.cancelBtnText}>{t('cancel')}</Text>
+            <Text style={styles.primaryBtnText}>Done</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.primaryBtn, { flex: 1, marginTop: 0 }]}
-            onPress={async () => {
-              const cleaned = allowedSendersInput
-                .split(',')
-                .map((s) => s.trim().toUpperCase())
-                .filter(Boolean);
-              await handleUpdateSmsSetting('allowedSenders', cleaned);
-              setAllowedSendersModalVisible(false);
-              Toast.show({
-                type: 'success',
-                text1: 'Allowed Senders Updated',
-                text2: cleaned.length > 0 ? `Saved ${cleaned.length} bank senders.` : 'Allowing all verified bank senders.',
-              });
-            }}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.primaryBtnText}>{t('save')}</Text>
-          </TouchableOpacity>
-        </View>
+        </ScrollView>
       </BottomSheetModal>
 
       <GooglePlayReviewModal
