@@ -5,15 +5,24 @@
  * so background headless JS tasks execute reliably when the app is killed.
  */
 
+import { Platform } from 'react-native';
 import * as SQLite from 'expo-sqlite';
 import { warn, log } from '@/lib/logger';
 
 let sqliteDbInstance: SQLite.SQLiteDatabase | null = null;
 
-export function getAutoAddDatabase(): SQLite.SQLiteDatabase {
+export function getAutoAddDatabase(): SQLite.SQLiteDatabase | null {
+  if (Platform.OS === 'web') {
+    return null;
+  }
   if (!sqliteDbInstance) {
-    sqliteDbInstance = SQLite.openDatabaseSync('rupeo_auto_add.db');
-    initDatabaseSchema(sqliteDbInstance);
+    try {
+      sqliteDbInstance = SQLite.openDatabaseSync('rupeo_auto_add.db');
+      initDatabaseSchema(sqliteDbInstance);
+    } catch (err) {
+      warn('[SQLite] Failed to open SQLite database:', err);
+      return null;
+    }
   }
   return sqliteDbInstance;
 }
@@ -87,6 +96,17 @@ function initDatabaseSchema(db: SQLite.SQLiteDatabase): void {
         linkedTransactionId TEXT,
         paymentHistory TEXT,
         updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS notif_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp INTEGER NOT NULL,
+        packageName TEXT NOT NULL,
+        parsedStatus TEXT NOT NULL,
+        reasonSkipped TEXT,
+        summary TEXT,
+        rawSnippet TEXT,
+        created_at INTEGER NOT NULL
       );
     `);
 
@@ -186,8 +206,10 @@ export interface SQLiteTransactionRecord {
  * Saves an auto-added transaction to local SQLite.
  */
 export function saveTransactionToSQLite(tx: SQLiteTransactionRecord): void {
+  if (Platform.OS === 'web') return;
   try {
     const db = getAutoAddDatabase();
+    if (!db) return;
     db.runSync(
       `INSERT OR REPLACE INTO auto_added_transactions 
        (id, amount, type, merchant, category, bankName, accountLast4, refNo, timestamp, channel, rawText, status, billId, created_at)
@@ -236,8 +258,10 @@ export function savePendingAlertToSQLite(alert: {
   candidateBills?: any[] | null;
   suggestedBillId?: string | null;
 }): void {
+  if (Platform.OS === 'web') return;
   try {
     const db = getAutoAddDatabase();
+    if (!db) return;
     db.runSync(
       `INSERT OR REPLACE INTO auto_add_pending_alerts
        (id, payKey, amount, type, merchant, category, bankName, accountLast4, refNo, timestamp, channel, confidence, rawText, billId, candidateBills, suggestedBillId, created_at)
@@ -271,9 +295,10 @@ export function savePendingAlertToSQLite(alert: {
  * Saves or updates a single recurring bill in SQLite.
  */
 export function saveRecurringBillToSQLite(bill: any): void {
-  if (!bill || !bill.id || !bill.title) return;
+  if (Platform.OS === 'web' || !bill || !bill.id || !bill.title) return;
   try {
     const db = getAutoAddDatabase();
+    if (!db) return;
     const historyStr = Array.isArray(bill.paymentHistory)
       ? JSON.stringify(bill.paymentHistory)
       : typeof bill.paymentHistory === 'string'
@@ -319,9 +344,10 @@ export function saveRecurringBillToSQLite(bill: any): void {
  * Synchronizes the full list of recurring bills into SQLite cache.
  */
 export function syncRecurringBillsToSQLite(bills: any[]): void {
-  if (!Array.isArray(bills)) return;
+  if (Platform.OS === 'web' || !Array.isArray(bills)) return;
   try {
     const db = getAutoAddDatabase();
+    if (!db) return;
     db.runSync('BEGIN TRANSACTION;');
     for (const bill of bills) {
       if (!bill || !bill.id) continue;
@@ -373,8 +399,10 @@ export function syncRecurringBillsToSQLite(bills: any[]): void {
  * Reads all recurring bills from local SQLite (synchronous & reliable in background headless tasks).
  */
 export function getRecurringBillsFromSQLite(): any[] {
+  if (Platform.OS === 'web') return [];
   try {
     const db = getAutoAddDatabase();
+    if (!db) return [];
     const rows = db.getAllSync<any>('SELECT * FROM recurring_bills ORDER BY nextDueDate ASC;');
     return rows.map((r) => {
       let paymentHistory: any[] = [];
@@ -410,8 +438,10 @@ export function markBillPaidInSQLite(
   nextDueDate: string,
   paymentRecord?: any
 ): void {
+  if (Platform.OS === 'web') return;
   try {
     const db = getAutoAddDatabase();
+    if (!db) return;
     const existing = db.getFirstSync<{ paymentHistory: string }>(
       'SELECT paymentHistory FROM recurring_bills WHERE id = ?;',
       [billId]
@@ -461,8 +491,10 @@ export function undoBillPaymentInSQLite(
   txId: string,
   prevDueDate?: string
 ): void {
+  if (Platform.OS === 'web') return;
   try {
     const db = getAutoAddDatabase();
+    if (!db) return;
     const existing = db.getFirstSync<{ paymentHistory: string; nextDueDate: string }>(
       'SELECT paymentHistory, nextDueDate FROM recurring_bills WHERE id = ?;',
       [billId]
@@ -503,8 +535,10 @@ export function undoBillPaymentInSQLite(
  * Deletes a recurring bill from SQLite.
  */
 export function deleteRecurringBillFromSQLite(billId: string): void {
+  if (Platform.OS === 'web') return;
   try {
     const db = getAutoAddDatabase();
+    if (!db) return;
     db.runSync('DELETE FROM recurring_bills WHERE id = ?;', [billId]);
   } catch (err) {
     warn('[SQLite] Error deleting bill from SQLite:', err);
@@ -515,8 +549,10 @@ export function deleteRecurringBillFromSQLite(billId: string): void {
  * Gets a setting value from SQLite.
  */
 export function getSQLiteSetting(key: string, defaultValue: string = ''): string {
+  if (Platform.OS === 'web') return defaultValue;
   try {
     const db = getAutoAddDatabase();
+    if (!db) return defaultValue;
     const row = db.getFirstSync<{ value: string }>(
       'SELECT value FROM auto_add_settings WHERE key = ?;',
       [key]
@@ -532,8 +568,10 @@ export function getSQLiteSetting(key: string, defaultValue: string = ''): string
  * Sets a setting value in SQLite.
  */
 export function setSQLiteSetting(key: string, value: string): void {
+  if (Platform.OS === 'web') return;
   try {
     const db = getAutoAddDatabase();
+    if (!db) return;
     db.runSync(
       'INSERT OR REPLACE INTO auto_add_settings (key, value) VALUES (?, ?);',
       [key, value]
@@ -547,8 +585,10 @@ export function setSQLiteSetting(key: string, value: string): void {
  * Clears all auto-added transactions and pending alerts from SQLite.
  */
 export function clearSQLiteAutoAddData(): void {
+  if (Platform.OS === 'web') return;
   try {
     const db = getAutoAddDatabase();
+    if (!db) return;
     db.execSync(`
       DELETE FROM auto_added_transactions;
       DELETE FROM auto_add_pending_alerts;
@@ -557,3 +597,101 @@ export function clearSQLiteAutoAddData(): void {
     warn('[SQLite] Error clearing tables:', err);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Auto-Add Notification Diagnostics Log (notif_log)
+// ---------------------------------------------------------------------------
+
+export interface NotifLogEntry {
+  id?: number;
+  timestamp: number;
+  packageName: string;
+  parsedStatus: 'ok' | 'failed' | 'dropped';
+  reasonSkipped: 'autoAddOff' | 'paused' | 'filteredOut' | 'duplicate' | 'parseFailed' | 'saved';
+  summary: string;
+  rawSnippet?: string;
+  created_at?: number;
+}
+
+let memoryNotifLogs: NotifLogEntry[] = [];
+
+/**
+ * Inserts a diagnostic record into notif_log table and prunes to keep last 100 entries.
+ * Never throws, ensuring headless task execution never crashes on logging.
+ */
+export function insertNotifLog(entry: Omit<NotifLogEntry, 'id' | 'created_at'>): void {
+  const createdAt = Date.now();
+  if (Platform.OS === 'web') {
+    memoryNotifLogs.unshift({ ...entry, id: createdAt, created_at: createdAt });
+    if (memoryNotifLogs.length > 100) memoryNotifLogs.pop();
+    return;
+  }
+  try {
+    const db = getAutoAddDatabase();
+    if (!db) {
+      memoryNotifLogs.unshift({ ...entry, id: createdAt, created_at: createdAt });
+      if (memoryNotifLogs.length > 100) memoryNotifLogs.pop();
+      return;
+    }
+
+    db.runSync(
+      `INSERT INTO notif_log (timestamp, packageName, parsedStatus, reasonSkipped, summary, rawSnippet, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?);`,
+      [
+        entry.timestamp || Date.now(),
+        entry.packageName || 'unknown',
+        entry.parsedStatus || 'dropped',
+        entry.reasonSkipped || null,
+        entry.summary || '',
+        entry.rawSnippet ? entry.rawSnippet.substring(0, 150) : null,
+        createdAt,
+      ]
+    );
+
+    // Keep only the most recent 100 entries
+    db.runSync(
+      `DELETE FROM notif_log WHERE id NOT IN (
+         SELECT id FROM notif_log ORDER BY id DESC LIMIT 100
+       );`
+    );
+  } catch (err) {
+    warn('[SQLite] Error inserting into notif_log:', err);
+  }
+}
+
+/**
+ * Returns recent diagnostic log entries from notif_log (most recent first).
+ */
+export function getRecentNotifLogs(limit: number = 100): NotifLogEntry[] {
+  if (Platform.OS === 'web') {
+    return memoryNotifLogs.slice(0, limit);
+  }
+  try {
+    const db = getAutoAddDatabase();
+    if (!db) return memoryNotifLogs.slice(0, limit);
+    const rows = db.getAllSync<NotifLogEntry>(
+      `SELECT * FROM notif_log ORDER BY id DESC LIMIT ?;`,
+      [limit]
+    );
+    return rows || [];
+  } catch (err) {
+    warn('[SQLite] Error querying notif_log:', err);
+    return memoryNotifLogs.slice(0, limit);
+  }
+}
+
+/**
+ * Clears the diagnostics notif_log table.
+ */
+export function clearNotifLogs(): void {
+  memoryNotifLogs = [];
+  if (Platform.OS === 'web') return;
+  try {
+    const db = getAutoAddDatabase();
+    if (!db) return;
+    db.runSync('DELETE FROM notif_log;');
+  } catch (err) {
+    warn('[SQLite] Error clearing notif_log:', err);
+  }
+}
+

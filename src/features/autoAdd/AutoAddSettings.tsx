@@ -247,6 +247,16 @@ export default function AutoAddSettings() {
             onPress={openListenerSettings}
           />
 
+          {/* Troubleshoot & Diagnostics */}
+          <SettingsRow
+            icon="pulse"
+            iconBg="#FEF3C7"
+            iconColor="#D97706"
+            label="Troubleshoot & Diagnostics"
+            subtitle="Health checks, battery status & recent alerts log"
+            onPress={() => router.push('/settings/troubleshoot')}
+          />
+
           {/* Background Reliability Guide */}
           <SettingsRow
             icon="battery-charging"

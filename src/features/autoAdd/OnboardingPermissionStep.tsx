@@ -1,12 +1,13 @@
 /**
- * Onboarding Step: "Auto-Add Transactions"
+ * Clean & Minimal Onboarding Step: "Auto-Track Spends"
  *
- * Provides complete instructions on how automatic transaction detection works:
- * - Direct auto-adding (no pending inbox delay)
- * - Added notification alert
- * - Clean original message saved in notes (no google.android clutter)
- * - 100% on-device privacy guarantees
- * - Step-by-step notification access setup instructions
+ * Designed to seamlessly match the primary onboarding aesthetic:
+ * - 100% English copy
+ * - Clean single-screen layout (NON-SCROLLABLE) fitting all elements & action button
+ * - Seamless 3D claymorphism illustration matching the onboarding design system
+ * - Responsive sizing for compact and large viewports
+ * - Instant single-tap to open Android Notification Access settings
+ * - Automatic "Done" state detection upon returning from Settings
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -18,13 +19,23 @@ import {
   AppState,
   AppStateStatus,
   Platform,
-  ScrollView,
-  Modal,
+  Image,
+  useWindowDimensions,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { StatusBar } from 'expo-status-bar';
 import * as Notifications from 'expo-notifications';
 import * as Haptics from 'expo-haptics';
+import Animated, {
+  FadeIn,
+  FadeInDown,
+  useSharedValue,
+  useAnimatedStyle,
+  withRepeat,
+  withTiming,
+  Easing,
+} from 'react-native-reanimated';
 import { isListenerEnabled, openListenerSettings } from './nativeModule';
 import { setupAutoAddNotificationChannel } from './notifTask';
 
@@ -40,10 +51,21 @@ export default function OnboardingPermissionStep({
   onBack,
 }: OnboardingPermissionStepProps) {
   const [isEnabled, setIsEnabled] = useState<boolean>(false);
-  const [hasPrompted, setHasPrompted] = useState<boolean>(false);
-  const [showDisclosureModal, setShowDisclosureModal] = useState<boolean>(false);
+  const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
 
-  // Check listener status
+  // Responsive sizing breakpoints
+  const isCompact = SCREEN_HEIGHT < 720;
+  const imageSize = Math.min(
+    SCREEN_WIDTH * (isCompact ? 0.44 : 0.52),
+    isCompact ? 165 : 210
+  );
+
+  // Ambient floating background blobs (matching onboarding slide aesthetic)
+  const floatAnim1 = useSharedValue(0);
+  const floatAnim2 = useSharedValue(0);
+
+  // Check listener permission status
   const checkStatus = useCallback(async () => {
     const enabled = await isListenerEnabled();
     setIsEnabled(enabled);
@@ -51,19 +73,31 @@ export default function OnboardingPermissionStep({
     if (enabled) {
       try {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      } catch { }
+      } catch {}
     }
   }, []);
 
   useEffect(() => {
     checkStatus();
+
     if (Platform.OS === 'android') {
       Notifications.requestPermissionsAsync().catch(() => {});
       setupAutoAddNotificationChannel().catch(() => {});
     }
+
+    floatAnim1.value = withRepeat(
+      withTiming(1, { duration: 4500, easing: Easing.inOut(Easing.ease) }),
+      -1,
+      true
+    );
+    floatAnim2.value = withRepeat(
+      withTiming(1, { duration: 5500, easing: Easing.inOut(Easing.ease) }),
+      -1,
+      true
+    );
   }, [checkStatus]);
 
-  // Re-check status when user returns from Android Settings
+  // Re-check automatically when user returns from Android Settings
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState: AppStateStatus) => {
       if (nextState === 'active') {
@@ -73,277 +107,168 @@ export default function OnboardingPermissionStep({
     return () => subscription.remove();
   }, [checkStatus]);
 
-  const handleEnablePress = () => {
+  const animatedBlob1 = useAnimatedStyle(() => ({
+    transform: [
+      { translateY: floatAnim1.value * 15 },
+      { scale: 1 + floatAnim1.value * 0.08 },
+    ],
+  }));
+
+  const animatedBlob2 = useAnimatedStyle(() => ({
+    transform: [
+      { translateY: floatAnim2.value * -18 },
+      { scale: 1 + floatAnim2.value * 0.1 },
+    ],
+  }));
+
+  // Immediate click -> directly open Android Settings
+  const handleEnablePress = async () => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    } catch { }
-    setShowDisclosureModal(true);
+    } catch {}
+
+    await openListenerSettings();
   };
 
-  const handleConfirmDisclosure = async () => {
-    setShowDisclosureModal(false);
-    setHasPrompted(true);
-    await openListenerSettings();
+  const handleDonePress = () => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {}
+    onComplete();
   };
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-      {/* Top Bar with optional Back and Skip */}
-      <View style={styles.topNav}>
+      <StatusBar style="dark" />
+
+      {/* Ambient Warm Golden Blobs */}
+      <Animated.View style={[styles.ambientBlobTop, animatedBlob1]} />
+      <Animated.View style={[styles.ambientBlobBottom, animatedBlob2]} />
+
+      {/* Top Bar: Back & Skip */}
+      <View style={styles.topBar}>
         {onBack ? (
           <TouchableOpacity
             onPress={onBack}
-            style={styles.navIconButton}
+            style={styles.backButton}
             activeOpacity={0.7}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
           >
-            <Ionicons name="arrow-back" size={22} color="#0F172A" />
+            <Ionicons name="arrow-back" size={20} color="#0F172A" />
           </TouchableOpacity>
         ) : (
-          <View style={{ width: 40 }} />
+          <View style={{ width: 36 }} />
         )}
-
-        <View style={styles.badge}>
-          <Ionicons name="flash" size={13} color="#D97706" style={{ marginRight: 4 }} />
-          <Text style={styles.badgeText}>AUTO-ADD PAYMENTS</Text>
-        </View>
 
         <TouchableOpacity
           onPress={onSkip}
           style={styles.skipButton}
           activeOpacity={0.7}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
         >
           <Text style={styles.skipText}>Skip</Text>
         </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Hero Section */}
-        <View style={styles.heroSection}>
-          <View style={[styles.iconCircle, isEnabled && styles.iconCircleActive]}>
-            <Ionicons
-              name={isEnabled ? 'shield-checkmark' : 'sparkles'}
-              size={36}
-              color={isEnabled ? '#059669' : '#0F172A'}
-            />
-          </View>
+      {/* Center Section: Everything inside 1 screen without scrolling */}
+      <View style={styles.centerSection}>
+        {/* 3D Illustration matching onboarding clay style */}
+        <Animated.View
+          entering={FadeIn.duration(450)}
+          style={[
+            styles.imageWrapper,
+            {
+              width: imageSize,
+              height: imageSize,
+              marginBottom: isCompact ? 10 : 18,
+            },
+          ]}
+        >
+          <Image
+            source={require('@/assets/images/onboarding_auto_track_3d.png')}
+            style={styles.illustration}
+            resizeMode="contain"
+          />
+        </Animated.View>
 
-          <Text style={styles.title}>Auto-Add Transactions</Text>
-          <Text style={styles.subtitle}>
-            Jab bhi aap UPI (GPay, PhonePe, Paytm) ya Bank se payment karenge, Rupeo bina app khole automatically aapka kharcha add kar lega.
+        {/* Text Section */}
+        <Animated.View entering={FadeInDown.duration(450)} style={styles.textContainer}>
+          <Text style={[styles.title, isCompact && styles.titleCompact]}>
+            Auto-Track <Text style={styles.titleHighlight}>Spends</Text>
           </Text>
-        </View>
 
-        {/* Live Visual Mockup Preview Card */}
-        <View style={styles.previewCard}>
-          <View style={styles.previewHeader}>
-            <Ionicons name="phone-portrait-outline" size={16} color="#64748B" style={{ marginRight: 6 }} />
-            <Text style={styles.previewHeaderText}>HOW IT LOOKS ON YOUR PHONE</Text>
-          </View>
+          <Text style={[styles.description, isCompact && styles.descriptionCompact]}>
+            Automatically record your UPI and bank payments the moment you pay. Zero manual entry, 100% private.
+          </Text>
 
-          {/* Simulated Android Notification */}
-          <View style={styles.mockNotifBox}>
-            <View style={styles.mockNotifTop}>
-              <View style={styles.mockRupeoLogo}>
-                <Ionicons name="wallet" size={14} color="#0F172A" />
-              </View>
-              <Text style={styles.mockNotifAppName}>Rupeo • just now</Text>
+          {/* Clean Horizontal Trust Badges */}
+          <View style={styles.trustRow}>
+            <View style={styles.trustBadge}>
+              <Ionicons name="flash" size={12} color="#D97706" style={{ marginRight: 4 }} />
+              <Text style={styles.trustBadgeText}>Instant</Text>
             </View>
-            <Text style={styles.mockNotifTitle}>Transaction Added ✅</Text>
-            <Text style={styles.mockNotifBody}>
-              ₹450 debited at Zomato (••4589) • Added to Rupeo
-            </Text>
-          </View>
-
-          {/* Simulated Note Preview */}
-          <View style={styles.mockNoteBox}>
-            <View style={styles.mockNoteTag}>
-              <Ionicons name="document-text-outline" size={13} color="#4F46E5" style={{ marginRight: 4 }} />
-              <Text style={styles.mockNoteTagText}>Saved in Transaction Note:</Text>
+            <View style={styles.trustBadge}>
+              <Ionicons name="shield-checkmark" size={12} color="#059669" style={{ marginRight: 4 }} />
+              <Text style={styles.trustBadgeText}>100% On-Device</Text>
             </View>
-            <Text style={styles.mockNoteHeading}>Original Message:</Text>
-            <Text style={styles.mockNoteBody}>
-              Sent Rs. 450.00 from HDFC Bank A/C **4589 to ZOMATO on 22-OCT-26 via UPI Ref 629584729104.
-            </Text>
-          </View>
-
-          <View style={styles.previewFooterPill}>
-            <Ionicons name="checkmark-done" size={14} color="#059669" style={{ marginRight: 5 }} />
-            <Text style={styles.previewFooterText}>Clean notes · No google.android or package clutter</Text>
-          </View>
-        </View>
-
-        {/* Status Card (Active State) */}
-        {isEnabled ? (
-          <View style={styles.successCard}>
-            <Ionicons name="checkmark-circle" size={26} color="#059669" style={{ marginRight: 12 }} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.successTitle}>Auto-Add is Enabled &amp; Ready!</Text>
-              <Text style={styles.successDesc}>
-                Your future UPI and bank payments will now be added directly to your expenses.
-              </Text>
-            </View>
-          </View>
-        ) : null}
-
-        {/* Detailed Instructions & Benefits Section */}
-        <View style={styles.instructionsCard}>
-          <Text style={styles.instructionsHeading}>✨ Kaise Kaam Karta Hai (Instructions):</Text>
-
-          {/* Point 1: Direct Auto-Add */}
-          <View style={styles.instructionRow}>
-            <View style={[styles.stepIconWrap, { backgroundColor: '#ECFDF5' }]}>
-              <Ionicons name="flash" size={17} color="#059669" />
-            </View>
-            <View style={styles.stepContent}>
-              <Text style={styles.stepTitle}>1. Direct Add (No Inbox Waiting)</Text>
-              <Text style={styles.stepDesc}>
-                Payment hote hi transaction seedha add ho jayega. Pending Alerts Inbox mein rukna nahi padega.
-              </Text>
+            <View style={styles.trustBadge}>
+              <Ionicons name="lock-closed" size={12} color="#4F46E5" style={{ marginRight: 4 }} />
+              <Text style={styles.trustBadgeText}>No OTP Access</Text>
             </View>
           </View>
 
-          {/* Point 2: Added Notification */}
-          <View style={styles.instructionRow}>
-            <View style={[styles.stepIconWrap, { backgroundColor: '#EFF6FF' }]}>
-              <Ionicons name="notifications" size={17} color="#2563EB" />
-            </View>
-            <View style={styles.stepContent}>
-              <Text style={styles.stepTitle}>2. Instant Added Notification</Text>
-              <Text style={styles.stepDesc}>
-                Jaise hi payment record hogi, phone par &quot;Transaction Added ✅&quot; ka confirmation notification aayega.
-              </Text>
-            </View>
-          </View>
-
-          {/* Point 3: Clean Notes */}
-          <View style={styles.instructionRow}>
-            <View style={[styles.stepIconWrap, { backgroundColor: '#F5F3FF' }]}>
-              <Ionicons name="document-text" size={17} color="#7C3AED" />
-            </View>
-            <View style={styles.stepContent}>
-              <Text style={styles.stepTitle}>3. Clean Original Message in Note</Text>
-              <Text style={styles.stepDesc}>
-                Note mein bina kisi &quot;google.android&quot; ya system line ke sirf Original Message acche se save hoga.
-              </Text>
-            </View>
-          </View>
-
-          {/* Point 4: 100% Privacy & Security */}
-          <View style={styles.instructionRow}>
-            <View style={[styles.stepIconWrap, { backgroundColor: '#FEF2F2' }]}>
-              <Ionicons name="shield-checkmark" size={17} color="#DC2626" />
-            </View>
-            <View style={styles.stepContent}>
-              <Text style={styles.stepTitle}>4. 100% Safe, On-Device &amp; Private</Text>
-              <Text style={styles.stepDesc}>
-                OTPs, passwords aur personal chats strictly drop kiye jate hain. Koi bank login ya password nahi chahiye.
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        {/* How to Enable Instructions Card (if not yet enabled) */}
-        {!isEnabled && (
-          <View style={styles.helpHintCard}>
-            <View style={styles.helpHintHeader}>
-              <Ionicons name="settings-outline" size={16} color="#B45309" style={{ marginRight: 6 }} />
-              <Text style={styles.helpHintTitle}>How to Enable in Android:</Text>
-            </View>
-            <Text style={styles.helpHintStep}>1. Niche &quot;Enable Auto-Tracking&quot; button dabayein.</Text>
-            <Text style={styles.helpHintStep}>2. Notification Access list mein &quot;Rupeo&quot; ko dhundh kar toggle ON karein.</Text>
-            <Text style={styles.helpHintStep}>3. &quot;Allow&quot; par tap karein.</Text>
-
-            <View style={styles.restrictedWarningBox}>
-              <Text style={styles.restrictedWarningText}>
-                ⚠️ <Text style={{ fontWeight: '700' }}>Xiaomi / Vivo / Realme / Samsung users:</Text> Agar &quot;Restricted setting&quot; ka notice aaye to: Phone Settings &gt; Apps &gt; Rupeo &gt; Top 3-dots &gt; &quot;Allow restricted settings&quot; karein.
-              </Text>
-            </View>
-          </View>
-        )}
-
-        {/* Action Buttons */}
-        <View style={styles.buttonContainer}>
-          {isEnabled ? (
-            <TouchableOpacity
-              style={[styles.primaryButton, { backgroundColor: '#10B981', borderColor: '#059669' }]}
-              onPress={onComplete}
-              activeOpacity={0.85}
-            >
-              <Text style={[styles.primaryButtonText, { color: '#FFFFFF' }]}>Continue to Dashboard</Text>
-              <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
-            </TouchableOpacity>
-          ) : (
-            <>
-              <TouchableOpacity
-                style={styles.primaryButton}
-                onPress={handleEnablePress}
-                activeOpacity={0.85}
-              >
-                <Ionicons name="flash" size={19} color="#0F172A" />
-                <Text style={styles.primaryButtonText}>Enable Auto-Tracking</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.skipBottomButton}
-                onPress={onSkip}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.skipBottomButtonText}>Skip for now (I&apos;ll do it later)</Text>
-              </TouchableOpacity>
-            </>
+          {/* Status feedback if already allowed */}
+          {isEnabled && (
+            <Animated.View entering={FadeIn.duration(300)} style={styles.statusBadge}>
+              <Ionicons name="checkmark-circle" size={15} color="#059669" style={{ marginRight: 5 }} />
+              <Text style={styles.statusBadgeText}>Notification Access Enabled & Ready</Text>
+            </Animated.View>
           )}
-        </View>
-      </ScrollView>
 
-      {/* Prominent Disclosure Modal (Google Play Policy Compliance) */}
-      <Modal
-        visible={showDisclosureModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowDisclosureModal(false)}
+          {/* Subtle Google Play compliant note */}
+          <Text style={[styles.complianceNote, isCompact && { marginTop: 4 }]}>
+            Rupeo only reads financial alerts on this device.
+          </Text>
+        </Animated.View>
+      </View>
+
+      {/* Footer: Action Buttons (Always visible on screen) */}
+      <View
+        style={[
+          styles.footer,
+          { paddingBottom: Math.max(insets.bottom, isCompact ? 12 : 20) },
+        ]}
       >
-        <View style={styles.disclosureOverlay}>
-          <View style={styles.disclosureCard}>
-            <View style={styles.disclosureIconWrap}>
-              <Ionicons name="shield-checkmark" size={30} color="#4F46E5" />
-            </View>
+        {isEnabled ? (
+          <TouchableOpacity
+            style={[styles.button, styles.doneButton]}
+            activeOpacity={0.85}
+            onPress={handleDonePress}
+          >
+            <Text style={[styles.buttonText, styles.doneButtonText]}>Done · Continue</Text>
+            <Ionicons name="checkmark-circle" size={20} color="#FFFFFF" />
+          </TouchableOpacity>
+        ) : (
+          <>
+            <TouchableOpacity
+              style={styles.button}
+              activeOpacity={0.85}
+              onPress={handleEnablePress}
+            >
+              <Ionicons name="flash" size={19} color="#0F172A" />
+              <Text style={styles.buttonText}>Enable Auto-Tracking</Text>
+            </TouchableOpacity>
 
-            <Text style={styles.disclosureTitle}>Prominent Disclosure: Notification Access</Text>
-
-            <ScrollView style={{ maxHeight: 220 }} showsVerticalScrollIndicator={false}>
-              <Text style={styles.disclosureBody}>
-                Rupeo requires <Text style={{ fontWeight: '700' }}>Notification Listener access</Text> to automatically detect and log your bank and UPI transactions.
-                {'\n\n'}
-                • <Text style={{ fontWeight: '600' }}>What we read:</Text> Only transaction notifications from banking and payment apps (Google Pay, PhonePe, Paytm, and Indian banks).
-                {'\n'}
-                • <Text style={{ fontWeight: '600' }}>What we ignore:</Text> OTPs, two-factor authentication codes, passwords, and personal chats are strictly filtered out on your device.
-                {'\n'}
-                • <Text style={{ fontWeight: '600' }}>Your privacy:</Text> All processing occurs 100% locally on your phone. Notification text is never transmitted or uploaded.
-              </Text>
-            </ScrollView>
-
-            <View style={styles.disclosureBtnRow}>
-              <TouchableOpacity
-                style={styles.disclosureCancelBtn}
-                onPress={() => setShowDisclosureModal(false)}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.disclosureCancelText}>Cancel</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.disclosureAgreeBtn}
-                onPress={handleConfirmDisclosure}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.disclosureAgreeText}>Agree &amp; Open Settings</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+            <TouchableOpacity
+              style={styles.bottomSkipButton}
+              activeOpacity={0.7}
+              onPress={onSkip}
+            >
+              <Text style={styles.bottomSkipText}>I&apos;ll do this later</Text>
+            </TouchableOpacity>
+          </>
+        )}
+      </View>
     </SafeAreaView>
   );
 }
@@ -351,409 +276,241 @@ export default function OnboardingPermissionStep({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#FEFCF7', // Warm ivory cream background matching onboarding
   },
-  topNav: {
-    height: 52,
+  ambientBlobTop: {
+    position: 'absolute',
+    top: -60,
+    right: -40,
+    width: 280,
+    height: 280,
+    borderRadius: 140,
+    backgroundColor: 'rgba(254, 240, 138, 0.45)',
+  },
+  ambientBlobBottom: {
+    position: 'absolute',
+    bottom: 80,
+    left: -70,
+    width: 260,
+    height: 260,
+    borderRadius: 130,
+    backgroundColor: 'rgba(253, 224, 71, 0.25)',
+  },
+  topBar: {
+    height: 48,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
-    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 20,
   },
-  navIconButton: {
+  backButton: {
     width: 36,
     height: 36,
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F1F5F9',
-  },
-  badge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FEF3C7',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#FDE68A',
-  },
-  badgeText: {
-    color: '#B45309',
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.5,
+    borderColor: '#E2E8F0',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
+      },
+      android: {
+        elevation: 1,
+      },
+      web: {
+        boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+      },
+    }),
   },
   skipButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 12,
-    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 3,
+      },
+      android: {
+        elevation: 1,
+      },
+      web: {
+        boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+      },
+    }),
   },
   skipText: {
-    color: '#64748B',
-    fontSize: 12,
-    fontWeight: '700',
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#334155',
   },
-  scrollContent: {
-    flexGrow: 1,
-    padding: 20,
-    paddingBottom: 40,
-    maxWidth: 480,
-    width: '100%',
-    alignSelf: 'center',
-  },
-  heroSection: {
+  centerSection: {
+    flex: 1,
     alignItems: 'center',
-    marginVertical: 12,
-  },
-  iconCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 22,
-    backgroundColor: '#FFD740',
     justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-    shadowColor: '#F59E0B',
-    shadowOpacity: 0.25,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 8,
-    elevation: 3,
+    paddingHorizontal: 24,
   },
-  iconCircleActive: {
-    backgroundColor: '#D1FAE5',
-    shadowColor: '#10B981',
+  imageWrapper: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  illustration: {
+    width: '100%',
+    height: '100%',
+  },
+  textContainer: {
+    width: '100%',
+    maxWidth: 380,
+    alignItems: 'center',
   },
   title: {
-    color: '#0F172A',
-    fontSize: 26,
+    fontSize: 28,
     fontWeight: '900',
-    textAlign: 'center',
-    marginBottom: 8,
-    letterSpacing: -0.4,
-  },
-  subtitle: {
-    color: '#64748B',
-    fontSize: 14,
-    lineHeight: 21,
-    fontWeight: '500',
-    textAlign: 'center',
-    paddingHorizontal: 8,
-  },
-  previewCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    padding: 16,
-    marginVertical: 14,
-    shadowColor: '#000000',
-    shadowOpacity: 0.04,
-    shadowOffset: { width: 0, height: 3 },
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  previewHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  previewHeaderText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#64748B',
-    letterSpacing: 0.5,
-  },
-  mockNotifBox: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    padding: 12,
-    marginBottom: 10,
-  },
-  mockNotifTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  mockRupeoLogo: {
-    width: 18,
-    height: 18,
-    borderRadius: 5,
-    backgroundColor: '#FFD740',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 6,
-  },
-  mockNotifAppName: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#475569',
-  },
-  mockNotifTitle: {
-    fontSize: 14,
-    fontWeight: '800',
     color: '#0F172A',
-    marginBottom: 2,
-  },
-  mockNotifBody: {
-    fontSize: 12,
-    color: '#334155',
-    fontWeight: '500',
-  },
-  mockNoteBox: {
-    backgroundColor: '#F5F3FF',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E0E7FF',
-    padding: 12,
-    marginBottom: 10,
-  },
-  mockNoteTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  mockNoteTagText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#4F46E5',
-  },
-  mockNoteHeading: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#1E1B4B',
-    marginBottom: 2,
-  },
-  mockNoteBody: {
-    fontSize: 12,
-    color: '#4338CA',
-    lineHeight: 16,
-    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
-  },
-  previewFooterPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#ECFDF5',
-    borderRadius: 8,
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-  },
-  previewFooterText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#047857',
-  },
-  instructionsCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    padding: 16,
-    marginBottom: 14,
-  },
-  instructionsHeading: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#0F172A',
-    marginBottom: 14,
-  },
-  instructionRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 14,
-  },
-  stepIconWrap: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-    marginTop: 1,
-  },
-  stepContent: {
-    flex: 1,
-  },
-  stepTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#0F172A',
-    marginBottom: 2,
-  },
-  stepDesc: {
-    fontSize: 12,
-    color: '#64748B',
-    lineHeight: 17,
-  },
-  successCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#ECFDF5',
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: '#A7F3D0',
-    marginBottom: 14,
-  },
-  successTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#065F46',
-    marginBottom: 2,
-  },
-  successDesc: {
-    fontSize: 12,
-    color: '#047857',
-    lineHeight: 17,
-  },
-  helpHintCard: {
-    backgroundColor: '#FFFBEB',
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: '#FDE68A',
-    marginBottom: 16,
-  },
-  helpHintHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
     marginBottom: 6,
+    textAlign: 'center',
+    letterSpacing: -0.5,
   },
-  helpHintTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#92400E',
+  titleCompact: {
+    fontSize: 24,
+    marginBottom: 4,
   },
-  helpHintStep: {
-    fontSize: 12,
-    color: '#78350F',
-    lineHeight: 18,
-    marginBottom: 2,
+  titleHighlight: {
+    color: '#EAB308', // Vibrant warm gold accent matching onboarding
+  },
+  description: {
+    fontSize: 14,
     fontWeight: '500',
+    color: '#64748B',
+    textAlign: 'center',
+    lineHeight: 20,
+    paddingHorizontal: 8,
+    marginBottom: 14,
   },
-  restrictedWarningBox: {
-    backgroundColor: '#FEF3C7',
-    padding: 10,
-    borderRadius: 8,
-    marginTop: 8,
+  descriptionCompact: {
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: 10,
   },
-  restrictedWarningText: {
-    fontSize: 11,
-    color: '#92400E',
-    lineHeight: 16,
-  },
-  buttonContainer: {
-    marginTop: 4,
-  },
-  primaryButton: {
-    height: 54,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#F59E0B',
-    backgroundColor: '#FFD740',
-    shadowColor: '#F59E0B',
-    shadowOpacity: 0.2,
-    shadowOffset: { width: 0, height: 3 },
-    shadowRadius: 6,
-    elevation: 2,
+  trustRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-  },
-  primaryButtonText: {
-    color: '#0F172A',
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  skipBottomButton: {
-    alignItems: 'center',
-    paddingVertical: 14,
-  },
-  skipBottomButtonText: {
-    color: '#64748B',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  disclosureOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  disclosureCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 22,
-    padding: 22,
-    maxWidth: 420,
-    width: '100%',
-    shadowColor: '#000000',
-    shadowOpacity: 0.2,
-    shadowOffset: { width: 0, height: 8 },
-    shadowRadius: 16,
-    elevation: 6,
-  },
-  disclosureIconWrap: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
-    backgroundColor: '#EEF2FF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    alignSelf: 'center',
-    marginBottom: 12,
-  },
-  disclosureTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#0F172A',
-    textAlign: 'center',
+    flexWrap: 'wrap',
     marginBottom: 10,
   },
-  disclosureBody: {
-    fontSize: 13,
-    color: '#475569',
-    lineHeight: 19,
-  },
-  disclosureBtnRow: {
+  trustBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-    marginTop: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#0F172A',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.04,
+        shadowRadius: 3,
+      },
+      android: {
+        elevation: 1,
+      },
+      web: {
+        boxShadow: '0 1px 3px rgba(15,23,42,0.04)',
+      },
+    }),
   },
-  disclosureCancelBtn: {
-    flex: 1,
-    height: 46,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#F1F5F9',
-  },
-  disclosureCancelText: {
-    fontSize: 13,
+  trustBadgeText: {
+    fontSize: 11.5,
     fontWeight: '700',
-    color: '#64748B',
+    color: '#334155',
   },
-  disclosureAgreeBtn: {
-    flex: 1.5,
-    height: 46,
-    borderRadius: 12,
+  statusBadge: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#4F46E5',
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    marginBottom: 8,
   },
-  disclosureAgreeText: {
-    fontSize: 13,
+  statusBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#065F46',
+  },
+  complianceNote: {
+    fontSize: 11,
+    color: '#94A3B8',
+    textAlign: 'center',
+    lineHeight: 15,
+    paddingHorizontal: 12,
+  },
+  footer: {
+    paddingHorizontal: 24,
+    width: '100%',
+    maxWidth: 420,
+    alignSelf: 'center',
+  },
+  button: {
+    flexDirection: 'row',
+    backgroundColor: '#FFCA28', // Warm rich golden yellow from onboarding
+    height: 52,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#F59E0B',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.28,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 3,
+      },
+      web: {
+        boxShadow: '0 4px 12px rgba(245, 158, 11, 0.28)',
+      },
+    }),
+  },
+  buttonText: {
+    color: '#0F172A',
+    fontSize: 16,
     fontWeight: '800',
+    letterSpacing: -0.2,
+  },
+  doneButton: {
+    backgroundColor: '#10B981',
+  },
+  doneButtonText: {
     color: '#FFFFFF',
+  },
+  bottomSkipButton: {
+    marginTop: 6,
+    alignItems: 'center',
+    paddingVertical: 6,
+  },
+  bottomSkipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#94A3B8',
   },
 });

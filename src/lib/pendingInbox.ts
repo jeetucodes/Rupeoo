@@ -79,8 +79,8 @@ export async function confirmPendingAlert(
   pendingId: string,
   overrides?: {
     amount?: number;
-    category?: string;
-    merchant_name?: string;
+    category?: string | null;
+    merchant_name?: string | null;
     type?: 'expense' | 'income' | 'transfer';
     payment_mode?: string;
     date?: string;

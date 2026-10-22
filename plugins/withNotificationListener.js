@@ -39,6 +39,8 @@ const withNotificationListener = (config) => {
     };
 
     ensurePermission('android.permission.POST_NOTIFICATIONS');
+    ensurePermission('android.permission.RECEIVE_BOOT_COMPLETED');
+    ensurePermission('android.permission.WAKE_LOCK');
     ensurePermission('android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS');
 
     // 1.2 Register NotificationListenerService and HeadlessJsTaskService in <application>
@@ -84,6 +86,38 @@ const withNotificationListener = (config) => {
             'android:name': '.RupeoNotificationHeadlessService',
             'android:exported': 'false',
           },
+        });
+      }
+
+      // Check if RupeoBootReceiver is already present
+      if (!application.receiver) {
+        application.receiver = [];
+      }
+      const hasBootReceiver = application.receiver.some(
+        (r) => r.$ && r.$['android:name'] === '.RupeoBootReceiver'
+      );
+      if (!hasBootReceiver) {
+        application.receiver.push({
+          $: {
+            'android:name': '.RupeoBootReceiver',
+            'android:exported': 'true',
+          },
+          'intent-filter': [
+            {
+              action: [
+                {
+                  $: {
+                    'android:name': 'android.intent.action.BOOT_COMPLETED',
+                  },
+                },
+                {
+                  $: {
+                    'android:name': 'android.intent.action.MY_PACKAGE_REPLACED',
+                  },
+                },
+              ],
+            },
+          ],
         });
       }
     }
@@ -274,7 +308,42 @@ class RupeoNotificationHeadlessService : HeadlessJsTaskService() {
 `;
       fs.writeFileSync(path.join(javaPkgDir, 'RupeoNotificationHeadlessService.kt'), headlessServiceKt, 'utf-8');
 
-      // 2.3 RupeoNotifModule.kt
+      // 2.3 RupeoBootReceiver.kt
+      const bootReceiverKt = `package com.innovatexlabs.paisewaise
+
+import android.content.BroadcastReceiver
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.os.Build
+import android.service.notification.NotificationListenerService
+import android.util.Log
+
+class RupeoBootReceiver : BroadcastReceiver() {
+    companion object {
+        private const val TAG = "RupeoBootReceiver"
+    }
+
+    override fun onReceive(context: Context?, intent: Intent?) {
+        if (context == null || intent == null) return
+        val action = intent.action
+        if (Intent.ACTION_BOOT_COMPLETED == action || Intent.ACTION_MY_PACKAGE_REPLACED == action) {
+            Log.i(TAG, "Rebinding RupeoNotificationListener on action: $action")
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    val componentName = ComponentName(context, RupeoNotificationListener::class.java)
+                    NotificationListenerService.requestRebind(componentName)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to rebind on boot: \${e.message}", e)
+            }
+        }
+    }
+}
+`;
+      fs.writeFileSync(path.join(javaPkgDir, 'RupeoBootReceiver.kt'), bootReceiverKt, 'utf-8');
+
+      // 2.4 RupeoNotifModule.kt
       const notifModuleKt = `package com.innovatexlabs.paisewaise
 
 import android.content.ComponentName
@@ -347,7 +416,7 @@ class RupeoNotifModule(private val reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
-    fun isBatteryOptimizationIgnored(promise: Promise) {
+    fun isIgnoringBatteryOptimizations(promise: Promise) {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 val pm = reactContext.getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -359,6 +428,11 @@ class RupeoNotifModule(private val reactContext: ReactApplicationContext) :
         } catch (e: Exception) {
             promise.resolve(false)
         }
+    }
+
+    @ReactMethod
+    fun isBatteryOptimizationIgnored(promise: Promise) {
+        isIgnoringBatteryOptimizations(promise)
     }
 
     @ReactMethod

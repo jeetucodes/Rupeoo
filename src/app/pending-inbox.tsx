@@ -1,53 +1,77 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  FlatList,
-  ActivityIndicator,
-  Modal,
-  TextInput,
   ScrollView,
-  Platform,
+  ActivityIndicator,
+  useColorScheme,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import Toast from 'react-native-toast-message';
+
 import { useAuth } from '@/context/AuthContext';
 import {
   PendingAlertItem,
   getPendingAlerts,
   confirmPendingAlert,
   dismissPendingAlert,
-  clearAllPendingAlerts,
 } from '@/lib/pendingInbox';
-import { defaultCategories } from '@/lib/database';
+import {
+  getSmsImportSettings,
+  saveSmsImportSettings,
+} from '@/lib/smsSettings';
+
+// Reused shared components
+import { TransactionDraftCard } from '@/features/import/components/TransactionDraftCard';
+import { CategorySheet } from '@/features/import/components/CategorySheet';
+import { EmptyState } from '@/features/import/components/EmptyState';
+import {
+  checkNeedsCategory,
+  DraftItemLike,
+} from '@/features/import/utils/importHelpers';
+
+type FilterTab = 'all' | 'needs_category' | 'bills' | 'duplicates';
 
 export default function PendingInboxScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const isDark = useColorScheme() === 'dark';
   const { user } = useAuth();
   const userId = user?.uid || 'local';
 
+  // Alerts State
   const [alerts, setAlerts] = useState<PendingAlertItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+  const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
 
-  // Edit Modal State
-  const [editingItem, setEditingItem] = useState<PendingAlertItem | null>(null);
-  const [editAmount, setEditAmount] = useState('');
-  const [editMerchant, setEditMerchant] = useState('');
-  const [editCategory, setEditCategory] = useState('');
-  const [editType, setEditType] = useState<'expense' | 'income'>('expense');
+  // Auto-Add Setting state
+  const [autoAddEnabled, setAutoAddEnabled] = useState(true);
 
+  // Multi-Select Mode (activated on long-press)
+  const [isMultiSelect, setIsMultiSelect] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // Category Sheet State
+  const [categoryDraft, setCategoryDraft] = useState<DraftItemLike | null>(null);
+
+  // Overrides map for inline edited drafts
+  const [draftOverrides, setDraftOverrides] = useState<Record<string, Partial<DraftItemLike>>>({});
+
+  // Load Alerts & Auto-Add Setting
   const loadAlerts = useCallback(async () => {
     setLoading(true);
     try {
-      const list = await getPendingAlerts(userId);
+      const [list, settings] = await Promise.all([
+        getPendingAlerts(userId),
+        getSmsImportSettings(userId),
+      ]);
       setAlerts(list);
+      setAutoAddEnabled(settings.autoAddEnabled);
     } catch {
       setAlerts([]);
     } finally {
@@ -59,40 +83,153 @@ export default function PendingInboxScreen() {
     loadAlerts();
   }, [loadAlerts]);
 
-  const [selectedBillMatches, setSelectedBillMatches] = useState<Record<string, string | null>>({});
+  // Turn Auto-add on action
+  const handleTurnOnAutoAdd = async () => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      await saveSmsImportSettings(userId, { autoAddEnabled: true });
+      setAutoAddEnabled(true);
+      Toast.show({
+        type: 'success',
+        text1: 'Auto-add is ON ✅',
+        text2: 'New financial alerts from notifications will be tracked.',
+      });
+    } catch { }
+  };
 
-  const handleConfirm = async (item: PendingAlertItem) => {
-    setActionLoadingId(item.id);
+  // Convert PendingAlertItem to normalized DraftItemLike
+  const normalizedAlerts: DraftItemLike[] = useMemo(() => {
+    return alerts.map((item) => {
+      const overrides = draftOverrides[item.id] || {};
+      const parsed = item.alert;
+      const timestamp = item.createdAt || parsed.timestamp || Date.now();
+
+      return {
+        id: item.id,
+        amount: overrides.amount ?? parsed.amount ?? 0,
+        type: overrides.type ?? parsed.type ?? 'expense',
+        merchant: overrides.merchant ?? parsed.merchantNormalized ?? parsed.merchant ?? 'Payment',
+        category: overrides.category ?? parsed.category ?? 'Others',
+        bankName: parsed.sender || 'Bank Alert',
+        accountLast4: parsed.accountLast4,
+        date: timestamp,
+        channel: parsed.channel,
+        confidence: parsed.confidence,
+        refNo: parsed.refNo,
+        rawText: parsed.rawText,
+        selected: selectedIds.has(item.id),
+        isAlreadyAdded: false,
+        isLowConfidence: parsed.confidence < 0.8,
+        matchedBillTitle: item.suggestedBillId || item.candidateBills?.[0]?.title || null,
+        candidateBills: item.candidateBills,
+      };
+    });
+  }, [alerts, draftOverrides, selectedIds]);
+
+  // Filter counts
+  const filterCounts = useMemo(() => {
+    let needsCat = 0;
+    let bills = 0;
+    let dupes = 0;
+
+    for (const item of normalizedAlerts) {
+      if (checkNeedsCategory(item.category)) needsCat++;
+      if (item.matchedBillTitle || (item.candidateBills && item.candidateBills.length > 0)) bills++;
+      if (item.isAlreadyAdded) dupes++;
+    }
+
+    return {
+      all: normalizedAlerts.length,
+      needs_category: needsCat,
+      bills,
+      duplicates: dupes,
+    };
+  }, [normalizedAlerts]);
+
+  // Filtered list based on active tab
+  const filteredAlerts = useMemo(() => {
+    switch (activeFilter) {
+      case 'needs_category':
+        return normalizedAlerts.filter((item) => checkNeedsCategory(item.category));
+      case 'bills':
+        return normalizedAlerts.filter(
+          (item) => item.matchedBillTitle || (item.candidateBills && item.candidateBills.length > 0)
+        );
+      case 'duplicates':
+        return normalizedAlerts.filter((item) => item.isAlreadyAdded);
+      case 'all':
+      default:
+        return normalizedAlerts;
+    }
+  }, [normalizedAlerts, activeFilter]);
+
+  // Ready items eligible for "Add all ready (N)"
+  const readyAlerts = useMemo(() => {
+    return normalizedAlerts.filter(
+      (item) => (item.confidence === undefined || item.confidence >= 0.8) && !checkNeedsCategory(item.category)
+    );
+  }, [normalizedAlerts]);
+
+  // Group by day ("Today", "Yesterday", formatted date)
+  const groupedByDay = useMemo(() => {
+    const groups: Array<{ dayLabel: string; items: DraftItemLike[] }> = [];
+    const map = new Map<string, DraftItemLike[]>();
+
+    const now = new Date();
+    const todayStr = now.toDateString();
+    const yesterday = new Date();
+    yesterday.setDate(now.getDate() - 1);
+    const yesterdayStr = yesterday.toDateString();
+
+    for (const item of filteredAlerts) {
+      const d = new Date(item.date);
+      let label = '';
+      if (d.toDateString() === todayStr) {
+        label = 'Today';
+      } else if (d.toDateString() === yesterdayStr) {
+        label = 'Yesterday';
+      } else {
+        label = d.toLocaleDateString('en-IN', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric',
+        });
+      }
+
+      if (!map.has(label)) {
+        map.set(label, []);
+      }
+      map.get(label)!.push(item);
+    }
+
+    for (const [dayLabel, items] of map.entries()) {
+      groups.push({ dayLabel, items });
+    }
+
+    return groups;
+  }, [filteredAlerts]);
+
+  // Confirm Single Item Action
+  const handleConfirmSingle = async (item: DraftItemLike) => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch { }
 
-    const chosenBillId =
-      selectedBillMatches[item.id] !== undefined
-        ? (selectedBillMatches[item.id] === 'none' ? null : selectedBillMatches[item.id])
-        : (item.suggestedBillId || item.billId || null);
-
-    const success = await confirmPendingAlert(userId, item.id, {
-      billId: chosenBillId,
+    const overrides = draftOverrides[item.id];
+    const successId = await confirmPendingAlert(userId, item.id, {
+      amount: item.amount,
+      category: item.category ?? undefined,
+      merchant_name: item.merchant ?? undefined,
+      type: item.type as any,
     });
-    setActionLoadingId(null);
 
-    if (success) {
-      setAlerts(prev => prev.filter(a => a.id !== item.id));
-      if (chosenBillId) {
-        const matched = item.candidateBills?.find((b: any) => b.id === chosenBillId);
-        Toast.show({
-          type: 'success',
-          text1: 'Bill Marked Paid ✅',
-          text2: `${matched?.title || 'Bill'} marked as paid & transaction linked.`,
-        });
-      } else {
-        Toast.show({
-          type: 'success',
-          text1: 'Transaction Added',
-          text2: `Added ₹${item.alert.amount} to transactions.`,
-        });
-      }
+    if (successId) {
+      setAlerts((prev) => prev.filter((a) => a.id !== item.id));
+      Toast.show({
+        type: 'success',
+        text1: 'Transaction Added ✅',
+        text2: `Added ${item.merchant || 'Payment'} to transactions.`,
+      });
     } else {
       Toast.show({
         type: 'error',
@@ -102,417 +239,419 @@ export default function PendingInboxScreen() {
     }
   };
 
-  const handleDismiss = async (item: PendingAlertItem) => {
-    setActionLoadingId(item.id);
+  // Dismiss / Ignore Single Item Action
+  const handleIgnoreSingle = async (item: DraftItemLike) => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch { }
 
     await dismissPendingAlert(userId, item.id);
-    setActionLoadingId(null);
-    setAlerts(prev => prev.filter(a => a.id !== item.id));
-
+    setAlerts((prev) => prev.filter((a) => a.id !== item.id));
     Toast.show({
       type: 'info',
-      text1: 'Alert Dismissed',
-      text2: 'Item removed from inbox.',
+      text1: 'Alert Ignored',
+      text2: 'This payment alert was dismissed.',
     });
   };
 
-  const openEditModal = (item: PendingAlertItem) => {
-    setEditingItem(item);
-    setEditAmount(String(item.alert.amount || ''));
-    setEditMerchant(item.alert.merchantNormalized || item.alert.merchant || '');
-    setEditCategory(item.alert.category || 'Others');
-    setEditType(item.alert.type === 'income' ? 'income' : 'expense');
-  };
+  // Bulk Add All Ready (N)
+  const handleAddAllReady = async () => {
+    if (readyAlerts.length === 0) return;
 
-  const handleSaveEdit = async () => {
-    if (!editingItem) return;
-    const numAmt = parseFloat(editAmount);
-    if (isNaN(numAmt) || numAmt <= 0) {
-      Toast.show({
-        type: 'error',
-        text1: 'Invalid amount',
-        text2: 'Please enter a valid amount.',
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch { }
+
+    let addedCount = 0;
+    for (const ready of readyAlerts) {
+      const res = await confirmPendingAlert(userId, ready.id, {
+        amount: ready.amount,
+        category: ready.category ?? undefined,
+        merchant_name: ready.merchant ?? undefined,
+        type: ready.type as any,
       });
-      return;
+      if (res) addedCount++;
     }
 
-    setActionLoadingId(editingItem.id);
-    const success = await confirmPendingAlert(userId, editingItem.id, {
-      amount: numAmt,
-      merchant_name: editMerchant.trim() || undefined,
-      category: editCategory,
-      type: editType === 'income' ? 'income' : 'expense',
-    });
+    try {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch { }
 
-    setActionLoadingId(null);
-    setEditingItem(null);
-
-    if (success) {
-      setAlerts(prev => prev.filter(a => a.id !== editingItem.id));
-      Toast.show({
-        type: 'success',
-        text1: 'Updated & Added',
-        text2: `Added ₹${numAmt} to transactions.`,
-      });
-    }
-  };
-
-  const handleAddAll = async () => {
-    if (alerts.length === 0) return;
-    setLoading(true);
-
-    let count = 0;
-    for (const alertItem of alerts) {
-      const ok = await confirmPendingAlert(userId, alertItem.id);
-      if (ok) count++;
-    }
-
-    await loadAlerts();
+    setAlerts((prev) => prev.filter((a) => !readyAlerts.some((r) => r.id === a.id)));
     Toast.show({
       type: 'success',
-      text1: 'All Alerts Added',
-      text2: `Successfully added ${count} transactions.`,
+      text1: 'Transactions Added ✅',
+      text2: `Successfully added ${addedCount} ready transactions.`,
     });
   };
 
-  const handleClearAll = async () => {
-    if (alerts.length === 0) return;
-    await clearAllPendingAlerts(userId);
-    setAlerts([]);
+  // Toggle selection in multi-select mode
+  const handleToggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  // Long-press handler to enter multi-select mode
+  const handleLongPress = (item: DraftItemLike) => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch { }
+    setIsMultiSelect(true);
+    setSelectedIds(new Set([item.id]));
+  };
+
+  // Multi-select bulk add
+  const handleAddSelected = async () => {
+    const toAdd = normalizedAlerts.filter((item) => selectedIds.has(item.id));
+    if (toAdd.length === 0) return;
+
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch { }
+
+    let count = 0;
+    for (const item of toAdd) {
+      const res = await confirmPendingAlert(userId, item.id, {
+        amount: item.amount,
+        category: item.category ?? undefined,
+        merchant_name: item.merchant ?? undefined,
+        type: item.type as any,
+      });
+      if (res) count++;
+    }
+
+    setIsMultiSelect(false);
+    setSelectedIds(new Set());
+    setAlerts((prev) => prev.filter((a) => !selectedIds.has(a.id)));
+
+    Toast.show({
+      type: 'success',
+      text1: 'Transactions Added ✅',
+      text2: `Added ${count} selected transactions.`,
+    });
+  };
+
+  // Multi-select bulk ignore
+  const handleIgnoreSelected = async () => {
+    const toIgnore = normalizedAlerts.filter((item) => selectedIds.has(item.id));
+    if (toIgnore.length === 0) return;
+
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch { }
+
+    for (const item of toIgnore) {
+      await dismissPendingAlert(userId, item.id);
+    }
+
+    setIsMultiSelect(false);
+    setSelectedIds(new Set());
+    setAlerts((prev) => prev.filter((a) => !selectedIds.has(a.id)));
+
     Toast.show({
       type: 'info',
-      text1: 'Inbox Cleared',
-      text2: 'All pending alerts dismissed.',
+      text1: 'Alerts Ignored',
+      text2: `Dismissed ${toIgnore.length} alerts.`,
     });
   };
 
-  const renderItem = ({ item }: { item: PendingAlertItem }) => {
-    const isIncome = item.alert.type === 'income';
-    const isBusy = actionLoadingId === item.id;
-    const confidencePct = Math.round(item.alert.confidence * 100);
-
-    return (
-      <View style={styles.card}>
-        <View style={styles.cardHeader}>
-          <View style={styles.senderWrap}>
-            <View style={[styles.senderDot, { backgroundColor: isIncome ? '#16A34A' : '#DC2626' }]} />
-            <Text style={styles.senderText}>{item.alert.sender}</Text>
-          </View>
-          <View style={[
-            styles.confBadge,
-            { backgroundColor: item.alert.confidence >= 0.9 ? '#ECFDF5' : '#FEF3C7' }
-          ]}>
-            <Text style={[
-              styles.confText,
-              { color: item.alert.confidence >= 0.9 ? '#059669' : '#D97706' }
-            ]}>
-              {confidencePct}% Match
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.cardContent}>
-          <View style={styles.mainInfo}>
-            <Text style={styles.merchantText} numberOfLines={1}>
-              {item.alert.merchantNormalized || item.alert.merchant || 'Bank Transaction'}
-            </Text>
-            <Text style={styles.metaText}>
-              {item.alert.category} • {item.alert.channel.toUpperCase()}
-              {item.alert.accountLast4 ? ` • *${item.alert.accountLast4}` : ''}
-            </Text>
-          </View>
-
-          <View style={styles.amountWrap}>
-            <Text style={[styles.amountText, { color: isIncome ? '#16A34A' : '#0F172A' }]}>
-              {isIncome ? '+' : '-'}₹{item.alert.amount?.toLocaleString('en-IN') || '0'}
-            </Text>
-          </View>
-        </View>
-
-        {/* Bill Matching Prompt */}
-        {item.candidateBills && item.candidateBills.length > 0 && (
-          <View style={styles.billMatchBox}>
-            <View style={styles.billMatchHeader}>
-              <Ionicons name="receipt-outline" size={15} color="#4F46E5" />
-              <Text style={styles.billMatchTitle}>Match to Bill?</Text>
-            </View>
-            <View style={styles.billCandidatesList}>
-              {item.candidateBills.map((b: any) => {
-                const isSelected =
-                  (selectedBillMatches[item.id] !== undefined
-                    ? selectedBillMatches[item.id] === b.id
-                    : (item.suggestedBillId === b.id || item.billId === b.id));
-                return (
-                  <TouchableOpacity
-                    key={b.id}
-                    style={[styles.billCandidateCard, isSelected && styles.billCandidateCardActive]}
-                    onPress={() => setSelectedBillMatches(prev => ({ ...prev, [item.id]: b.id }))}
-                    activeOpacity={0.7}
-                  >
-                    <View style={[styles.billRadio, isSelected && styles.billRadioActive]}>
-                      {isSelected && <View style={styles.billRadioInner} />}
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.billCandidateTitle} numberOfLines={1}>{b.title}</Text>
-                      <Text style={styles.billCandidateMeta}>Due: {b.nextDueDate} • ₹{b.amount}</Text>
-                    </View>
-                    {b.id === item.suggestedBillId && (
-                      <View style={styles.suggestedBadge}>
-                        <Text style={styles.suggestedBadgeText}>Suggested</Text>
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-
-              <TouchableOpacity
-                style={[
-                  styles.billCandidateCard,
-                  selectedBillMatches[item.id] === 'none' && styles.billCandidateCardActive,
-                ]}
-                onPress={() => setSelectedBillMatches(prev => ({ ...prev, [item.id]: 'none' }))}
-                activeOpacity={0.7}
-              >
-                <View
-                  style={[
-                    styles.billRadio,
-                    selectedBillMatches[item.id] === 'none' && styles.billRadioActive,
-                  ]}
-                >
-                  {selectedBillMatches[item.id] === 'none' && <View style={styles.billRadioInner} />}
-                </View>
-                <Text style={styles.notABillText}>Not a bill (Standard expense)</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-
-        {/* Action Buttons */}
-        <View style={styles.cardActions}>
-          <TouchableOpacity
-            style={styles.dismissBtn}
-            onPress={() => handleDismiss(item)}
-            disabled={isBusy}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="trash-outline" size={16} color="#64748B" />
-            <Text style={styles.dismissBtnText}>Dismiss</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.editBtn}
-            onPress={() => openEditModal(item)}
-            disabled={isBusy}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="create-outline" size={16} color="#2563EB" />
-            <Text style={styles.editBtnText}>Edit</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.addBtn}
-            onPress={() => handleConfirm(item)}
-            disabled={isBusy}
-            activeOpacity={0.8}
-          >
-            {isBusy ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
-            ) : (
-              <>
-                <Ionicons name="checkmark" size={16} color="#FFFFFF" style={{ marginRight: 4 }} />
-                <Text style={styles.addBtnText}>Add</Text>
-              </>
-            )}
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
+  // Save inline edit overrides
+  const handleSaveDraftEdit = (id: string, updated: Partial<DraftItemLike>) => {
+    setDraftOverrides((prev) => ({
+      ...prev,
+      [id]: {
+        ...(prev[id] || {}),
+        ...updated,
+      },
+    }));
   };
 
+  // Theme Colors
+  const bgColor = isDark ? '#0F0F11' : '#F8F9FA';
+  const cardBg = isDark ? '#18191D' : '#FFFFFF';
+  const textColor = isDark ? '#FFFFFF' : '#0F172A';
+  const subtextColor = isDark ? '#94A3B8' : '#64748B';
+  const borderColor = isDark ? '#272A30' : '#E8ECF2';
+  const inputBg = isDark ? '#22252B' : '#F1F5F9';
+
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-      {/* Navigation Header */}
-      <View style={styles.header}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: bgColor }]} edges={['top', 'left', 'right']}>
+      {/* App Header */}
+      <View style={[styles.header, { backgroundColor: cardBg, borderBottomColor: borderColor }]}>
         <TouchableOpacity
-          onPress={() => router.back()}
           style={styles.backBtn}
-          activeOpacity={0.7}
+          onPress={() => router.back()}
           accessibilityRole="button"
           accessibilityLabel="Go back"
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
-          <Ionicons name="arrow-back" size={24} color="#0F172A" />
+          <Ionicons name="arrow-back" size={24} color={textColor} />
         </TouchableOpacity>
+
         <View style={styles.headerTitleWrap}>
-          <Text style={styles.headerTitle}>Review Pending Alerts</Text>
-          <Text style={styles.headerSubtitle}>
-            {alerts.length} {alerts.length === 1 ? 'alert' : 'alerts'} awaiting your confirmation
+          <Text style={[styles.headerTitle, { color: textColor }]}>Pending Alerts Inbox</Text>
+          <Text style={[styles.headerSubtitle, { color: subtextColor }]}>
+            {alerts.length} {alerts.length === 1 ? 'alert' : 'alerts'} waiting for review
           </Text>
         </View>
+
+        {isMultiSelect ? (
+          <TouchableOpacity
+            style={styles.cancelMultiBtn}
+            onPress={() => {
+              setIsMultiSelect(false);
+              setSelectedIds(new Set());
+            }}
+          >
+            <Text style={styles.cancelMultiText}>Done</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={[styles.importShortcutBtn, { backgroundColor: inputBg, borderColor }]}
+            onPress={() => router.push('/sms-import')}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="document-text-outline" size={14} color="#4F46E5" style={{ marginRight: 4 }} />
+            <Text style={[styles.importShortcutText, { color: textColor }]}>Import</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
-      {/* Top Bulk Action Bar */}
-      {alerts.length > 0 && (
-        <View style={styles.bulkBar}>
-          <TouchableOpacity style={styles.bulkBtnAdd} onPress={handleAddAll} activeOpacity={0.8}>
-            <Ionicons name="checkmark-done" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
-            <Text style={styles.bulkBtnAddText}>Confirm All ({alerts.length})</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.bulkBtnClear} onPress={handleClearAll} activeOpacity={0.8}>
-            <Text style={styles.bulkBtnClearText}>Dismiss All</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {loading ? (
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color="#6366F1" />
-          <Text style={styles.loadingText}>Loading inbox alerts...</Text>
-        </View>
-      ) : alerts.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <View style={styles.emptyIconCircle}>
-            <Ionicons name="mail-open-outline" size={38} color="#6366F1" />
-          </View>
-          <Text style={styles.emptyTitle}>Inbox is Clean</Text>
-          <Text style={styles.emptySubtitle}>
-            No unconfirmed bank or UPI alerts waiting for review. Verified high-confidence alerts are auto-added directly to your dashboard.
+      {/* Auto-Add OFF Warning Banner */}
+      {!autoAddEnabled && (
+        <View style={[styles.autoAddOffBanner, { backgroundColor: isDark ? '#311E08' : '#FEF3C7' }]}>
+          <Ionicons name="warning" size={16} color="#D97706" style={{ marginRight: 8 }} />
+          <Text style={[styles.autoAddOffText, { color: isDark ? '#FDE68A' : '#92400E' }]}>
+            Auto-add is off. New payments aren't being tracked.
           </Text>
-          <TouchableOpacity
-            style={styles.importShortcutBtn}
-            onPress={() => router.push('/sms-import')}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="chatbubbles-outline" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
-            <Text style={styles.importShortcutBtnText}>Missed something? Import from messages</Text>
+          <TouchableOpacity style={styles.turnOnBtn} onPress={handleTurnOnAutoAdd}>
+            <Text style={styles.turnOnBtnText}>Turn on</Text>
           </TouchableOpacity>
         </View>
-      ) : (
-        <FlatList
-          data={alerts}
-          keyExtractor={(item) => item.id}
-          renderItem={renderItem}
-          contentContainerStyle={styles.listContent}
-          showsVerticalScrollIndicator={false}
-          ListFooterComponent={
-            <TouchableOpacity
-              style={styles.listFooterFallbackBtn}
-              onPress={() => router.push('/sms-import')}
-              activeOpacity={0.8}
+      )}
+
+      {/* Top Segmented Filter Tabs */}
+      <View style={[styles.segmentedFilter, { backgroundColor: cardBg, borderBottomColor: borderColor }]}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
+          <TouchableOpacity
+            style={[
+              styles.filterTab,
+              activeFilter === 'all' && [styles.filterTabActive, { backgroundColor: isDark ? '#2E3135' : '#0F172A' }],
+            ]}
+            onPress={() => setActiveFilter('all')}
+          >
+            <Text
+              style={[
+                styles.filterTabText,
+                { color: activeFilter === 'all' ? '#FFFFFF' : subtextColor },
+              ]}
             >
-              <Ionicons name="chatbubbles-outline" size={17} color="#4F46E5" style={{ marginRight: 6 }} />
-              <Text style={styles.listFooterFallbackText}>Missed something? Import from messages</Text>
-            </TouchableOpacity>
-          }
-        />
-      )}
+              All ({filterCounts.all})
+            </Text>
+          </TouchableOpacity>
 
-      {/* Edit Modal */}
-      {editingItem && (
-        <Modal
-          visible={true}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setEditingItem(null)}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalCard}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Edit Transaction</Text>
-                <TouchableOpacity onPress={() => setEditingItem(null)}>
-                  <Ionicons name="close" size={22} color="#64748B" />
-                </TouchableOpacity>
-              </View>
+          <TouchableOpacity
+            style={[
+              styles.filterTab,
+              activeFilter === 'needs_category' && [
+                styles.filterTabActive,
+                { backgroundColor: isDark ? '#2E3135' : '#0F172A' },
+              ],
+            ]}
+            onPress={() => setActiveFilter('needs_category')}
+          >
+            <Text
+              style={[
+                styles.filterTabText,
+                { color: activeFilter === 'needs_category' ? '#FFFFFF' : subtextColor },
+              ]}
+            >
+              Needs category ({filterCounts.needs_category})
+            </Text>
+          </TouchableOpacity>
 
-              {/* Type Switch */}
-              <View style={styles.typeSwitchRow}>
-                <TouchableOpacity
-                  style={[styles.typePill, editType === 'expense' && styles.typePillActiveExpense]}
-                  onPress={() => setEditType('expense')}
-                >
-                  <Text style={[styles.typePillText, editType === 'expense' && styles.typePillTextActive]}>
-                    Expense
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.typePill, editType === 'income' && styles.typePillActiveIncome]}
-                  onPress={() => setEditType('income')}
-                >
-                  <Text style={[styles.typePillText, editType === 'income' && styles.typePillTextActive]}>
-                    Income
-                  </Text>
-                </TouchableOpacity>
-              </View>
+          <TouchableOpacity
+            style={[
+              styles.filterTab,
+              activeFilter === 'bills' && [
+                styles.filterTabActive,
+                { backgroundColor: isDark ? '#2E3135' : '#0F172A' },
+              ],
+            ]}
+            onPress={() => setActiveFilter('bills')}
+          >
+            <Text
+              style={[
+                styles.filterTabText,
+                { color: activeFilter === 'bills' ? '#FFFFFF' : subtextColor },
+              ]}
+            >
+              Bills ({filterCounts.bills})
+            </Text>
+          </TouchableOpacity>
 
-              {/* Amount */}
-              <Text style={styles.inputLabel}>Amount (₹)</Text>
-              <TextInput
-                style={styles.input}
-                value={editAmount}
-                onChangeText={setEditAmount}
-                keyboardType="numeric"
-                placeholder="0.00"
-              />
+          <TouchableOpacity
+            style={[
+              styles.filterTab,
+              activeFilter === 'duplicates' && [
+                styles.filterTabActive,
+                { backgroundColor: isDark ? '#2E3135' : '#0F172A' },
+              ],
+            ]}
+            onPress={() => setActiveFilter('duplicates')}
+          >
+            <Text
+              style={[
+                styles.filterTabText,
+                { color: activeFilter === 'duplicates' ? '#FFFFFF' : subtextColor },
+              ]}
+            >
+              Duplicates ({filterCounts.duplicates})
+            </Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </View>
 
-              {/* Merchant */}
-              <Text style={styles.inputLabel}>Payee / Merchant</Text>
-              <TextInput
-                style={styles.input}
-                value={editMerchant}
-                onChangeText={setEditMerchant}
-                placeholder="Merchant or recipient name"
-              />
-
-              {/* Category */}
-              <Text style={styles.inputLabel}>Category</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
-                {defaultCategories.map((cat) => {
-                  const isSel = editCategory === cat.name;
-                  return (
-                    <TouchableOpacity
-                      key={cat.name}
-                      style={[styles.catChip, isSel && styles.catChipActive]}
-                      onPress={() => setEditCategory(cat.name)}
-                    >
-                      <Text style={[styles.catChipText, isSel && styles.catChipTextActive]}>
-                        {cat.name}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-
-              <TouchableOpacity style={styles.modalConfirmBtn} onPress={handleSaveEdit} activeOpacity={0.85}>
-                <Text style={styles.modalConfirmBtnText}>Save & Add Transaction</Text>
-              </TouchableOpacity>
-            </View>
+      {/* Bulk Action Bar at Top */}
+      {readyAlerts.length > 0 && !isMultiSelect && (
+        <View style={[styles.bulkActionBar, { backgroundColor: cardBg, borderBottomColor: borderColor }]}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.bulkActionTitle, { color: textColor }]}>
+              {readyAlerts.length} Ready to Add
+            </Text>
+            <Text style={[styles.bulkActionSubtitle, { color: subtextColor }]}>
+              High confidence with category assigned
+            </Text>
           </View>
-        </Modal>
+          <TouchableOpacity
+            style={styles.addAllReadyBtn}
+            onPress={handleAddAllReady}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="flash" size={14} color="#FFFFFF" style={{ marginRight: 4 }} />
+            <Text style={styles.addAllReadyText}>Add all ready ({readyAlerts.length})</Text>
+          </TouchableOpacity>
+        </View>
       )}
+
+      {/* Main Content Area */}
+      {loading ? (
+        <View style={styles.centerLoading}>
+          <ActivityIndicator size="large" color="#4F46E5" />
+        </View>
+      ) : filteredAlerts.length === 0 ? (
+        <ScrollView contentContainerStyle={{ flexGrow: 1 }}>
+          <EmptyState
+            type="inbox_empty"
+            onImportMessages={() => router.push('/sms-import')}
+          />
+        </ScrollView>
+      ) : (
+        <ScrollView style={styles.alertsList} contentContainerStyle={styles.alertsListContent}>
+          {groupedByDay.map(({ dayLabel, items }) => (
+            <View key={dayLabel} style={styles.dayGroup}>
+              {/* Sticky day header */}
+              <View style={[styles.dayHeader, { backgroundColor: bgColor }]}>
+                <Text style={[styles.dayHeaderText, { color: subtextColor }]}>{dayLabel}</Text>
+                <Text style={[styles.dayHeaderCount, { color: subtextColor }]}>
+                  {items.length} {items.length === 1 ? 'alert' : 'alerts'}
+                </Text>
+              </View>
+
+              {/* Group items */}
+              {items.map((item) => (
+                <TransactionDraftCard
+                  key={item.id}
+                  item={item}
+                  showCheckbox={isMultiSelect}
+                  onToggleSelect={handleToggleSelect}
+                  onOpenCategorySheet={setCategoryDraft}
+                  onSaveEdit={handleSaveDraftEdit}
+                  showQuickActions={!isMultiSelect}
+                  onQuickAdd={handleConfirmSingle}
+                  onQuickIgnore={handleIgnoreSingle}
+                  onLongPress={handleLongPress}
+                />
+              ))}
+            </View>
+          ))}
+
+          <View style={{ height: isMultiSelect ? 90 : 32 }} />
+        </ScrollView>
+      )}
+
+      {/* Multi-Select Bottom Bar */}
+      {isMultiSelect && (
+        <View
+          style={[
+            styles.multiSelectBar,
+            { backgroundColor: cardBg, borderTopColor: borderColor, paddingBottom: Math.max(insets.bottom, 12) },
+          ]}
+        >
+          <View style={styles.multiSelectInfo}>
+            <Text style={[styles.multiSelectCount, { color: textColor }]}>
+              {selectedIds.size} Selected
+            </Text>
+          </View>
+
+          <View style={styles.multiSelectButtons}>
+            <TouchableOpacity
+              style={[styles.multiIgnoreBtn, selectedIds.size === 0 && { opacity: 0.5 }]}
+              onPress={handleIgnoreSelected}
+              disabled={selectedIds.size === 0}
+            >
+              <Ionicons name="trash-outline" size={16} color="#EF4444" style={{ marginRight: 4 }} />
+              <Text style={styles.multiIgnoreText}>Ignore selected</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.multiAddBtn, selectedIds.size === 0 && { opacity: 0.5 }]}
+              onPress={handleAddSelected}
+              disabled={selectedIds.size === 0}
+            >
+              <Ionicons name="checkmark-circle" size={16} color="#FFFFFF" style={{ marginRight: 4 }} />
+              <Text style={styles.multiAddText}>Add selected</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* Category Bottom Sheet */}
+      <CategorySheet
+        visible={!!categoryDraft}
+        onClose={() => setCategoryDraft(null)}
+        currentCategory={categoryDraft?.category ?? undefined}
+        onSelectCategory={(newCat) => {
+          if (categoryDraft) {
+            handleSaveDraftEdit(categoryDraft.id, { category: newCat });
+          }
+        }}
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
   },
   backBtn: {
     padding: 6,
-    marginRight: 10,
+    marginRight: 8,
   },
   headerTitleWrap: {
     flex: 1,
@@ -520,423 +659,188 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 18,
     fontWeight: '800',
-    color: '#0F172A',
+    letterSpacing: -0.2,
   },
   headerSubtitle: {
     fontSize: 12,
-    color: '#64748B',
     marginTop: 1,
-  },
-  bulkBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
-    gap: 10,
-  },
-  bulkBtnAdd: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#4F46E5',
-    paddingVertical: 9,
-    borderRadius: 10,
-  },
-  bulkBtnAddText: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  bulkBtnClear: {
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    backgroundColor: '#F1F5F9',
-    borderRadius: 10,
-  },
-  bulkBtnClearText: {
-    color: '#64748B',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  listContent: {
-    padding: 16,
-    gap: 12,
-  },
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#000000',
-    shadowOpacity: 0.04,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingBottom: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F8FAFC',
-  },
-  senderWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  senderDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  senderText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#475569',
-  },
-  confBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  confText: {
-    fontSize: 10.5,
-    fontWeight: '800',
-  },
-  cardContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-  },
-  mainInfo: {
-    flex: 1,
-    marginRight: 12,
-  },
-  merchantText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#0F172A',
-  },
-  metaText: {
-    fontSize: 12,
-    color: '#64748B',
-    marginTop: 2,
-  },
-  amountWrap: {
-    alignItems: 'flex-end',
-  },
-  amountText: {
-    fontSize: 17,
-    fontWeight: '800',
-  },
-  cardActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#F8FAFC',
-  },
-  dismissBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: '#F1F5F9',
-    gap: 4,
-  },
-  dismissBtnText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#64748B',
-  },
-  editBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: '#EFF6FF',
-    gap: 4,
-  },
-  editBtnText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#2563EB',
-  },
-  addBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 7,
-    borderRadius: 8,
-    backgroundColor: '#16A34A',
-  },
-  addBtnText: {
-    fontSize: 12.5,
-    fontWeight: '800',
-    color: '#FFFFFF',
-  },
-  centerContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 14,
-    color: '#64748B',
-    fontWeight: '600',
-  },
-  emptyContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 32,
-  },
-  emptyIconCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 24,
-    backgroundColor: '#EEF2FF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#0F172A',
-    marginBottom: 6,
-  },
-  emptySubtitle: {
-    fontSize: 13,
-    color: '#64748B',
-    textAlign: 'center',
-    lineHeight: 19,
-    marginBottom: 20,
   },
   importShortcutBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#4F46E5',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
   },
-  importShortcutBtnText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '800',
+  importShortcutText: {
+    fontSize: 12,
+    fontWeight: '700',
   },
-  modalOverlay: {
+  cancelMultiBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  cancelMultiText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#4F46E5',
+  },
+  autoAddOffBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  autoAddOffText: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    justifyContent: 'center',
-    padding: 20,
+    fontSize: 12,
+    fontWeight: '600',
   },
-  modalCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 20,
-    maxHeight: '85%',
+  turnOnBtn: {
+    backgroundColor: '#D97706',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
   },
-  modalHeader: {
+  turnOnBtnText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  segmentedFilter: {
+    borderBottomWidth: 1,
+    paddingVertical: 8,
+  },
+  filterScroll: {
+    paddingHorizontal: 14,
+    gap: 8,
+  },
+  filterTab: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  filterTabActive: {
+    // Background dynamic
+  },
+  filterTabText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  bulkActionBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 14,
-  },
-  modalTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#0F172A',
-  },
-  typeSwitchRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 14,
-  },
-  typePill: {
-    flex: 1,
-    paddingVertical: 8,
-    alignItems: 'center',
-    borderRadius: 10,
-    backgroundColor: '#F1F5F9',
-  },
-  typePillActiveExpense: {
-    backgroundColor: '#FEE2E2',
-  },
-  typePillActiveIncome: {
-    backgroundColor: '#DCFCE7',
-  },
-  typePillText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#64748B',
-  },
-  typePillTextActive: {
-    color: '#0F172A',
-  },
-  inputLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#475569',
-    marginBottom: 6,
-    textTransform: 'uppercase',
-  },
-  input: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    fontSize: 14,
-    color: '#0F172A',
-    marginBottom: 12,
-  },
-  catChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: '#F1F5F9',
-    marginRight: 6,
-  },
-  catChipActive: {
-    backgroundColor: '#4F46E5',
-  },
-  catChipText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#475569',
-  },
-  catChipTextActive: {
-    color: '#FFFFFF',
-  },
-  modalConfirmBtn: {
-    backgroundColor: '#16A34A',
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  modalConfirmBtnText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  listFooterFallbackBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#EEF2FF',
-    borderWidth: 1,
-    borderColor: '#C7D2FE',
-    borderRadius: 14,
-    paddingVertical: 14,
     paddingHorizontal: 16,
-    marginVertical: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
   },
-  listFooterFallbackText: {
+  bulkActionTitle: {
     fontSize: 13,
-    fontWeight: '700',
-    color: '#4F46E5',
-  },
-  billMatchBox: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    padding: 10,
-    marginTop: 10,
-    marginBottom: 4,
-  },
-  billMatchHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 8,
-  },
-  billMatchTitle: {
-    fontSize: 12,
     fontWeight: '800',
-    color: '#4F46E5',
-    textTransform: 'uppercase',
-    letterSpacing: 0.3,
   },
-  billCandidatesList: {
-    gap: 6,
-  },
-  billCandidateCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 8,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  billCandidateCardActive: {
-    borderColor: '#4F46E5',
-    backgroundColor: '#EEF2FF',
-  },
-  billRadio: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    borderWidth: 1.5,
-    borderColor: '#94A3B8',
-    marginRight: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  billRadioActive: {
-    borderColor: '#4F46E5',
-  },
-  billRadioInner: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#4F46E5',
-  },
-  billCandidateTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#0F172A',
-  },
-  billCandidateMeta: {
+  bulkActionSubtitle: {
     fontSize: 11,
-    color: '#64748B',
     marginTop: 1,
   },
-  suggestedBadge: {
-    backgroundColor: '#E0E7FF',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-    marginLeft: 6,
+  addAllReadyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#16A34A',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 10,
   },
-  suggestedBadgeText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#4338CA',
-  },
-  notABillText: {
+  addAllReadyText: {
+    color: '#FFFFFF',
     fontSize: 12,
+    fontWeight: '700',
+  },
+  centerLoading: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  alertsList: {
+    flex: 1,
+  },
+  alertsListContent: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
+  },
+  dayGroup: {
+    marginBottom: 14,
+  },
+  dayHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+    paddingHorizontal: 2,
+    marginBottom: 6,
+  },
+  dayHeaderText: {
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  dayHeaderCount: {
+    fontSize: 11,
     fontWeight: '600',
-    color: '#64748B',
+  },
+  multiSelectBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    borderTopWidth: 1,
+  },
+  multiSelectInfo: {
+    flex: 1,
+  },
+  multiSelectCount: {
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  multiSelectButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  multiIgnoreBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#FEE2E2',
+    backgroundColor: '#FEF2F2',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    minHeight: 40,
+  },
+  multiIgnoreText: {
+    color: '#EF4444',
+    fontSize: 12.5,
+    fontWeight: '700',
+  },
+  multiAddBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#16A34A',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    minHeight: 40,
+  },
+  multiAddText: {
+    color: '#FFFFFF',
+    fontSize: 12.5,
+    fontWeight: '700',
   },
 });

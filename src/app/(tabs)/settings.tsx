@@ -963,6 +963,17 @@ export default function SettingsScreen() {
         keywords: ['import', 'restore', 'load backup'],
       },
       {
+        id: 'privacy_and_data',
+        section: 'SECURITY & PRIVACY',
+        label: 'Privacy & Data',
+        subtitle: 'Cloud sync on/off, data minimization & CSV export',
+        icon: 'lock-closed' as const,
+        iconBg: '#ECFDF5',
+        iconColor: '#059669',
+        action: () => router.push('/settings/privacy'),
+        keywords: ['privacy', 'data', 'cloud sync', 'sync', 'export', 'delete', 'backup'],
+      },
+      {
         id: 'privacy_policy',
         section: 'SECURITY & PRIVACY',
         label: t('privacy_policy'),
@@ -1520,6 +1531,17 @@ export default function SettingsScreen() {
 
               {/* 6. SECURITY & PRIVACY */}
               <SettingsSection title="SECURITY & PRIVACY" badge="SAFE" badgeBg="#F0FDFA" badgeColor="#0D9488">
+                <SettingsRow
+                  icon="lock-closed-outline"
+                  iconBg="#ECFDF5"
+                  iconColor="#059669"
+                  label="Privacy & Data"
+                  subtitle="Cloud Sync, on-device backups & CSV export"
+                  badge="CONTROLS"
+                  badgeBg="#ECFDF5"
+                  badgeColor="#059669"
+                  onPress={() => router.push('/settings/privacy')}
+                />
                 <SettingsRow
                   icon="shield-checkmark-outline"
                   iconBg="#F0FDFA"

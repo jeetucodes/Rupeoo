@@ -31,6 +31,8 @@ import {
   syncRemoteTransactions,
   checkIsOnline,
 } from './offlineSync';
+import { toRemote } from './dataMinimization';
+import { isCloudSyncEnabled } from './cloudSync';
 import { syncWidgetWithTransactions } from './widgetSync';
 import { flushUdharSyncQueue } from './udharStorage';
 import { formatCurrency } from './formatCurrency';
@@ -361,6 +363,14 @@ export async function insertTransaction(userId: string, tx: any, statementId?: n
 
   if ((tx.type || 'debit').toLowerCase() === 'debit') {
     checkAndTriggerBudgetAlert(userId).catch(() => { });
+    import('@/features/notifications').then(({ triggerBudgetAlertIfNeeded, scheduleNext48h }) => {
+      triggerBudgetAlertIfNeeded(Number(tx.amount) || 0, userId).catch(() => { });
+      scheduleNext48h(userId).catch(() => { });
+    }).catch(() => { });
+  } else {
+    import('@/features/notifications').then(({ scheduleNext48h }) => {
+      scheduleNext48h(userId).catch(() => { });
+    }).catch(() => { });
   }
 
   return txId;
@@ -419,6 +429,10 @@ export async function updateTransaction(userId: string, txId: string, txData: an
 
   // 3. Background sync
   flushSyncQueue(userId, db).catch(() => { });
+
+  import('@/features/notifications').then(({ scheduleNext48h }) => {
+    scheduleNext48h(userId).catch(() => {});
+  }).catch(() => {});
 }
 
 export async function getTransactionById(userId: string, txId: string): Promise<any | null> {
@@ -460,6 +474,7 @@ export async function insertTransactionsBatch(
   let skipped = 0;
 
   const existingTxs = await getAllTransactions(userId, true);
+  const syncEnabled = await isCloudSyncEnabled(userId);
   const MAX_BATCH_SIZE = 500;
   let batch = writeBatch(db);
   let batchCount = 0;
@@ -503,24 +518,23 @@ export async function insertTransactionsBatch(
       created_at: Date.now(),
     };
 
-    batch.set(txsRef, {
-      ...txDocData,
-      created_at: serverTimestamp(),
-    });
+    if (syncEnabled) {
+      const remotePayload = toRemote(txDocData);
+      batch.set(txsRef, remotePayload);
+      batchCount++;
+    }
 
     newLocalTxs.push(txDocData);
-
-    batchCount++;
     imported++;
 
-    if (batchCount >= MAX_BATCH_SIZE) {
+    if (syncEnabled && batchCount >= MAX_BATCH_SIZE) {
       await batch.commit();
       batch = writeBatch(db);
       batchCount = 0;
     }
   }
 
-  if (batchCount > 0) {
+  if (syncEnabled && batchCount > 0) {
     await batch.commit();
   }
 
@@ -715,6 +729,10 @@ export async function deleteTransaction(userId: string, txId: string) {
 
   // 3. Background sync
   flushSyncQueue(userId, db).catch(() => { });
+
+  import('@/features/notifications').then(({ scheduleNext48h }) => {
+    scheduleNext48h(userId).catch(() => {});
+  }).catch(() => {});
 }
 
 export async function deleteAllTransactions(userId: string) {

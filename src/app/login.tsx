@@ -42,6 +42,9 @@ import {
 } from '@/lib/notifications';
 import { warn, error } from '@/lib/logger';
 import { LegalModal } from '@/components/LegalModal';
+import * as Haptics from 'expo-haptics';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { setOfflineModeActive, setCloudSyncEnabled } from '@/lib/cloudSync';
 
 export default function AuthScreen() {
   const router = useRouter();
@@ -214,6 +217,16 @@ export default function AuthScreen() {
     } finally {
       setGoogleLoading(false);
     }
+  };
+
+  const handleContinueOffline = async () => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {}
+    await setOfflineModeActive(true);
+    await setCloudSyncEnabled(false);
+    await AsyncStorage.setItem('@rupeo_active_user_id', 'local');
+    router.replace('/(tabs)/dashboard');
   };
 
   return (
@@ -465,6 +478,16 @@ export default function AuthScreen() {
                   {isSignUp ? 'Sign In' : 'Create One Free'}
                 </Text>
               </Text>
+            </TouchableOpacity>
+
+            {/* USE OFFLINE WITHOUT ACCOUNT */}
+            <TouchableOpacity
+              onPress={handleContinueOffline}
+              style={styles.offlineModeBtn}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="phone-portrait-outline" size={16} color="#475569" style={{ marginRight: 6 }} />
+              <Text style={styles.offlineModeText}>Use Offline Without Account</Text>
             </TouchableOpacity>
           </View>
 
@@ -840,5 +863,21 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 14.5,
     fontWeight: '800',
+  },
+  offlineModeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 11,
+    marginTop: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
+  },
+  offlineModeText: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: '#475569',
   },
 });

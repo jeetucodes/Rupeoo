@@ -117,4 +117,46 @@ if (fs.existsSync(nitroCjsPath)) {
   }
 }
 
+// 4. Patch expo-font FontLoader.web.js & ExpoFontLoader.web.js to prevent unhandled 12000ms timeout
+const fontLoaderWebPath = path.join(__dirname, '..', 'node_modules', 'expo-font', 'build', 'FontLoader.web.js');
+if (fs.existsSync(fontLoaderWebPath)) {
+  let content = fs.readFileSync(fontLoaderWebPath, 'utf8');
+  if (content.includes("return ExpoFontLoader.loadAsync(name, input);")) {
+    content = content.replace(
+      "return ExpoFontLoader.loadAsync(name, input);",
+      "return ExpoFontLoader.loadAsync(name, input).catch(() => {});"
+    );
+    fs.writeFileSync(fontLoaderWebPath, content, 'utf8');
+    console.log('[fix-expo-go-modules] ✅ Patched expo-font (FontLoader.web.js)');
+  }
+}
+
+const expoFontLoaderWebPath = path.join(__dirname, '..', 'node_modules', 'expo-font', 'build', 'ExpoFontLoader.web.js');
+if (fs.existsSync(expoFontLoaderWebPath)) {
+  let content = fs.readFileSync(expoFontLoaderWebPath, 'utf8');
+  if (content.includes(".load(resource.testString ?? null, 12000)")) {
+    content = content.replace(
+      ".load(resource.testString ?? null, 12000)",
+      ".load(resource.testString ?? null, 1500).catch(() => {})"
+    );
+    fs.writeFileSync(expoFontLoaderWebPath, content, 'utf8');
+    console.log('[fix-expo-go-modules] ✅ Patched expo-font (ExpoFontLoader.web.js)');
+  }
+}
+
+// 4b. Patch fontfaceobserver to gracefully resolve on timeout instead of throwing
+const patchFontFaceObserver = (filePath) => {
+  if (fs.existsSync(filePath)) {
+    let content = fs.readFileSync(filePath, 'utf8');
+    if (content.includes('t(Error(""+q+"ms timeout exceeded"))')) {
+      content = content.replace(/t\(Error\(""\+q\+"ms timeout exceeded"\)\)/g, 'r(b)');
+      content = content.replace(/L\(Error\(""\+q\+"ms timeout exceeded"\)\)/g, 'K(b)');
+      fs.writeFileSync(filePath, content, 'utf8');
+      console.log(`[fix-expo-go-modules] ✅ Patched fontfaceobserver (${path.basename(filePath)})`);
+    }
+  }
+};
+patchFontFaceObserver(path.join(__dirname, '..', 'node_modules', 'fontfaceobserver', 'fontfaceobserver.standalone.js'));
+patchFontFaceObserver(path.join(__dirname, '..', 'node_modules', 'fontfaceobserver', 'fontfaceobserver.js'));
+
 console.log('[fix-expo-go-modules] All Expo Go patches applied successfully!');

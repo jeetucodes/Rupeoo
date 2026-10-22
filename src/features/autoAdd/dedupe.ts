@@ -1,9 +1,15 @@
 /**
  * Deduplication Engine for Rupeo Auto-Add Notifications
  *
- * Implements two layers of deduplication:
- * Layer 1: hash(package + text + postTime rounded to minute)
- * Layer 2: Cross-channel matching (SMS app + UPI app duplicate detection matching amount + type within 2 minutes).
+ * Implements two robust layers of deduplication:
+ * Layer 1: hash(package + text + exact postTime) so distinct notification events with the same text
+ *          are never merged unless they are the exact same notification event (identical postTime/key).
+ * Layer 2: Cross-channel matching (SMS app vs GPay/PhonePe/Bank app) only when:
+ *          - Different packages (same package never cross-dedupes)
+ *          - Amount and type equal
+ *          - (UPI Ref equal OR (no ref on one side AND within 2 minutes)).
+ *          - Primary key = UPI Ref: different UPI refs are ALWAYS different transactions, NEVER deduped.
+ *          - TTL = 10 minutes for cross-source matching so cache never grows indefinitely.
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -13,13 +19,16 @@ import { warn } from '../../lib/logger.ts';
 
 const NOTIF_HASHES_KEY = '@rupeo_notif_processed_hashes';
 const RECENT_PAYMENTS_KEY = '@rupeo_notif_recent_payments';
-const DEDUPE_WINDOW_MS = 6 * 60 * 1000; // 6-minute window for cross-channel notifications (e.g. Bank App first, SMS later)
+
+export const CROSS_CHANNEL_TTL_MS = 10 * 60 * 1000; // 10-minute TTL for cross-channel matching
+export const NO_REF_MATCH_WINDOW_MS = 2 * 60 * 1000; // 2-minute window when one side lacks a ref
 const MAX_STORED_HASHES = 500;
 const MAX_RECENT_PAYMENTS = 200;
 
 // In-memory sets to guarantee instantaneous lookups during Headless JS execution
 const memoryNotifHashes = new Set<string>();
-interface RecentPaymentEntry {
+
+export interface RecentPaymentEntry {
   payKey: string;
   amount: number;
   type: string; // 'expense' | 'income'
@@ -29,25 +38,35 @@ interface RecentPaymentEntry {
   refNo?: string | null;
   accountLast4?: string | null;
 }
+
 let memoryRecentPayments: RecentPaymentEntry[] = [];
 let isCacheLoaded = false;
 
 /**
- * Rounds a timestamp to the nearest minute (epoch in ms).
+ * Layer 1: Computes hash(package + text + exact postTime).
+ * Exact postTime (in ms) ensures two real notifications with the same text
+ * (e.g. repeated payments to the same friend) are NOT merged unless they are
+ * the identical notification event.
  */
-export function roundToMinute(timestamp: number): number {
-  return Math.floor((timestamp || Date.now()) / 60000) * 60000;
+export function computeNotifHash(
+  packageName: string,
+  text: string,
+  postTime: number,
+  sbnKey?: string
+): string {
+  const normPkg = (packageName || '').trim().toLowerCase();
+  const normText = normalizeWhitespace(text || '').toLowerCase();
+  const keyPart = sbnKey ? sbnKey.trim() : '';
+  const raw = `${normPkg}|${normText}|${postTime || 0}|${keyPart}`;
+  return sha256(raw);
 }
 
 /**
- * Layer 1: Computes hash(package + text + postTime rounded to minute).
+ * Prunes expired recent payments (older than TTL) from memory.
  */
-export function computeNotifHash(packageName: string, text: string, postTime: number): string {
-  const normPkg = (packageName || '').trim().toLowerCase();
-  const normText = normalizeWhitespace(text || '').toLowerCase();
-  const minute = roundToMinute(postTime);
-  const raw = `${normPkg}|${normText}|${minute}`;
-  return sha256(raw);
+function pruneRecentPayments(now: number = Date.now()): void {
+  const cutoff = now - CROSS_CHANNEL_TTL_MS;
+  memoryRecentPayments = memoryRecentPayments.filter((p) => p.timestamp >= cutoff);
 }
 
 /**
@@ -65,9 +84,7 @@ export async function loadNotifDedupeCache(): Promise<void> {
     const rawPayments = await AsyncStorage.getItem(RECENT_PAYMENTS_KEY);
     if (rawPayments) {
       memoryRecentPayments = JSON.parse(rawPayments);
-      // Evict entries older than 24 hours
-      const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-      memoryRecentPayments = memoryRecentPayments.filter((p) => p.timestamp >= cutoff);
+      pruneRecentPayments();
     }
 
     isCacheLoaded = true;
@@ -77,7 +94,7 @@ export async function loadNotifDedupeCache(): Promise<void> {
 }
 
 /**
- * Layer 1 Check: Checks if the exact notification was already processed.
+ * Layer 1 Check: Checks if the exact notification event was already processed.
  */
 export async function isNotifAlreadyProcessed(notifHash: string): Promise<boolean> {
   await loadNotifDedupeCache();
@@ -109,6 +126,14 @@ export async function markNotifProcessed(notifHash: string): Promise<void> {
 /**
  * Layer 2: Checks if an identical payment event (amount + type) occurred across different sources
  * (e.g. Bank app pushed first, and SMS arrived seconds or minutes later).
+ *
+ * RULES:
+ * 1. Same package never cross-dedupes (only different packages cross-dedupe).
+ * 2. Amount and type must match.
+ * 3. Primary key = UPI Ref:
+ *    - If both have UPI refs: must match exactly. If different -> NEVER duplicate!
+ *    - If one side has no ref: duplicate only if within 2 minutes.
+ * 4. TTL: Only matches events within 10 minutes (older events cannot cross-dedupe).
  */
 export async function checkCrossChannelDuplicate(
   amount: number,
@@ -121,38 +146,53 @@ export async function checkCrossChannelDuplicate(
   await loadNotifDedupeCache();
 
   const now = timestamp || Date.now();
+  pruneRecentPayments(now);
+
   const normType = (type || 'expense').toLowerCase();
+  const incomingPkg = (packageName || '').trim().toLowerCase();
   const cleanRef = (refNo || '').trim().toLowerCase();
-  const cleanAcct = (accountLast4 || '').trim();
 
   for (const entry of memoryRecentPayments) {
-    // 1. Direct Reference Number match (highest confidence, valid across 24h)
-    if (cleanRef && cleanRef.length >= 4 && entry.refNo && entry.refNo.toLowerCase() === cleanRef) {
+    const entryPkg = (entry.packageName || '').trim().toLowerCase();
+
+    // RULE 1: Same package NEVER cross-dedupes (e.g. 2 SMS or 2 GPay notifications)
+    if (entryPkg === incomingPkg) {
+      continue;
+    }
+
+    // RULE 2: Amount & Type must match
+    if (Math.abs(entry.amount - amount) > 0.01 || entry.type !== normType) {
+      continue;
+    }
+
+    const timeDiff = Math.abs(entry.timestamp - now);
+
+    // Expired beyond TTL -> cannot match
+    if (timeDiff > CROSS_CHANNEL_TTL_MS) {
+      continue;
+    }
+
+    const entryRef = (entry.refNo || '').trim().toLowerCase();
+
+    // RULE 3: Primary key = UPI Ref number
+    if (cleanRef && entryRef) {
+      // Both have UPI refs:
+      if (cleanRef === entryRef) {
+        return {
+          isDuplicate: true,
+          existingTxId: entry.txId,
+        };
+      }
+      // Different UPI refs = ALWAYS different transactions, NEVER deduped!
+      continue;
+    }
+
+    // RULE 4: No ref on one side -> cross-dedupe ONLY if within 2 minutes
+    if (timeDiff <= NO_REF_MATCH_WINDOW_MS) {
       return {
         isDuplicate: true,
         existingTxId: entry.txId,
       };
-    }
-
-    // 2. Match amount (exact) and type ('expense' vs 'income')
-    if (Math.abs(entry.amount - amount) < 0.01 && entry.type === normType) {
-      const timeDiff = Math.abs(entry.timestamp - now);
-
-      // If same bank account number and within 15 minutes
-      if (cleanAcct && entry.accountLast4 && entry.accountLast4 === cleanAcct && timeDiff <= 15 * 60 * 1000) {
-        return {
-          isDuplicate: true,
-          existingTxId: entry.txId,
-        };
-      }
-
-      // Check if within 6-minute cross-channel time window (e.g., Bank app + SMS)
-      if (timeDiff <= DEDUPE_WINDOW_MS) {
-        return {
-          isDuplicate: true,
-          existingTxId: entry.txId,
-        };
-      }
     }
   }
 
@@ -174,8 +214,10 @@ export async function recordRecentPayment(
   await loadNotifDedupeCache();
 
   const now = timestamp || Date.now();
+  pruneRecentPayments(now);
+
   const normType = (type || 'expense').toLowerCase();
-  const payKey = `${amount.toFixed(2)}_${normType}_${Math.floor(now / DEDUPE_WINDOW_MS)}`;
+  const payKey = `${amount.toFixed(2)}_${normType}_${now}`;
 
   memoryRecentPayments.unshift({
     payKey,

@@ -32,6 +32,12 @@ import Toast from 'react-native-toast-message';
 import Skeleton from '@/components/Skeleton';
 import BudgetArcGauge from '@/components/BudgetArcGauge';
 import { error } from '@/lib/logger';
+import { formatCurrency } from '@/utils/formatCurrency';
+import {
+  getNotificationSettings,
+  saveNotificationSettings,
+  scheduleNext48h,
+} from '@/features/notifications';
 
 export default function BudgetScreen() {
   const router = useRouter();
@@ -56,18 +62,26 @@ export default function BudgetScreen() {
   const [categoryBudgetInput, setCategoryBudgetInput] = useState('');
   const [savingCategory, setSavingCategory] = useState(false);
 
+  // Daily Budget Modal
+  const [dailyBudget, setDailyBudget] = useState(0);
+  const [showDailyModal, setShowDailyModal] = useState(false);
+  const [dailyBudgetInput, setDailyBudgetInput] = useState('');
+  const [savingDaily, setSavingDaily] = useState(false);
+
   const fetchData = async () => {
     if (!user) return;
     try {
       const currentMonthYear = getLocalMonthString(); // YYYY-MM
-      const [cats, totals, budgets] = await Promise.all([
+      const [cats, totals, budgets, notifCfg] = await Promise.all([
         getUserCategories(user.uid),
         getCategoryTotals(user.uid, currentMonthYear),
         getCategoryBudgets(user.uid),
+        getNotificationSettings(),
       ]);
 
       setCategories(cats);
       setCategoryBudgets(budgets);
+      setDailyBudget(notifCfg?.dailyBudget || 0);
 
       const totalsMap: Record<string, number> = {};
       let total = 0;
@@ -163,6 +177,33 @@ export default function BudgetScreen() {
     setShowCategoryModal(true);
   };
 
+  const handleSaveDailyBudget = async () => {
+    if (savingDaily) return;
+    const val = parseFloat(dailyBudgetInput) || 0;
+    if (val < 0) {
+      Toast.show({ type: 'error', text1: 'Invalid Amount', text2: 'Please enter a valid amount.' });
+      return;
+    }
+    setSavingDaily(true);
+    try {
+      await saveNotificationSettings({ dailyBudget: val });
+      setDailyBudget(val);
+      setShowDailyModal(false);
+      if (user?.uid) {
+        await scheduleNext48h(user.uid);
+      }
+      Toast.show({
+        type: 'success',
+        text1: 'Daily Budget Updated',
+        text2: val > 0 ? `Daily budget set to ${formatCurrency(val)}` : 'Daily budget notifications disabled.',
+      });
+    } catch {
+      Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to update daily budget.' });
+    } finally {
+      setSavingDaily(false);
+    }
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -241,6 +282,34 @@ export default function BudgetScreen() {
             }}
             style={{ marginBottom: 24 }}
           />
+
+          {/* Daily Budget (Notification Alert) Row */}
+          <TouchableOpacity
+            style={styles.dailyBudgetCard}
+            onPress={() => {
+              setDailyBudgetInput(dailyBudget > 0 ? dailyBudget.toString() : '');
+              setShowDailyModal(true);
+            }}
+            activeOpacity={0.7}
+          >
+            <View style={styles.dailyBudgetIconWrap}>
+              <Ionicons name="notifications-outline" size={20} color="#4F46E5" />
+            </View>
+            <View style={{ flex: 1, marginRight: 8 }}>
+              <Text style={styles.dailyBudgetTitle}>Daily Budget Alert</Text>
+              <Text style={styles.dailyBudgetSubtitle}>
+                {dailyBudget > 0
+                  ? 'Fires 80% & over-budget alerts'
+                  : 'Tap to set a daily spending limit'}
+              </Text>
+            </View>
+            <View style={styles.dailyBudgetValueWrap}>
+              <Text style={styles.dailyBudgetValue}>
+                {dailyBudget > 0 ? formatCurrency(dailyBudget) : 'Not set'}
+              </Text>
+              <Ionicons name="pencil" size={13} color="#64748B" style={{ marginLeft: 4 }} />
+            </View>
+          </TouchableOpacity>
 
           {/* Category Budgets Header */}
           <View style={styles.sectionHeader}>
@@ -395,6 +464,57 @@ export default function BudgetScreen() {
               activeOpacity={0.85}
             >
               {savingCategory ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                  <Text style={styles.modalPrimaryBtnText}>Saving...</Text>
+                </View>
+              ) : (
+                <Text style={styles.modalPrimaryBtnText}>{t('save')}</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Edit Daily Budget Modal */}
+      <Modal
+        visible={showDailyModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => !savingDaily && setShowDailyModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Daily Budget Limit</Text>
+              <TouchableOpacity onPress={() => setShowDailyModal(false)} disabled={savingDaily}>
+                <Ionicons name="close" size={24} color={savingDaily ? '#9CA3AF' : '#1C1C1E'} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.modalLabel}>Daily Spending Limit ({currency})</Text>
+            <Text style={{ fontSize: 12, color: '#64748B', marginBottom: 12, lineHeight: 16 }}>
+              Get smart notifications when you reach 80% or exceed your daily limit. Enter 0 to disable alerts.
+            </Text>
+
+            <TextInput
+              style={[styles.modalInput, { color: '#1C1C1E' }, savingDaily && { opacity: 0.6 }]}
+              keyboardType="decimal-pad"
+              placeholder="e.g. 500"
+              placeholderTextColor="#9CA3AF"
+              value={dailyBudgetInput}
+              onChangeText={setDailyBudgetInput}
+              editable={!savingDaily}
+              autoFocus
+            />
+
+            <TouchableOpacity
+              style={[styles.modalPrimaryBtn, savingDaily && { opacity: 0.75 }]}
+              onPress={handleSaveDailyBudget}
+              disabled={savingDaily}
+              activeOpacity={0.85}
+            >
+              {savingDaily ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
                   <ActivityIndicator size="small" color="#FFFFFF" />
                   <Text style={styles.modalPrimaryBtnText}>Saving...</Text>
@@ -720,5 +840,49 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '900',
     color: '#1C1C1E',
+  },
+  dailyBudgetCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOpacity: 0.03,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
+    elevation: 1,
+  },
+  dailyBudgetIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#EEF2FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  dailyBudgetTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0F172A',
+    marginBottom: 2,
+  },
+  dailyBudgetSubtitle: {
+    fontSize: 12,
+    color: '#64748B',
+    lineHeight: 16,
+  },
+  dailyBudgetValueWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  dailyBudgetValue: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#4F46E5',
   },
 });

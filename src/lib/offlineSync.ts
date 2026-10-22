@@ -14,6 +14,8 @@ import {
 } from 'firebase/firestore';
 import { AppState } from 'react-native';
 import { warn } from '@/lib/logger';
+import { toRemote } from './dataMinimization';
+import { isCloudSyncEnabled } from './cloudSync';
 
 export interface SyncAction {
   id: string;
@@ -261,6 +263,12 @@ export async function flushSyncQueue(
 ): Promise<{ success: number; failed: number }> {
   if (!userId || isSyncInProgress) return { success: 0, failed: 0 };
 
+  // Enforce Cloud Sync setting: OFF stops all uploads; pending queue is paused, not deleted.
+  const syncEnabled = await isCloudSyncEnabled(userId);
+  if (!syncEnabled) {
+    return { success: 0, failed: 0 };
+  }
+
   const isOnline = await checkIsOnline();
   if (!isOnline) {
     return { success: 0, failed: 0 };
@@ -284,19 +292,15 @@ export async function flushSyncQueue(
         switch (item.type) {
           case 'ADD_TRANSACTION': {
             const txDocRef = doc(db, `users/${userId}/transactions`, item.targetId);
-            await setDoc(txDocRef, {
-              ...item.payload,
-              created_at: item.payload?.created_at || Date.now(),
-            });
+            const remotePayload = toRemote({ ...item.payload, id: item.targetId });
+            await setDoc(txDocRef, remotePayload);
             success++;
             break;
           }
           case 'UPDATE_TRANSACTION': {
             const txDocRef = doc(db, `users/${userId}/transactions`, item.targetId);
-            await updateDoc(txDocRef, {
-              ...item.payload,
-              updated_at: serverTimestamp(),
-            });
+            const remotePayload = toRemote({ ...item.payload, id: item.targetId });
+            await setDoc(txDocRef, remotePayload, { merge: true });
             success++;
             break;
           }
@@ -354,6 +358,12 @@ export async function syncRemoteTransactions(
   force = false
 ): Promise<any[]> {
   if (!userId) return [];
+
+  // Enforce Cloud Sync setting: OFF stops remote sync; operates 100% on-device
+  const syncEnabled = await isCloudSyncEnabled(userId);
+  if (!syncEnabled) {
+    return await getOfflineTransactions(userId);
+  }
 
   // Deduplicate in-flight sync requests for the same user
   const inFlight = inFlightSyncPromises.get(userId);

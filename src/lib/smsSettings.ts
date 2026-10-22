@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { warn } from './logger.ts';
+import { cleanMojibakeString } from '../utils/mojibake.ts';
 
 export interface SmsImportSettings {
   autoAddEnabled: boolean;          // High confidence >= 0.9 auto-added
@@ -190,7 +191,7 @@ export function maskAccountNumbersInText(text: string): string {
  */
 export function cleanOriginalMessage(rawText: string): string {
   if (!rawText) return '';
-  let cleaned = rawText.trim();
+  let cleaned = cleanMojibakeString(rawText).trim();
 
   // 1. Remove any "Imported from SMS" or "Imported from Notification" header line(s)
   cleaned = cleaned.replace(/Imported from (?:SMS|Notification)[^\n·]*[·\n]*/gi, '');

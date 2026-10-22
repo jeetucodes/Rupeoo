@@ -64,14 +64,8 @@ import VoiceTransactionModal from '@/components/VoiceTransactionModal';
 import { ThreeDCalendarIcon, ThreeDQRCodeIcon } from '@/components/ThreeDIcons';
 import { formatTime12Hour, getLocalDateString, getLocalMonthString, getRelativeDateString } from '@/lib/dateUtils';
 import { warn, error } from '@/lib/logger';
-import { isListenerEnabled } from '@/features/autoAdd/nativeModule';
-import {
-  getSmsImportSettings,
-  saveSmsImportSettings,
-  getAutoAddPausedUntil,
-  pauseAutoAddFor,
-  resumeAutoAdd,
-} from '@/lib/smsSettings';
+import { AutoAddBoltButton, AutoAddBottomSheet, DashboardBatteryWarningCard } from '@/features/autoAdd';
+import { formatCurrency, resolveCurrencySymbol } from '@/utils/formatCurrency';
 
 const { width, height } = Dimensions.get('window');
 
@@ -121,7 +115,7 @@ export interface BrandProvider {
 }
 
 // ---------------------------------------------------------------------------
-// BrandLogo â€” styled brand icon for each provider in bill cards
+// BrandLogo — styled brand icon for each provider in bill cards
 // ---------------------------------------------------------------------------
 function BrandLogo({
   id,
@@ -156,7 +150,7 @@ function BrandLogo({
     );
   }
 
-  // â”€â”€ JIO â€” dark blue circle with "Jio" text â”€â”€
+  // ── JIO — dark blue circle with "Jio" text ──
   if (id === 'jio' || id === 'jiofiber') {
     return (
       <View style={[brandLogoStyles.base, { backgroundColor: '#1239AC', borderRadius: s * 0.3, width: s, height: s }]}>
@@ -165,7 +159,7 @@ function BrandLogo({
     );
   }
 
-  // â”€â”€ AIRTEL â€” white bg, red italic "a" â”€â”€
+  // ── AIRTEL — white bg, red italic "a" ──
   if (id === 'airtel' || id === 'airtel_xstream') {
     return (
       <View style={[brandLogoStyles.base, { backgroundColor: '#FFFFFF', borderRadius: s * 0.3, width: s, height: s, borderWidth: 1.5, borderColor: '#ED1C2425' }]}>
@@ -174,7 +168,7 @@ function BrandLogo({
     );
   }
 
-  // â”€â”€ VI â€” red rounded square "Vi!" â”€â”€
+  // ── VI — red rounded square "Vi!" ──
   if (id === 'vi') {
     return (
       <View style={[brandLogoStyles.base, { backgroundColor: '#E60000', borderRadius: r, width: s, height: s }]}>
@@ -186,7 +180,7 @@ function BrandLogo({
     );
   }
 
-  // â”€â”€ BSNL â€” grey circle with "BSNL" text â”€â”€
+  // ── BSNL — grey circle with "BSNL" text ──
   if (id === 'bsnl') {
     return (
       <View style={[brandLogoStyles.base, { backgroundColor: '#FFFFFF', borderRadius: s * 0.3, width: s, height: s, borderWidth: 1.5, borderColor: '#E2E8F0' }]}>
@@ -195,7 +189,7 @@ function BrandLogo({
     );
   }
 
-  // â”€â”€ NETFLIX â€” black rectangle with "N" â”€â”€
+  // ── NETFLIX — black rectangle with "N" ──
   if (id === 'netflix') {
     return (
       <View style={[brandLogoStyles.base, { backgroundColor: '#000000', borderRadius: r, width: s, height: s }]}>
@@ -204,7 +198,7 @@ function BrandLogo({
     );
   }
 
-  // â”€â”€ AMAZON PRIME â”€â”€
+  // ── AMAZON PRIME ──
   if (id === 'prime') {
     return (
       <View style={[brandLogoStyles.base, { backgroundColor: '#00A8E1', borderRadius: r, width: s, height: s }]}>
@@ -441,7 +435,7 @@ const DashboardTransactionItem = React.memo(function DashboardTransactionItem({
             { color: isCredit ? '#10B981' : '#0F172A' },
           ]}
         >
-          {isCredit ? '+' : '-'}{curr}{Number(tx.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+          {formatCurrency(isCredit ? tx.amount : -tx.amount, { showPlus: isCredit, currency: curr })}
         </Text>
         <Text style={[styles.txTypeText, { color: isCredit ? '#10B981' : '#94A3B8' }]}>
           {isCredit ? 'Income' : tx.category || 'Expense'}
@@ -460,7 +454,7 @@ export default function DashboardScreen() {
 
 
 
-  const curr = settings?.currency === 'INR' ? 'â‚¹' : (settings?.currency || 'â‚¹');
+  const curr = resolveCurrencySymbol(settings?.currency);
   const monthlyBudget = Number(settings?.monthlyBudget) || 0;
 
   const todayStr = useMemo(() => getLocalDateString(), []);
@@ -484,100 +478,7 @@ export default function DashboardScreen() {
   const [showUdharCard, setShowUdharCard] = useState<boolean>(true);
   const [udharDues, setUdharDues] = useState<{ totalToReceive: number; totalToPay: number } | null>(null);
   const [voiceModalVisible, setVoiceModalVisible] = useState(false);
-  const [showAutoAddReminder, setShowAutoAddReminder] = useState<boolean>(false);
-  const [autoAddEnabled, setAutoAddEnabled] = useState<boolean>(true);
-  const [autoAddPausedUntil, setAutoAddPausedUntil] = useState<number>(0);
-  const [showAutoAddModal, setShowAutoAddModal] = useState<boolean>(false);
-
-  const refreshAutoAddStatus = useCallback(() => {
-    if (Platform.OS === 'android') {
-      isListenerEnabled()
-        .then((enabled) => setShowAutoAddReminder(!enabled))
-        .catch(() => {});
-      const uid = user?.uid || 'local';
-      getSmsImportSettings(uid, true)
-        .then((s) => setAutoAddEnabled(s.autoAddEnabled))
-        .catch(() => {});
-      getAutoAddPausedUntil()
-        .then((until) => setAutoAddPausedUntil(until))
-        .catch(() => {});
-    }
-  }, [user?.uid]);
-
-  useFocusEffect(
-    useCallback(() => {
-      refreshAutoAddStatus();
-    }, [refreshAutoAddStatus])
-  );
-
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', (state: AppStateStatus) => {
-      if (state === 'active') {
-        refreshAutoAddStatus();
-      }
-    });
-    return () => sub.remove();
-  }, [refreshAutoAddStatus]);
-
-  const isAutoAddPausedNow = autoAddPausedUntil > Date.now();
-  const isAutoAddActive = autoAddEnabled && !isAutoAddPausedNow;
-  const pauseMinutesLeft = isAutoAddPausedNow
-    ? Math.max(1, Math.ceil((autoAddPausedUntil - Date.now()) / (1000 * 60)))
-    : 0;
-
-  const handleTurnAutoAddOn = async () => {
-    try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    } catch {}
-    const uid = user?.uid || 'local';
-    await saveSmsImportSettings(uid, { autoAddEnabled: true });
-    await resumeAutoAdd();
-    setAutoAddEnabled(true);
-    setAutoAddPausedUntil(0);
-    setShowAutoAddModal(false);
-    Toast.show({
-      type: 'success',
-      text1: 'Auto-Add is ON ⚡',
-      text2: 'Bank & UPI payment alerts will be tracked.',
-      visibilityTime: 2500,
-    });
-  };
-
-  const handleTurnAutoAddOff = async () => {
-    try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    } catch {}
-    const uid = user?.uid || 'local';
-    await saveSmsImportSettings(uid, { autoAddEnabled: false });
-    await resumeAutoAdd();
-    setAutoAddEnabled(false);
-    setAutoAddPausedUntil(0);
-    setShowAutoAddModal(false);
-    Toast.show({
-      type: 'info',
-      text1: 'Auto-Add is OFF ⏸️',
-      text2: 'New payments will not be tracked.',
-      visibilityTime: 2500,
-    });
-  };
-
-  const handlePauseAutoAdd1Hour = async () => {
-    try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    } catch {}
-    const uid = user?.uid || 'local';
-    await saveSmsImportSettings(uid, { autoAddEnabled: true });
-    const until = await pauseAutoAddFor(1);
-    setAutoAddEnabled(true);
-    setAutoAddPausedUntil(until);
-    setShowAutoAddModal(false);
-    Toast.show({
-      type: 'info',
-      text1: 'Auto-Add Paused for 1 Hour ⏱️',
-      text2: 'Auto-tracking will automatically resume in 60 minutes.',
-      visibilityTime: 3000,
-    });
-  };
+  const [autoAddSheetVisible, setAutoAddSheetVisible] = useState(false);
 
   // In-App Custom Ads State
   const customAds = useCustomAds();
@@ -983,7 +884,7 @@ export default function DashboardScreen() {
       setBillToDelete(null);
       Toast.show({
         type: 'success',
-        text1: 'Reminder Removed âœ…',
+        text1: 'Reminder Removed ✅',
         text2: `"${billToDelete.title}" deleted successfully`,
       });
       loadData();
@@ -1009,7 +910,7 @@ export default function DashboardScreen() {
       setSelectedBillToPay(null);
       setPayReceiptImage(null);
       loadData();
-      Toast.show({ type: 'success', text1: 'Success âœ…', text2: `${selectedBillToPay.title} payment recorded & next renewal scheduled!` });
+      Toast.show({ type: 'success', text1: 'Success ✅', text2: `${selectedBillToPay.title} payment recorded & next renewal scheduled!` });
     } catch (err: any) {
       error('Record Payment error:', err);
       Toast.show({ type: 'error', text1: 'Error', text2: err.message || 'Failed to record payment' });
@@ -1111,37 +1012,6 @@ export default function DashboardScreen() {
         </TouchableOpacity>
 
         <View style={styles.headerActions}>
-          {Platform.OS === 'android' && (
-            <TouchableOpacity
-              style={[
-                styles.autoAddHeaderToggle,
-                isAutoAddActive
-                  ? styles.autoAddHeaderToggleOn
-                  : isAutoAddPausedNow
-                  ? styles.autoAddHeaderTogglePaused
-                  : styles.autoAddHeaderToggleOff,
-              ]}
-              onPress={() => setShowAutoAddModal(true)}
-              activeOpacity={0.7}
-              accessibilityLabel="Auto-Add Status"
-            >
-              <Ionicons
-                name={isAutoAddActive ? 'flash' : isAutoAddPausedNow ? 'time' : 'flash-off'}
-                size={13}
-                color={isAutoAddActive ? '#059669' : isAutoAddPausedNow ? '#D97706' : '#DC2626'}
-                style={{ marginRight: 4 }}
-              />
-              <Text
-                style={[
-                  styles.autoAddHeaderToggleText,
-                  { color: isAutoAddActive ? '#059669' : isAutoAddPausedNow ? '#D97706' : '#DC2626' },
-                ]}
-              >
-                {isAutoAddPausedNow ? `${pauseMinutesLeft}m` : isAutoAddActive ? 'Auto: ON' : 'Auto: OFF'}
-              </Text>
-            </TouchableOpacity>
-          )}
-
           <TouchableOpacity
             style={[styles.iconBtn, styles.voiceHeaderBtn]}
             onPress={() => setVoiceModalVisible(true)}
@@ -1184,71 +1054,7 @@ export default function DashboardScreen() {
           />
         }
       >
-        {/* Banner when Auto-Add is OFF or Paused */}
-        {Platform.OS === 'android' && !isAutoAddActive && (
-          <View style={styles.autoAddOffBanner}>
-            <View
-              style={[
-                styles.autoAddOffIconBg,
-                { backgroundColor: isAutoAddPausedNow ? '#FEF3C7' : '#FEE2E2' },
-              ]}
-            >
-              <Ionicons
-                name={isAutoAddPausedNow ? 'time' : 'flash-off'}
-                size={16}
-                color={isAutoAddPausedNow ? '#D97706' : '#DC2626'}
-              />
-            </View>
-            <View style={{ flex: 1, marginRight: 8 }}>
-              <Text style={styles.autoAddOffBannerTitle}>
-                {isAutoAddPausedNow
-                  ? `Auto-add is paused (${pauseMinutesLeft}m left)`
-                  : 'Auto-add is OFF, new payments will not be tracked'}
-              </Text>
-              <Text style={styles.autoAddOffBannerSub}>
-                {isAutoAddPausedNow
-                  ? 'Tap Turn ON to resume auto-tracking immediately.'
-                  : 'Tap Turn ON to track your bank and payment alerts.'}
-              </Text>
-            </View>
-            <TouchableOpacity
-              style={styles.autoAddTurnOnBtn}
-              onPress={handleTurnAutoAddOn}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.autoAddTurnOnBtnText}>Turn ON</Text>
-            </TouchableOpacity>
-          </View>
-        )}
 
-        {/* Auto-Add Notification Access Reminder Card (Android Only) */}
-        {Platform.OS === 'android' && showAutoAddReminder && (
-          <View style={styles.autoAddReminderCard}>
-            <View style={styles.autoAddReminderIconBg}>
-              <Ionicons name="flash" size={17} color="#D97706" />
-            </View>
-            <View style={{ flex: 1, marginRight: 8 }}>
-              <Text style={styles.autoAddReminderTitle}>Enable Auto-Tracking</Text>
-              <Text style={styles.autoAddReminderSub}>
-                Automatically log bank &amp; UPI expenses on this device.
-              </Text>
-            </View>
-            <TouchableOpacity
-              style={styles.autoAddReminderBtn}
-              onPress={() => router.push('/settings/bank-alerts')}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.autoAddReminderBtnText}>Turn ON</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.autoAddReminderDismissBtn}
-              onPress={() => setShowAutoAddReminder(false)}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Ionicons name="close" size={16} color="#94A3B8" />
-            </TouchableOpacity>
-          </View>
-        )}
 
         {/* HERO TOTAL BALANCE CARD */}
         <View style={styles.balanceCard}>
@@ -1259,7 +1065,7 @@ export default function DashboardScreen() {
             style={StyleSheet.absoluteFill}
           />
 
-          {/* Header Row: Label Pill (âœ¦ TOTAL BALANCE) & Action Controls */}
+          {/* Header Row: Label Pill (✦ TOTAL BALANCE) & Action Controls */}
           <View style={styles.balanceTopRow}>
             <View style={styles.balanceLabelWrap}>
               <Text style={styles.balanceLabel}>
@@ -1268,28 +1074,7 @@ export default function DashboardScreen() {
             </View>
 
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              {Platform.OS === 'android' && (
-                <TouchableOpacity
-                  style={[
-                    styles.autoAddBalanceBtn,
-                    isAutoAddActive
-                      ? styles.autoAddBalanceBtnOn
-                      : isAutoAddPausedNow
-                      ? styles.autoAddBalanceBtnPaused
-                      : styles.autoAddBalanceBtnOff,
-                  ]}
-                  onPress={() => setShowAutoAddModal(true)}
-                  activeOpacity={0.75}
-                  accessibilityLabel="Auto-Add Status"
-                >
-                  <Ionicons
-                    name={isAutoAddActive ? 'flash' : isAutoAddPausedNow ? 'time' : 'flash-off'}
-                    size={14}
-                    color={isAutoAddActive ? '#059669' : isAutoAddPausedNow ? '#D97706' : '#DC2626'}
-                  />
-                  {isAutoAddActive && <View style={styles.autoAddActiveDot} />}
-                </TouchableOpacity>
-              )}
+              <AutoAddBoltButton onPress={() => setAutoAddSheetVisible(true)} />
 
               {monthlyBudget > 0 && (
                 <TouchableOpacity
@@ -1335,7 +1120,7 @@ export default function DashboardScreen() {
           {/* Main Balance Display */}
           <View style={styles.balanceAmountWrap}>
             <Text style={styles.balanceAmount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.5}>
-              {hideBalance ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : `${curr}${formatAmount(netBalance)}`}
+              {hideBalance ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : formatCurrency(netBalance, { currency: curr })}
             </Text>
           </View>
 
@@ -1348,7 +1133,7 @@ export default function DashboardScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={styles.incomeLabel}>{t('income')}</Text>
                 <Text style={styles.incomeValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.5}>
-                  +{curr}{formatAmount(totalCredit)}
+                  {formatCurrency(totalCredit, { showPlus: true, currency: curr })}
                 </Text>
               </View>
             </View>
@@ -1360,12 +1145,15 @@ export default function DashboardScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={styles.expenseLabel}>{t('expenses')}</Text>
                 <Text style={styles.expenseValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.5}>
-                  -{curr}{formatAmount(totalSpend)}
+                  {formatCurrency(-totalSpend, { currency: curr })}
                 </Text>
               </View>
             </View>
           </View>
         </View>
+
+        {/* Small dismissible battery warning if listener is active but battery is optimized */}
+        <DashboardBatteryWarningCard />
 
         {/* QUICK ACCESS: UPCOMING BILLS & FRIENDS / UDHAR */}
         <View style={styles.quickTwoBtnsRow}>
@@ -1396,7 +1184,7 @@ export default function DashboardScreen() {
                 {t('upcoming_bills')}
               </Text>
               <Text style={styles.tileHeroAmount} numberOfLines={1}>
-                {curr}{formatAmount((homeUpcomingBills[0] || nextFutureBill)?.amount || 0)}
+                {formatCurrency((homeUpcomingBills[0] || nextFutureBill)?.amount || 0, { currency: curr })}
               </Text>
             </View>
 
@@ -1634,7 +1422,7 @@ export default function DashboardScreen() {
               <View>
                 <Text style={styles.modalTitle}>All Subscriptions & Plans</Text>
                 <Text style={styles.modalSubtitle}>
-                  {recurringBills.length} Active Plans â€¢ {curr}{formatAmount(totalCommitment)} monthly
+                  {recurringBills.length} Active Plans • {formatCurrency(totalCommitment, { currency: curr })} monthly
                 </Text>
               </View>
               <TouchableOpacity onPress={() => setAllBillsModalVisible(false)} style={styles.modalCloseIconBtn}>
@@ -1664,7 +1452,7 @@ export default function DashboardScreen() {
                         </View>
 
                         <View style={{ alignItems: 'flex-end' }}>
-                          <Text style={styles.allPlansAmount}>{curr}{formatAmount(bill.amount)}</Text>
+                          <Text style={styles.allPlansAmount}>{formatCurrency(bill.amount, { currency: curr })}</Text>
                           <View style={[styles.billStatusPill, { backgroundColor: status.color + '15', marginTop: 2 }]}>
                             <Text style={[styles.billStatusText, { color: status.color }]}>{status.label}</Text>
                           </View>
@@ -1802,125 +1590,11 @@ export default function DashboardScreen() {
         availableCategories={categories}
       />
 
-      {/* QUICK AUTO-ADD MODAL */}
-      {Platform.OS === 'android' && (
-        <Modal
-          visible={showAutoAddModal}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setShowAutoAddModal(false)}
-        >
-          <View style={styles.autoAddModalOverlay}>
-            <TouchableOpacity
-              style={StyleSheet.absoluteFill}
-              activeOpacity={1}
-              onPress={() => setShowAutoAddModal(false)}
-            />
-            <View style={styles.autoAddModalCard}>
-              <View style={styles.autoAddModalHeader}>
-                <View
-                  style={[
-                    styles.autoAddModalIconWrap,
-                    {
-                      backgroundColor: isAutoAddActive
-                        ? '#DCFCE7'
-                        : isAutoAddPausedNow
-                        ? '#FEF3C7'
-                        : '#FEE2E2',
-                    },
-                  ]}
-                >
-                  <Ionicons
-                    name={isAutoAddActive ? 'flash' : isAutoAddPausedNow ? 'time' : 'flash-off'}
-                    size={22}
-                    color={isAutoAddActive ? '#15803D' : isAutoAddPausedNow ? '#D97706' : '#DC2626'}
-                  />
-                </View>
-                <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={styles.autoAddModalTitle}>
-                    {isAutoAddPausedNow
-                      ? 'Auto-Add is Paused'
-                      : isAutoAddActive
-                      ? 'Auto-Add is Active'
-                      : 'Auto-Add is OFF'}
-                  </Text>
-                  <Text style={styles.autoAddModalSubtitle}>
-                    {isAutoAddPausedNow
-                      ? `Resumes automatically in ${pauseMinutesLeft} minutes`
-                      : isAutoAddActive
-                      ? 'Automatically tracking bank & UPI alerts'
-                      : 'No alerts will be tracked or saved'}
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  onPress={() => setShowAutoAddModal(false)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Ionicons name="close" size={20} color="#94A3B8" />
-                </TouchableOpacity>
-              </View>
-
-              <View style={styles.autoAddModalActions}>
-                {isAutoAddActive ? (
-                  <>
-                    <TouchableOpacity
-                      style={[styles.autoAddModalBtn, styles.autoAddModalBtnOff]}
-                      onPress={handleTurnAutoAddOff}
-                      activeOpacity={0.8}
-                    >
-                      <Ionicons name="power" size={18} color="#DC2626" style={{ marginRight: 8 }} />
-                      <Text style={styles.autoAddModalBtnOffText}>Turn OFF Auto-Add</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={[styles.autoAddModalBtn, styles.autoAddModalBtnPause]}
-                      onPress={handlePauseAutoAdd1Hour}
-                      activeOpacity={0.8}
-                    >
-                      <Ionicons name="time-outline" size={18} color="#D97706" style={{ marginRight: 8 }} />
-                      <Text style={styles.autoAddModalBtnPauseText}>Pause for 1 Hour</Text>
-                    </TouchableOpacity>
-                  </>
-                ) : (
-                  <>
-                    <TouchableOpacity
-                      style={[styles.autoAddModalBtn, styles.autoAddModalBtnOn]}
-                      onPress={handleTurnAutoAddOn}
-                      activeOpacity={0.8}
-                    >
-                      <Ionicons name="flash" size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
-                      <Text style={styles.autoAddModalBtnOnText}>Turn ON Auto-Add</Text>
-                    </TouchableOpacity>
-
-                    {!isAutoAddPausedNow && (
-                      <TouchableOpacity
-                        style={[styles.autoAddModalBtn, styles.autoAddModalBtnPause]}
-                        onPress={handlePauseAutoAdd1Hour}
-                        activeOpacity={0.8}
-                      >
-                        <Ionicons name="time-outline" size={18} color="#D97706" style={{ marginRight: 8 }} />
-                        <Text style={styles.autoAddModalBtnPauseText}>Pause for 1 Hour</Text>
-                      </TouchableOpacity>
-                    )}
-                  </>
-                )}
-
-                <TouchableOpacity
-                  style={styles.autoAddModalSettingsBtn}
-                  onPress={() => {
-                    setShowAutoAddModal(false);
-                    router.push('/settings/bank-alerts');
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="settings-outline" size={16} color="#64748B" style={{ marginRight: 6 }} />
-                  <Text style={styles.autoAddModalSettingsText}>Auto-Add Settings &amp; Pending Inbox</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
-      )}
+      {/* AUTO-ADD BOTTOM SHEET */}
+      <AutoAddBottomSheet
+        visible={autoAddSheetVisible}
+        onClose={() => setAutoAddSheetVisible(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -2161,43 +1835,7 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 2,
   },
-  autoAddBalanceBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    position: 'relative',
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowOffset: { width: 0, height: 1 },
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  autoAddBalanceBtnOn: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#A7F3D0',
-  },
-  autoAddBalanceBtnPaused: {
-    backgroundColor: '#FEF3C7',
-    borderColor: '#FDE68A',
-  },
-  autoAddBalanceBtnOff: {
-    backgroundColor: '#FEE2E2',
-    borderColor: '#FECACA',
-  },
-  autoAddActiveDot: {
-    position: 'absolute',
-    top: 4,
-    right: 4,
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#10B981',
-    borderWidth: 1,
-    borderColor: '#FFFFFF',
-  },
+
   balanceAmountWrap: {
     marginTop: 2,
     marginBottom: 12,
@@ -2834,7 +2472,7 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 10,
-    backgroundColor: '#EDE9FE',        // soft lavender â€” main face
+    backgroundColor: '#EDE9FE',        // soft lavender — main face
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1.5,
@@ -4098,7 +3736,7 @@ const styles = StyleSheet.create({
     color: '#FFD740',
   },
 
-  // Confirm Paid button â€” pay modal only
+  // Confirm Paid button — pay modal only
   confirmPaidBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -4443,206 +4081,5 @@ const styles = StyleSheet.create({
   proCrownHeaderBadgeTextActive: {
     color: '#047857',
   },
-  autoAddReminderCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFBEB',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#FDE68A',
-    padding: 12,
-    marginHorizontal: 20,
-    marginBottom: 16,
-  },
-  autoAddReminderIconBg: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    backgroundColor: '#FEF3C7',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
-  },
-  autoAddReminderTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#92400E',
-  },
-  autoAddReminderSub: {
-    fontSize: 11,
-    color: '#B45309',
-    marginTop: 1,
-  },
-  autoAddReminderBtn: {
-    backgroundColor: '#FFD740',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#F59E0B',
-    marginRight: 6,
-  },
-  autoAddReminderBtnText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#0F172A',
-  },
-  autoAddReminderDismissBtn: {
-    padding: 4,
-  },
-  autoAddHeaderToggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 20,
-    borderWidth: 1,
-    marginRight: 6,
-  },
-  autoAddHeaderToggleOn: {
-    backgroundColor: '#ECFDF5',
-    borderColor: '#A7F3D0',
-  },
-  autoAddHeaderToggleOff: {
-    backgroundColor: '#FEF2F2',
-    borderColor: '#FECACA',
-  },
-  autoAddHeaderTogglePaused: {
-    backgroundColor: '#FFFBEB',
-    borderColor: '#FDE68A',
-  },
-  autoAddHeaderToggleText: {
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  autoAddOffBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FEF2F2',
-    borderRadius: 14,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#FECACA',
-    marginBottom: 12,
-  },
-  autoAddOffIconBg: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 10,
-  },
-  autoAddOffBannerTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#991B1B',
-  },
-  autoAddOffBannerSub: {
-    fontSize: 11,
-    color: '#B91C1C',
-    marginTop: 1,
-  },
-  autoAddTurnOnBtn: {
-    backgroundColor: '#DC2626',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-  },
-  autoAddTurnOnBtnText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#FFFFFF',
-  },
-  autoAddModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  autoAddModalCard: {
-    width: '100%',
-    maxWidth: 360,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 22,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 20,
-    elevation: 8,
-  },
-  autoAddModalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 18,
-  },
-  autoAddModalIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  autoAddModalTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#0F172A',
-  },
-  autoAddModalSubtitle: {
-    fontSize: 12,
-    color: '#64748B',
-    marginTop: 2,
-  },
-  autoAddModalActions: {
-    gap: 10,
-  },
-  autoAddModalBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    borderRadius: 12,
-  },
-  autoAddModalBtnOn: {
-    backgroundColor: '#10B981',
-  },
-  autoAddModalBtnOnText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  autoAddModalBtnOff: {
-    backgroundColor: '#FEE2E2',
-    borderWidth: 1,
-    borderColor: '#FECACA',
-  },
-  autoAddModalBtnOffText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#DC2626',
-  },
-  autoAddModalBtnPause: {
-    backgroundColor: '#FEF3C7',
-    borderWidth: 1,
-    borderColor: '#FDE68A',
-  },
-  autoAddModalBtnPauseText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#B45309',
-  },
-  autoAddModalSettingsBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-    marginTop: 4,
-  },
-  autoAddModalSettingsText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#64748B',
-  },
+
 });

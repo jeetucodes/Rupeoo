@@ -30,8 +30,10 @@ import { syncWidgetWithTransactions } from '@/lib/widgetSync';
 import { preloadFriendsAndUdhar } from '@/lib/udharStorage';
 import { auth } from '@/lib/firebase';
 import { isVerificationRequired } from '@/lib/authVerification';
-import { requestRebind } from '@/features/autoAdd/nativeModule';
+import { isListenerEnabled, requestRebind } from '@/features/autoAdd/nativeModule';
 import { setupAutoAddNotificationChannel } from '@/features/autoAdd/notifTask';
+import { runMojibakeMigration } from '@/utils/migrateMojibake';
+import { isOfflineModeActive } from '@/lib/cloudSync';
 
 interface ErrorBoundaryProps {
   children: React.ReactNode;
@@ -93,7 +95,10 @@ import {
   requestNotificationPermissions,
   registerDeviceForPushNotifications,
   sendWelcomeNotification,
-  startRealtimeNotificationWatcher
+  startRealtimeNotificationWatcher,
+  runOneTimeOldNotificationMigration,
+  setupNotificationChannels,
+  scheduleNext48h,
 } from '@/lib/notifications';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { warn, error as logError } from '@/lib/logger';
@@ -157,6 +162,11 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     const appStateSub = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') {
         syncUserOfflineData(user.uid).catch(() => { });
+        scheduleNext48h(user.uid).catch(() => { });
+        if (Platform.OS === 'android') {
+          requestRebind().catch(() => {});
+          isListenerEnabled().catch(() => {});
+        }
       }
     });
 
@@ -166,24 +176,28 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     };
   }, [user?.uid]);
 
-  // Android startup: rebind notification listener & configure notification channel
+  // Startup: run one-time old notification migration, setup channels & schedule lookahead
   useEffect(() => {
+    runMojibakeMigration().catch(() => {});
+    runOneTimeOldNotificationMigration().catch(() => {});
+    setupNotificationChannels().catch(() => {});
+    scheduleNext48h(user?.uid).catch(() => {});
     if (Platform.OS === 'android') {
       requestRebind().catch(() => {});
+      isListenerEnabled().catch(() => {});
       setupAutoAddNotificationChannel().catch(() => {});
     }
-  }, []);
+  }, [user?.uid]);
 
   useEffect(() => {
-    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
-      const data = response.notification.request.content.data;
+    const handleNotificationResponse = (response: Notifications.NotificationResponse) => {
+      if (!response) return;
+      const data = response?.notification?.request?.content?.data as any;
+      const action = response.actionIdentifier;
 
-      // Handle Undo Action for auto-added transactions
-      if (
-        response.actionIdentifier === 'UNDO_ACTION' ||
-        data?.type === 'AUTO_ADD_TRANSACTION'
-      ) {
-        if (response.actionIdentifier === 'UNDO_ACTION' && data?.transactionId) {
+      // 1. Interactive Button Actions
+      if (action === 'UNDO_ACTION') {
+        if (data?.transactionId) {
           const targetUid = (data.userId as string) || user?.uid || 'local';
           if (data.billId) {
             undoBillPayment(targetUid, data.billId as string, data.transactionId as string, data.prevDueDate as string)
@@ -194,6 +208,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
                   text2: 'Bill marked unpaid and transaction removed.',
                   visibilityTime: 3500,
                 });
+                scheduleNext48h(targetUid).catch(() => {});
               })
               .catch(() => {});
           } else {
@@ -205,22 +220,89 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
                   text2: 'The auto-added transaction was removed.',
                   visibilityTime: 3500,
                 });
+                scheduleNext48h(targetUid).catch(() => {});
               })
               .catch(() => {});
           }
-          return;
         }
-
-        router.push('/(tabs)/dashboard');
         return;
       }
 
-      if (data?.type === 'budget_alert' || data?.type === 'budget') {
+      if (action === 'CHANGE_CATEGORY_ACTION') {
+        if (data?.transactionId) {
+          router.push(`/transaction/${data.transactionId}` as any);
+        } else {
+          router.push('/(tabs)/dashboard');
+        }
+        return;
+      }
+
+      if (action === 'VIEW_DETAILS_ACTION') {
+        router.push('/daily-report');
+        return;
+      }
+
+      if (action === 'SEE_SPENDING_ACTION') {
         router.push('/budget');
+        return;
+      }
+
+      if (action === 'ADD_EXPENSE_ACTION') {
+        router.push('/add');
+        return;
+      }
+
+      if (action === 'NOTHING_TODAY_ACTION') {
+        Toast.show({
+          type: 'success',
+          text1: 'Zero Spend Noted! 👏',
+          text2: 'Great discipline today!',
+          visibilityTime: 2500,
+        });
+        return;
+      }
+
+      // 2. Notification Body Tap Navigation
+      const type = data?.type || data?.typeKey;
+      if (type === 'daily_report' || type === 'report' || data?.typeKey === 'daily_report') {
+        router.push('/daily-report');
+      } else if (
+        type === 'budget_over' ||
+        type === 'budget_80' ||
+        type === 'budget_alert' ||
+        type === 'budget'
+      ) {
+        router.push('/budget');
+      } else if (type === 'AUTO_ADD_TRANSACTION' || type === 'transaction_added') {
+        if (data?.transactionId) {
+          router.push(`/transaction/${data.transactionId}` as any);
+        } else {
+          router.push('/(tabs)/dashboard');
+        }
+      } else if (
+        type === 'morning' ||
+        type === 'morning_with_budget' ||
+        type === 'lunch' ||
+        type === 'lunch_spent' ||
+        type === 'teatime' ||
+        type === 'evening' ||
+        type === 'reminder'
+      ) {
+        router.push('/add');
       } else {
         router.push('/notifications');
       }
-    });
+    };
+
+    // Check if app was opened from killed state by tapping notification
+    Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (response) {
+        handleNotificationResponse(response);
+      }
+    }).catch(() => {});
+
+    // Active foreground/background response listener
+    const sub = Notifications.addNotificationResponseReceivedListener(handleNotificationResponse);
 
     return () => sub.remove();
   }, [router, user?.uid]);
@@ -240,10 +322,16 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       currentSegment === 'verify-email';
 
     if (!user && !isPublicRoute) {
-      if (currentSegment === 'quick-add' || currentSegment === 'quick-add-voice' || currentSegment === 'add') {
-        AsyncStorage.setItem('@rupeo_pending_redirect', `/${currentSegment}`).catch(() => {});
-      }
-      router.replace('/login');
+      isOfflineModeActive().then((isOffline) => {
+        if (!isOffline) {
+          if (currentSegment === 'quick-add' || currentSegment === 'quick-add-voice' || currentSegment === 'add') {
+            AsyncStorage.setItem('@rupeo_pending_redirect', `/${currentSegment}`).catch(() => {});
+          }
+          router.replace('/login');
+        }
+      }).catch(() => {
+        router.replace('/login');
+      });
     } else if (user) {
       // A9. Gate unverified email/password accounts created after VERIFICATION_CUTOFF
       if (isVerificationRequired(auth?.currentUser)) {
@@ -471,6 +559,14 @@ export default function RootLayout() {
                   />
                   <Stack.Screen
                     name="settings/notifications"
+                    options={{
+                      presentation: 'card',
+                      animation: 'slide_from_right',
+                      contentStyle: { backgroundColor: '#F8FAFC' },
+                    }}
+                  />
+                  <Stack.Screen
+                    name="daily-report"
                     options={{
                       presentation: 'card',
                       animation: 'slide_from_right',

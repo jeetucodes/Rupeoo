@@ -22,7 +22,10 @@ import Animated, {
   Easing,
 } from 'react-native-reanimated';
 import { requestNotificationPermissions } from '@/lib/notifications';
-import OnboardingPermissionStep from '@/features/autoAdd/OnboardingPermissionStep';
+import {
+  OnboardingPermissionStep,
+  OnboardingBatteryStep,
+} from '@/features/autoAdd';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -55,7 +58,7 @@ const SLIDES = [
 
 export default function OnboardingScreen() {
   const [currentSlide, setCurrentSlide] = useState(0);
-  const [step, setStep] = useState<'slides' | 'auto_add'>('slides');
+  const [step, setStep] = useState<'slides' | 'auto_add' | 'battery'>('slides');
   const router = useRouter();
 
   // Gentle ambient background animation
@@ -131,9 +134,19 @@ export default function OnboardingScreen() {
   if (step === 'auto_add') {
     return (
       <OnboardingPermissionStep
+        onComplete={() => setStep('battery')}
+        onSkip={() => setStep('battery')}
+        onBack={() => setStep('slides')}
+      />
+    );
+  }
+
+  if (step === 'battery') {
+    return (
+      <OnboardingBatteryStep
         onComplete={() => router.replace('/login')}
         onSkip={() => router.replace('/login')}
-        onBack={() => setStep('slides')}
+        onBack={() => setStep('auto_add')}
       />
     );
   }

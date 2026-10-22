@@ -1,7 +1,12 @@
 export { default as AutoAddSettings } from './AutoAddSettings';
 export { default as OnboardingPermissionStep } from './OnboardingPermissionStep';
+export { default as OnboardingBatteryStep } from './OnboardingBatteryStep';
 export * from './nativeModule';
 export * from './filter';
 export * from './dedupe';
 export * from './sqliteStorage';
 export * from './notifTask';
+export * from './useAutoAdd';
+export * from './AutoAddBoltButton';
+export * from './AutoAddBottomSheet';
+export * from './DashboardBatteryWarningCard';

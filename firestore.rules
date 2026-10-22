@@ -2,7 +2,8 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // DO NOT DEPLOY until grandfather script has run and tokens refreshed.
+
+    // Helper: User must be authenticated
     function signedIn() {
       return request.auth != null && (
         request.auth.token.email_verified == true ||
@@ -11,11 +12,7 @@ service cloud.firestore {
       );
     }
 
-    // Deny-all client rule for email_otps (Admin SDK bypasses security rules)
-    match /email_otps/{document=**} {
-      allow read, write: if false;
-    }
-
+    // Helper: System Admin Check
     function isAdmin() {
       return signedIn() && (
         request.auth.token.admin == true ||
@@ -24,7 +21,43 @@ service cloud.firestore {
       );
     }
 
-    // App Global Config (Realtime Master Toggles: maintenanceMode, showAds, showProFeatures)
+    // Helper: Validates minimized transaction payload with size limits & strict field constraints
+    function isValidTransaction(data) {
+      return data.keys().hasOnly([
+        'id', 'amount', 'type', 'category', 'date', 'payee', 'note', 'source', 'updatedAt', 'created_at', 'updated_at'
+      ])
+      // Deny any forbidden sensitive fields explicitly
+      && !data.keys().hasAny([
+        'ref_no', 'utr', 'accountLast4', 'account_last4', 'account_no',
+        'bank_name', 'bank', 'raw_body', 'original_message', 'package_name',
+        'notif_log', 'diagnostics', 'sourceHash', 'payKey'
+      ])
+      // Id validation (max 128 chars)
+      && data.id is string && data.id.size() > 0 && data.id.size() <= 128
+      // Amount validation (positive number, up to 100 crore)
+      && data.amount is number && data.amount >= 0 && data.amount <= 1000000000
+      // Type validation
+      && data.type is string && data.type in ['debit', 'credit', 'expense', 'income']
+      // Category validation (max 60 chars)
+      && data.category is string && data.category.size() > 0 && data.category.size() <= 60
+      // Date validation (strictly YYYY-MM-DD, 10 chars)
+      && data.date is string && data.date.size() == 10 && data.date.matches('^\\d{4}-\\d{2}-\\d{2}$')
+      // Optional payee validation (max 100 chars)
+      && (!('payee' in data) || data.payee == null || (data.payee is string && data.payee.size() <= 100))
+      // Optional user note validation (max 500 chars)
+      && (!('note' in data) || data.note == null || (data.note is string && data.note.size() <= 500))
+      // Source validation ('auto' | 'manual' | 'statement')
+      && (!('source' in data) || data.source == null || (data.source is string && data.source in ['auto', 'manual', 'statement']))
+      // Timestamp validation
+      && (!('updatedAt' in data) || data.updatedAt is number || data.updatedAt is timestamp);
+    }
+
+    // Deny-all client rule for email_otps (Admin SDK only)
+    match /email_otps/{document=**} {
+      allow read, write: if false;
+    }
+
+    // App Global Config (Read: public, Write: Admin)
     match /app_config/{configId} {
       allow read: if true;
       allow write: if isAdmin();
@@ -40,7 +73,7 @@ service cloud.firestore {
       );
     }
 
-    // Support Messages (submitted from Maintenance Screen or Help & Support in Settings)
+    // Support Messages
     match /support_messages/{messageId} {
       allow create: if isAdmin() || (
         request.resource.data.keys().hasOnly([
@@ -62,52 +95,48 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    function validAudience() {
-      return request.resource.data.audience == 'all'
-        || request.resource.data.audience == 'all users'
-        || request.resource.data.audience.matches('user:[A-Za-z0-9_-]+')
-        || request.resource.data.audience.matches('specific:[A-Za-z0-9_-]+')
-        || request.resource.data.audience.matches('group:[A-Za-z0-9_-]+')
-        || request.resource.data.audience.matches('[A-Za-z0-9_-]+');
-    }
-
+    // Admin Notifications
     match /admin_notifications/{notificationId} {
-      allow read: if isAdmin()
-        || (signedIn() && resource.data.active == true);
-      allow create: if isAdmin()
-        && request.resource.data.keys().hasOnly([
-          'title', 'message', 'audience', 'active', 'createdAt', 'updatedAt'
-        ])
-        && request.resource.data.title is string
-        && request.resource.data.message is string
-        && request.resource.data.audience is string
-        && validAudience()
-        && request.resource.data.active is bool;
-      allow update: if isAdmin()
-        && request.resource.data.keys().hasOnly([
-          'title', 'message', 'audience', 'active', 'createdAt', 'updatedAt'
-        ])
-        && request.resource.data.title is string
-        && request.resource.data.message is string
-        && request.resource.data.audience is string
-        && validAudience()
-        && request.resource.data.active is bool;
-      allow delete: if isAdmin();
+      allow read: if isAdmin() || (signedIn() && resource.data.active == true);
+      allow create, update, delete: if isAdmin();
     }
 
+    // USER DATA ISOLATION: A user can read/write ONLY their own document tree
     match /users/{userId} {
-      allow read: if (signedIn() && request.auth.uid == userId) || isAdmin();
+      // User Profile document
+      allow read: if signedIn() && request.auth.uid == userId;
       allow delete: if signedIn() && request.auth.uid == userId;
       allow create: if signedIn() && request.auth.uid == userId
         && !request.resource.data.keys().hasAny(['is_premium', 'premium_plan', 'premium_activated_at']);
       allow update: if signedIn() && request.auth.uid == userId
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['is_premium', 'premium_plan', 'premium_activated_at']);
 
+      // 1. Minimized Transactions Subcollection
       match /transactions/{transactionId} {
-        allow read, write: if signedIn() && request.auth.uid == userId;
-        allow read: if isAdmin();
+        allow read: if signedIn() && request.auth.uid == userId;
+        allow delete: if signedIn() && request.auth.uid == userId;
+        allow create, update: if signedIn() && request.auth.uid == userId && isValidTransaction(request.resource.data);
       }
 
+      // 2. Settings Subcollection
+      match /settings/{settingsId} {
+        allow read: if signedIn() && request.auth.uid == userId;
+        allow delete: if signedIn() && request.auth.uid == userId;
+        allow create, update: if signedIn() && request.auth.uid == userId
+          && !request.resource.data.keys().hasAny(['isPremium', 'premiumPlan', 'premiumActivatedAt']);
+      }
+
+      // 3. User Categories Subcollection
+      match /categories/{categoryId} {
+        allow read, write: if signedIn() && request.auth.uid == userId;
+      }
+
+      // 4. Recurring Bills Subcollection
+      match /recurring_bills/{billId} {
+        allow read, write: if signedIn() && request.auth.uid == userId;
+      }
+
+      // 5. Notifications & Devices Subcollections
       match /notifications/{notificationId} {
         allow read, write: if signedIn() && request.auth.uid == userId;
       }
@@ -116,41 +145,24 @@ service cloud.firestore {
         allow read, write: if signedIn() && request.auth.uid == userId;
       }
 
-      match /settings/{settingsId} {
-        allow read: if signedIn() && request.auth.uid == userId;
-        allow delete: if signedIn() && request.auth.uid == userId;
-        allow create: if signedIn() && request.auth.uid == userId
-          && !request.resource.data.keys().hasAny(['isPremium', 'premiumPlan', 'premiumActivatedAt']);
-        allow update: if signedIn() && request.auth.uid == userId
-          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['isPremium', 'premiumPlan', 'premiumActivatedAt']);
-      }
-
-      match /categories/{categoryId} {
+      // 6. Friends / Udhar Ledger Subcollection
+      match /friends/{friendId} {
         allow read, write: if signedIn() && request.auth.uid == userId;
       }
 
-      match /recurring_bills/{billId} {
-        allow read, write: if signedIn() && request.auth.uid == userId;
-      }
-
+      // Catch-all for any other user-scoped subcollections: strictly owner only
       match /{subcollection}/{docId} {
-        allow read: if signedIn() && request.auth.uid == userId;
-        allow write: if signedIn() && request.auth.uid == userId && subcollection != 'settings';
-      }
-
-      match /{document=**} {
-        allow read: if signedIn() && request.auth.uid == userId;
+        allow read, write: if signedIn() && request.auth.uid == userId && subcollection != 'settings';
       }
     }
 
+    // Ads collection
     match /ads/{adId} {
       allow read: if true;
       allow create, delete: if isAdmin();
       allow update: if isAdmin() || (
         signedIn()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['clicksCount', 'impressionsCount', 'updatedAt'])
-        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['clicksCount']) || request.resource.data.clicksCount == resource.data.get('clicksCount', 0) + 1)
-        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['impressionsCount']) || request.resource.data.impressionsCount == resource.data.get('impressionsCount', 0) + 1)
       );
     }
   }
