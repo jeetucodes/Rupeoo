@@ -1,15 +1,16 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  ScrollView,
+  FlatList,
   ActivityIndicator,
   TextInput,
   Platform,
-  Alert,
   Modal,
+  ScrollView,
+  Alert,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,31 +18,34 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import Toast from 'react-native-toast-message';
 import { useAuth } from '@/context/AuthContext';
+import { useBankImport, ImportRange } from '@/hooks/useBankImport';
+import { DraftTransactionItem } from '@/lib/bankDraftDetector';
+import { isSmsInboxSupported, requestSmsPermission } from '@/lib/smsReader';
 import {
-  isSmsInboxSupported,
-  requestSmsPermission,
-  splitMultiMessageText,
-} from '@/lib/smsReader';
-import {
-  importFromSmsInbox,
-  importFromPastedMessages,
-  SmsImportProgress,
-  SmsImportResult,
-  DetectedItem,
-} from '@/lib/smsImporter';
-import { undoImportBatch } from '@/lib/smsBatchUndo';
-import {
-  getSmsImportSettings,
-  saveSmsImportSettings,
+  hasCompletedSmsPrivacyDisclosure,
+  markSmsPrivacyDisclosureDone,
   addCustomBank,
   removeCustomBank,
-  SmsImportSettings,
-  DEFAULT_SMS_SETTINGS,
-  markSmsPrivacyDisclosureDone,
 } from '@/lib/smsSettings';
 
-type ImportRange = '30d' | '90d' | '365d' | 'all';
-type FilterTab = 'all' | 'added' | 'pending';
+// Categories list for draft editing
+const CATEGORIES = [
+  'Food',
+  'Groceries',
+  'Travel',
+  'Shopping',
+  'Bills',
+  'Utilities',
+  'Cash',
+  'Health',
+  'Entertainment',
+  'Subscriptions',
+  'Fuel',
+  'Salary',
+  'Rent',
+  'Income',
+  'Others',
+];
 
 export default function SmsImportScreen() {
   const router = useRouter();
@@ -54,216 +58,368 @@ export default function SmsImportScreen() {
   // Feature detection for direct Android inbox access
   const hasInboxFeature = isSmsInboxSupported();
 
-  // Mode: 'inbox' (Android direct) or 'paste' (Web & Play flavor)
-  const [activeTab, setActiveTab] = useState<'inbox' | 'paste'>(hasInboxFeature ? 'inbox' : 'paste');
-  const [selectedRange, setSelectedRange] = useState<ImportRange>('30d');
-  const [pasteText, setPasteText] = useState('');
+  // Orchestration Hook
+  const {
+    state,
+    selectedRange,
+    setSelectedRange,
+    drafts,
+    progress,
+    showAlreadyAdded,
+    setShowAlreadyAdded,
+    smsSettings,
+    lastBatchResult,
+    totals,
+    startReading,
+    readFromClipboard,
+    readFromPastedText,
+    cancelReading,
+    toggleDraft,
+    selectAll,
+    updateDraft,
+    ignoreDraft,
+    saveSelected,
+    discard,
+    undoLastBatch,
+    refreshSettings,
+  } = useBankImport({ userId });
 
-  // Execution states
-  const [isImporting, setIsImporting] = useState(false);
-  const [importProgress, setImportProgress] = useState<SmsImportProgress>({
-    phase: 'idle',
-    scannedCount: 0,
-    detectedCount: 0,
-    duplicatesSkipped: 0,
-    addedCount: 0,
-    reviewCount: 0,
-    totalToScan: 0,
-  });
-
-  const [importSummary, setImportSummary] = useState<SmsImportResult | null>(null);
-  const [isUndoing, setIsUndoing] = useState(false);
-  const cancelControllerRef = useRef<{ cancel: () => void } | null>(null);
-
-  // Settings & Custom Banks State
-  const [smsSettings, setSmsSettings] = useState<SmsImportSettings>(DEFAULT_SMS_SETTINGS);
-  const [customBankModalVisible, setCustomBankModalVisible] = useState(false);
+  // UI Local States
+  const [showPasteBox, setShowPasteBox] = useState(false);
+  const [pasteInputText, setPasteInputText] = useState('');
+  const [showRangeModal, setShowRangeModal] = useState(false);
+  const [showConsentModal, setShowConsentModal] = useState(false);
+  const [showCustomBankModal, setShowCustomBankModal] = useState(false);
   const [customBankInput, setCustomBankInput] = useState('');
 
-  // Results display filter & detail modal
-  const [filterTab, setFilterTab] = useState<FilterTab>('all');
-  const [selectedItemDetail, setSelectedItemDetail] = useState<DetectedItem | null>(null);
+  // Draft Editing Modal State
+  const [editingDraft, setEditingDraft] = useState<DraftTransactionItem | null>(null);
+  const [editMerchant, setEditMerchant] = useState('');
+  const [editAmount, setEditAmount] = useState('');
+  const [editCategory, setEditCategory] = useState('');
+  const [editType, setEditType] = useState<'expense' | 'income' | 'transfer'>('expense');
+  const [showOriginalMessage, setShowOriginalMessage] = useState(false);
 
-  useEffect(() => {
-    loadSettings();
-  }, [userId]);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isUndoing, setIsUndoing] = useState(false);
 
-  const loadSettings = async () => {
-    try {
-      const s = await getSmsImportSettings(userId);
-      setSmsSettings(s);
-    } catch { }
-  };
-
-  // 1-Click Inbox Import Action
-  const handleStartInboxImport = async () => {
-    if (!hasInboxFeature) {
-      setActiveTab('paste');
-      Toast.show({
-        type: 'info',
-        text1: 'Paste Mode Active',
-        text2: 'Inbox scanning is Android-native. Paste bank alerts below to import.',
-      });
-      return;
-    }
-
-    // Auto-mark privacy disclosure on action
-    await markSmsPrivacyDisclosureDone(userId);
-
-    // Request 1-time SMS permission from user
-    const hasPermission = await requestSmsPermission();
-    if (!hasPermission) {
-      Toast.show({
-        type: 'error',
-        text1: 'SMS Permission Required',
-        text2: 'Permission is needed once to scan your bank alerts safely on-device.',
-      });
-      return;
-    }
-
-    const now = Date.now();
-    let minDate: number | undefined;
-    if (selectedRange === '30d') minDate = now - 30 * 86400000;
-    else if (selectedRange === '90d') minDate = now - 90 * 86400000;
-    else if (selectedRange === '365d') minDate = now - 365 * 86400000;
-    else minDate = 0;
-
-    setIsImporting(true);
-    setImportSummary(null);
-
+  // 1-Tap Trigger for State 1 (Ready)
+  const handlePrimaryOneTap = async () => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch { }
 
-    const controller = { cancel: () => { } };
-    cancelControllerRef.current = controller;
+    if (hasInboxFeature) {
+      // Check if consent has been given before
+      const hasConsented = await hasCompletedSmsPrivacyDisclosure(userId);
+      if (!hasConsented) {
+        setShowConsentModal(true);
+        return;
+      }
 
-    const result = await importFromSmsInbox(userId, {
-      minDate,
-      onProgress: (p: SmsImportProgress) => setImportProgress(p),
-      cancelController: controller,
-    });
+      // Request 1-time SMS permission from Android OS
+      const granted = await requestSmsPermission();
+      if (!granted) {
+        Toast.show({
+          type: 'error',
+          text1: 'SMS Permission Needed',
+          text2: 'Permission is required once to read bank messages on device. You can also paste messages below.',
+        });
+        setShowPasteBox(true);
+        return;
+      }
 
-    setIsImporting(false);
-    cancelControllerRef.current = null;
-    setImportSummary(result);
-
-    try {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch { }
+      // Start reading automatically
+      await startReading();
+    } else {
+      // Play flavor / Web: Read from clipboard in 1 tap
+      const res = await readFromClipboard();
+      if (res.found === 0) {
+        Toast.show({
+          type: 'info',
+          text1: 'No Bank Alerts in Clipboard',
+          text2: 'Copy your bank messages or paste them in the box below.',
+        });
+        setShowPasteBox(true);
+      }
+    }
   };
 
-  // 1-Click Paste Import Action
-  const handleStartPasteImport = async () => {
-    if (!pasteText.trim()) {
+  // Handle Consent Acceptance
+  const handleAcceptConsent = async () => {
+    setShowConsentModal(false);
+    await markSmsPrivacyDisclosureDone(userId);
+
+    const granted = await requestSmsPermission();
+    if (!granted) {
+      Toast.show({
+        type: 'error',
+        text1: 'Permission Denied',
+        text2: 'You can still import by pasting message text below.',
+      });
+      setShowPasteBox(true);
+      return;
+    }
+
+    await startReading();
+  };
+
+  // Handle Pasted Text submission
+  const handleAnalyzePasted = async () => {
+    if (!pasteInputText.trim()) {
       Toast.show({
         type: 'error',
         text1: 'Empty Text',
-        text2: 'Please paste one or more bank/UPI message alerts.',
+        text2: 'Please paste one or more bank/UPI alerts.',
       });
       return;
     }
-
-    setIsImporting(true);
-    setImportSummary(null);
 
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch { }
 
-    const rawMessages = splitMultiMessageText(pasteText);
-    const result = await importFromPastedMessages(rawMessages, userId, (p: SmsImportProgress) => {
-      setImportProgress(p);
-    });
-
-    setIsImporting(false);
-    setImportSummary(result);
-
-    try {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch { }
-  };
-
-  const handleCancel = () => {
-    if (cancelControllerRef.current) {
-      cancelControllerRef.current.cancel();
+    const count = await readFromPastedText(pasteInputText);
+    if (count === 0) {
       Toast.show({
         type: 'info',
-        text1: 'Cancelling...',
-        text2: 'Stopping scan gracefully.',
+        text1: 'No Alerts Found',
+        text2: 'Could not detect financial debit/credit alerts in pasted text.',
       });
     }
   };
 
-  const handleUndoBatch = async () => {
-    if (!importSummary?.batchId) return;
+  // Open Edit Draft Modal
+  const openEditDraft = (draft: DraftTransactionItem) => {
+    setEditingDraft(draft);
+    setEditMerchant(draft.merchant);
+    setEditAmount(draft.amount.toString());
+    setEditCategory(draft.category);
+    setEditType(draft.type);
+    setShowOriginalMessage(false);
+  };
+
+  // Save changes to draft
+  const handleSaveDraftEdit = () => {
+    if (!editingDraft) return;
+    const num = parseFloat(editAmount.replace(/,/g, ''));
+    if (isNaN(num) || num <= 0) {
+      Toast.show({ type: 'error', text1: 'Invalid Amount', text2: 'Please enter a valid amount.' });
+      return;
+    }
+
+    updateDraft(editingDraft.id, {
+      merchant: editMerchant.trim() || editingDraft.merchant,
+      amount: num,
+      category: editCategory || editingDraft.category,
+      type: editType,
+    });
+
+    setEditingDraft(null);
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch { }
+  };
+
+  // Save Selected Action (State 3 -> State 4)
+  const handleSaveSelected = async () => {
+    if (totals.selectedCount === 0) {
+      Toast.show({
+        type: 'info',
+        text1: 'No Items Selected',
+        text2: 'Please check at least one transaction to save.',
+      });
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch { }
+
+    const count = await saveSelected();
+    setIsSaving(false);
+
+    try {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch { }
+
+    Toast.show({
+      type: 'success',
+      text1: 'Transactions Saved',
+      text2: `Successfully added ${count} transactions to your accounts.`,
+    });
+  };
+
+  // Discard Action
+  const handleDiscard = () => {
+    if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined' && window.confirm('Discard Drafts?\n\nNone of the detected transactions will be saved. You can scan again anytime.')) {
+        discard();
+        setShowPasteBox(false);
+        setPasteInputText('');
+      }
+      return;
+    }
 
     Alert.alert(
-      'Undo This Import?',
-      `This will remove the ${importSummary.addedCount} transactions created in this import batch. Ignored and pending items are untouched.`,
+      'Discard Drafts?',
+      'None of the detected transactions will be saved. You can scan again anytime.',
       [
-        { text: 'Keep Transactions', style: 'cancel' },
+        { text: 'Keep Reviewing', style: 'cancel' },
         {
-          text: 'Undo & Delete',
+          text: 'Discard All',
           style: 'destructive',
           onPress: async () => {
-            setIsUndoing(true);
-            const count = await undoImportBatch(importSummary.batchId!, userId);
-            setIsUndoing(false);
-            setImportSummary(null);
-
-            Toast.show({
-              type: 'success',
-              text1: 'Import Undone',
-              text2: `Reverted and removed ${count} transactions.`,
-            });
+            await discard();
+            setShowPasteBox(false);
+            setPasteInputText('');
           },
         },
       ]
     );
   };
 
-  // Filter detected items
-  const filteredItems = useMemo(() => {
-    const list = importSummary?.detectedItems || [];
-    if (filterTab === 'added') return list.filter((i) => i.status === 'added');
-    if (filterTab === 'pending') return list.filter((i) => i.status === 'pending');
-    return list;
-  }, [importSummary?.detectedItems, filterTab]);
-
-  // Helper for category visual styling
-  const getCategoryTheme = (category: string, type: 'expense' | 'income' | 'transfer') => {
-    if (type === 'income') {
-      return { bg: '#DCFCE7', text: '#16A34A', icon: 'trending-up' as const };
-    }
-    const cat = (category || '').toLowerCase();
-    if (cat.includes('food') || cat.includes('dining') || cat.includes('coffee')) {
-      return { bg: '#FEF3C7', text: '#D97706', icon: 'fast-food' as const };
-    }
-    if (cat.includes('grocer')) {
-      return { bg: '#ECFDF5', text: '#059669', icon: 'basket' as const };
-    }
-    if (cat.includes('travel') || cat.includes('commute')) {
-      return { bg: '#EFF6FF', text: '#2563EB', icon: 'car' as const };
-    }
-    if (cat.includes('shopping')) {
-      return { bg: '#F5F3FF', text: '#7C3AED', icon: 'cart' as const };
-    }
-    if (cat.includes('bill') || cat.includes('utilities')) {
-      return { bg: '#FEE2E2', text: '#DC2626', icon: 'flash' as const };
-    }
-    if (cat.includes('cash') || cat.includes('atm')) {
-      return { bg: '#F0FDF4', text: '#15803D', icon: 'cash' as const };
-    }
-    if (cat.includes('health')) {
-      return { bg: '#FFE4E6', text: '#E11D48', icon: 'medkit' as const };
-    }
-    return { bg: '#F1F5F9', text: '#475569', icon: 'wallet' as const };
+  // Undo Last Batch Action
+  const handleUndo = async () => {
+    setIsUndoing(true);
+    const count = await undoLastBatch();
+    setIsUndoing(false);
+    Toast.show({
+      type: 'success',
+      text1: 'Import Undone',
+      text2: `Reverted and removed ${count} transactions.`,
+    });
   };
+
+  // Filter drafts for display: hide already added unless toggled ON
+  const visibleDrafts = useMemo(() => {
+    if (showAlreadyAdded) return drafts;
+    return drafts.filter((d) => !d.isAlreadyAdded);
+  }, [drafts, showAlreadyAdded]);
+
+  // Visual helper for category icons
+  const getCategoryIcon = (category: string, type: 'expense' | 'income' | 'transfer') => {
+    if (type === 'income') return { name: 'trending-up' as const, bg: '#DCFCE7', color: '#16A34A' };
+    const cat = (category || '').toLowerCase();
+    if (cat.includes('food') || cat.includes('dining')) return { name: 'fast-food' as const, bg: '#FEF3C7', color: '#D97706' };
+    if (cat.includes('grocer')) return { name: 'basket' as const, bg: '#ECFDF5', color: '#059669' };
+    if (cat.includes('travel') || cat.includes('commute')) return { name: 'car' as const, bg: '#EFF6FF', color: '#2563EB' };
+    if (cat.includes('shopping')) return { name: 'cart' as const, bg: '#F5F3FF', color: '#7C3AED' };
+    if (cat.includes('bill') || cat.includes('utilities')) return { name: 'flash' as const, bg: '#FEE2E2', color: '#DC2626' };
+    if (cat.includes('cash') || cat.includes('atm')) return { name: 'cash' as const, bg: '#F0FDF4', color: '#15803D' };
+    if (cat.includes('health')) return { name: 'medkit' as const, bg: '#FFE4E6', color: '#E11D48' };
+    return { name: 'wallet' as const, bg: '#F1F5F9', color: '#475569' };
+  };
+
+  // Date Range Label
+  const rangeLabel = useMemo(() => {
+    switch (selectedRange) {
+      case '30d': return 'Last 30 Days';
+      case '90d': return 'Last 3 Months';
+      case '365d': return 'Last 1 Year';
+      case 'all': return 'All Time';
+    }
+  }, [selectedRange]);
+
+  // Memoized Draft Row
+  const renderDraftRow = useCallback(
+    ({ item }: { item: DraftTransactionItem }) => {
+      const catStyle = getCategoryIcon(item.category, item.type);
+      const isExpense = item.type === 'expense';
+      const formattedDate = new Date(item.date).toLocaleDateString('en-IN', {
+        day: 'numeric',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+
+      return (
+        <View style={[styles.draftRowCard, item.isAlreadyAdded && styles.draftRowCardDisabled]}>
+          {/* Checkbox Touch Target >= 44x44 */}
+          <TouchableOpacity
+            style={styles.checkboxTouchTarget}
+            onPress={() => toggleDraft(item.id)}
+            disabled={item.isAlreadyAdded}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: item.selected, disabled: item.isAlreadyAdded }}
+            accessibilityLabel={`Select ${item.merchant} transaction of ${item.amount} rupees`}
+          >
+            {item.isAlreadyAdded ? (
+              <View style={styles.checkboxDisabled}>
+                <Ionicons name="checkmark" size={14} color="#94A3B8" />
+              </View>
+            ) : (
+              <View style={[styles.checkboxBox, item.selected && styles.checkboxBoxActive]}>
+                {item.selected && <Ionicons name="checkmark" size={14} color="#FFFFFF" />}
+              </View>
+            )}
+          </TouchableOpacity>
+
+          {/* Row Details (Tappable to Edit) */}
+          <TouchableOpacity
+            style={styles.draftContentTouch}
+            onPress={() => openEditDraft(item)}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel={`Edit ${item.merchant} details`}
+          >
+            {/* Category Icon */}
+            <View style={[styles.categoryIconCircle, { backgroundColor: catStyle.bg }]}>
+              <Ionicons name={catStyle.name} size={18} color={catStyle.color} />
+            </View>
+
+            {/* Middle Col */}
+            <View style={styles.draftMiddleCol}>
+              <View style={styles.draftTopLine}>
+                <Text style={styles.draftMerchant} numberOfLines={1}>
+                  {item.merchant}
+                </Text>
+                {item.isLowConfidence && !item.isAlreadyAdded && (
+                  <View style={styles.checkThisBadge}>
+                    <Text style={styles.checkThisBadgeText}>Check this</Text>
+                  </View>
+                )}
+                {item.isAlreadyAdded && (
+                  <View style={styles.alreadyAddedBadge}>
+                    <Text style={styles.alreadyAddedBadgeText}>Already added</Text>
+                  </View>
+                )}
+              </View>
+
+              <View style={styles.draftMetaLine}>
+                <Text style={styles.draftMetaText} numberOfLines={1}>
+                  {item.bankName}
+                  {item.accountLast4 ? ` • **${item.accountLast4}` : ''} • {item.channel}
+                </Text>
+              </View>
+
+              <Text style={styles.draftDateText}>{formattedDate}</Text>
+            </View>
+
+            {/* Right Col: Amount */}
+            <View style={styles.draftRightCol}>
+              <Text
+                style={[
+                  styles.draftAmountText,
+                  { color: isExpense ? '#DC2626' : '#16A34A' },
+                  item.isAlreadyAdded && { color: '#94A3B8' },
+                ]}
+              >
+                {isExpense ? '-' : '+'} ₹{item.amount.toLocaleString('en-IN')}
+              </Text>
+              <Ionicons name="chevron-forward" size={14} color="#CBD5E1" style={{ alignSelf: 'flex-end', marginTop: 4 }} />
+            </View>
+          </TouchableOpacity>
+        </View>
+      );
+    },
+    [toggleDraft]
+  );
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-      {/* Top Header */}
+      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
           onPress={() => {
@@ -275,161 +431,167 @@ export default function SmsImportScreen() {
           }}
           style={styles.backBtn}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Back"
         >
           <Ionicons name={fromOnboarding ? 'close' : 'arrow-back'} size={24} color="#0F172A" />
         </TouchableOpacity>
+
         <View style={styles.headerTitleWrap}>
           <Text style={styles.headerTitle}>Import Messages</Text>
           <Text style={styles.headerSubtitle}>Pure on-device bank &amp; UPI expense detector</Text>
         </View>
+
         <TouchableOpacity
-          style={styles.headerCustomBankBtn}
-          onPress={() => setCustomBankModalVisible(true)}
+          style={styles.globeBtn}
+          onPress={() => setShowCustomBankModal(true)}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Custom Banks and International Senders"
         >
           <Ionicons name="globe-outline" size={20} color="#4F46E5" />
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Pre-Configured Indian Banks Banner & Add Custom Bank Button */}
-        <View style={styles.bankStatusBanner}>
-          <View style={styles.bankStatusLeft}>
-            <Ionicons name="shield-checkmark" size={18} color="#16A34A" style={{ marginRight: 8 }} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.bankStatusTitle}>75+ Indian Banks &amp; UPI Pre-Saved</Text>
-              <Text style={styles.bankStatusSubtitle}>
-                {smsSettings.customBanks?.length
-                  ? `+ ${smsSettings.customBanks.length} custom country banks active`
-                  : 'SBI, HDFC, ICICI, Axis, Kotak, PNB, BOB, PhonePe, GPay...'}
-              </Text>
-            </View>
+      {/* Pre-Configured 75+ Indian Banks Chip */}
+      <View style={styles.bankChipBanner}>
+        <View style={styles.bankChipLeft}>
+          <Ionicons name="shield-checkmark" size={18} color="#16A34A" style={{ marginRight: 8 }} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.bankChipTitle}>75+ Indian Banks &amp; UPI Pre-Saved</Text>
+            <Text style={styles.bankChipSubtitle} numberOfLines={1}>
+              {smsSettings.customBanks?.length
+                ? `+ ${smsSettings.customBanks.length} custom country banks active`
+                : 'SBI, HDFC, ICICI, Axis, Kotak, PNB, BOB, PhonePe, GPay...'}
+            </Text>
           </View>
-          <TouchableOpacity
-            style={styles.addCustomBankChip}
-            onPress={() => setCustomBankModalVisible(true)}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="add" size={14} color="#4F46E5" style={{ marginRight: 3 }} />
-            <Text style={styles.addCustomBankChipText}>Add Bank</Text>
-          </TouchableOpacity>
         </View>
+        <TouchableOpacity
+          style={styles.addBankBtnSmall}
+          onPress={() => setShowCustomBankModal(true)}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="add" size={14} color="#4F46E5" style={{ marginRight: 2 }} />
+          <Text style={styles.addBankBtnSmallText}>Add Bank</Text>
+        </TouchableOpacity>
+      </View>
 
-        {/* Hero Card: 1-Click Import Action */}
-        {!importSummary && (
-          <View style={styles.heroCard}>
-            <View style={styles.heroTopRow}>
-              <View style={styles.heroIconWrap}>
-                <Ionicons
-                  name={activeTab === 'inbox' ? 'chatbubbles' : 'clipboard'}
-                  size={26}
-                  color="#4F46E5"
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.heroTitle}>
-                  {activeTab === 'inbox' ? '1-Tap Message Import' : 'Paste Bank Messages'}
-                </Text>
-                <Text style={styles.heroSubtitle}>
-                  {activeTab === 'inbox'
-                    ? 'Scan bank alerts in 1 click. Zero duplicate guarantee.'
-                    : 'Paste multiple SMS alerts or copy from bank apps.'}
-                </Text>
-              </View>
+      {/* ==================================================================== */}
+      {/* STATE 1 - READY (ONE-TAP SCREEN)                                     */}
+      {/* ==================================================================== */}
+      {state === 'ready' && (
+        <ScrollView style={styles.contentScroll} showsVerticalScrollIndicator={false}>
+          <View style={styles.readyCard}>
+            <View style={styles.readyIconCircle}>
+              <Ionicons
+                name={hasInboxFeature ? 'chatbubbles' : 'clipboard'}
+                size={34}
+                color="#4F46E5"
+              />
             </View>
 
-            {/* Range selector for inbox scan */}
-            {activeTab === 'inbox' && (
-              <View style={styles.rangePillsRow}>
-                {[
-                  { key: '30d' as const, label: '30 Days' },
-                  { key: '90d' as const, label: '3 Months' },
-                  { key: '365d' as const, label: '1 Year' },
-                  { key: 'all' as const, label: 'All Time' },
-                ].map((item) => (
-                  <TouchableOpacity
-                    key={item.key}
-                    style={[styles.rangePill, selectedRange === item.key && styles.rangePillActive]}
-                    onPress={() => setSelectedRange(item.key)}
-                    activeOpacity={0.7}
-                  >
-                    <Text
-                      style={[
-                        styles.rangePillText,
-                        selectedRange === item.key && styles.rangePillTextActive,
-                      ]}
-                    >
-                      {item.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
+            <Text style={styles.readyMainHeading}>
+              {hasInboxFeature ? 'Read my bank messages' : 'Read from clipboard'}
+            </Text>
 
-            {/* Paste Input when in Paste mode */}
-            {activeTab === 'paste' && (
-              <TextInput
-                style={styles.pasteArea}
-                value={pasteText}
-                onChangeText={setPasteText}
-                placeholder="Paste bank debit/credit messages or UPI confirmations here... Multiple messages separated by blank lines are automatically detected."
-                placeholderTextColor="#94A3B8"
-                multiline
-                numberOfLines={5}
-                textAlignVertical="top"
+            <Text style={styles.readyMainDesc}>
+              {hasInboxFeature
+                ? 'We detect bank & UPI alerts on your phone. Nothing is saved until you confirm.'
+                : 'Detects copied bank & UPI message alerts. Nothing is saved until you confirm.'}
+            </Text>
+
+            {/* ONE PRIMARY BUTTON */}
+            <TouchableOpacity
+              style={styles.oneTapBigButton}
+              onPress={handlePrimaryOneTap}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel={hasInboxFeature ? 'Read my bank messages' : 'Read from clipboard'}
+            >
+              <Ionicons
+                name={hasInboxFeature ? 'flash' : 'clipboard-outline'}
+                size={20}
+                color="#FFFFFF"
+                style={{ marginRight: 8 }}
               />
-            )}
+              <Text style={styles.oneTapBigButtonText}>
+                {hasInboxFeature ? 'Read my bank messages' : 'Read from clipboard'}
+              </Text>
+            </TouchableOpacity>
 
-            {/* Primary Action Button */}
-            {!isImporting && (
+            {/* Range Link for Android Direct */}
+            {hasInboxFeature && (
               <TouchableOpacity
-                style={styles.primaryBtn}
-                onPress={activeTab === 'inbox' ? handleStartInboxImport : handleStartPasteImport}
-                activeOpacity={0.85}
+                style={styles.changeRangeLink}
+                onPress={() => setShowRangeModal(true)}
+                activeOpacity={0.7}
               >
-                <Ionicons
-                  name={activeTab === 'inbox' ? 'scan' : 'cloud-upload'}
-                  size={19}
-                  color="#FFFFFF"
-                  style={{ marginRight: 8 }}
-                />
-                <Text style={styles.primaryBtnText}>
-                  {activeTab === 'inbox' ? 'Scan & Import Messages' : 'Import Pasted Alerts'}
+                <Text style={styles.changeRangeLinkText}>
+                  Range: <Text style={{ fontWeight: '700' }}>{rangeLabel}</Text> ▾
                 </Text>
               </TouchableOpacity>
             )}
 
-            {/* Tab switch link */}
-            <View style={styles.switchModeWrap}>
-              {hasInboxFeature && (
+            {/* Fallback Paste Box Trigger */}
+            <View style={styles.pasteToggleRow}>
+              <TouchableOpacity
+                onPress={() => setShowPasteBox(!showPasteBox)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.pasteToggleText}>
+                  {showPasteBox ? 'Hide manual paste box ▴' : 'Paste messages instead ▾'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Expandable Fallback Paste Box */}
+            {showPasteBox && (
+              <View style={styles.pasteBoxContainer}>
+                <TextInput
+                  style={styles.pasteTextInput}
+                  value={pasteInputText}
+                  onChangeText={setPasteInputText}
+                  placeholder="Paste bank debit/credit messages or UPI confirmations here... Multiple messages separated by blank lines are automatically detected."
+                  placeholderTextColor="#94A3B8"
+                  multiline
+                  numberOfLines={4}
+                  textAlignVertical="top"
+                />
                 <TouchableOpacity
-                  onPress={() => setActiveTab(activeTab === 'inbox' ? 'paste' : 'inbox')}
-                  activeOpacity={0.7}
+                  style={styles.analyzePastedBtn}
+                  onPress={handleAnalyzePasted}
+                  activeOpacity={0.85}
                 >
-                  <Text style={styles.switchModeText}>
-                    {activeTab === 'inbox' ? 'Or paste messages manually →' : '← Or switch to Inbox Scan'}
-                  </Text>
+                  <Ionicons name="search" size={16} color="#4F46E5" style={{ marginRight: 6 }} />
+                  <Text style={styles.analyzePastedBtnText}>Analyze Pasted Text</Text>
                 </TouchableOpacity>
-              )}
-            </View>
+              </View>
+            )}
           </View>
-        )}
 
-        {/* Live Progress Card */}
-        {isImporting && (
-          <View style={styles.progressCard}>
-            <View style={styles.progressHeader}>
-              <ActivityIndicator size="small" color="#4F46E5" />
-              <Text style={styles.progressTitle}>
-                {importProgress.phase === 'reading'
-                  ? 'Reading messages safely on device...'
-                  : importProgress.phase === 'deduping'
-                  ? 'Checking 4-layer smart deduplication...'
-                  : 'Analyzing & detecting transactions...'}
-              </Text>
-            </View>
+          {/* Privacy Note */}
+          <View style={styles.privacyNoteBox}>
+            <Ionicons name="lock-closed" size={15} color="#64748B" style={{ marginRight: 6 }} />
+            <Text style={styles.privacyNoteText}>
+              100% on-device. Personal messages, OTPs, and spam are strictly ignored.
+            </Text>
+          </View>
+        </ScrollView>
+      )}
 
-            {importProgress.totalToScan > 0 && (
+      {/* ==================================================================== */}
+      {/* STATE 2 - READING (AUTO-RUNNING, ZERO EXTRA TAPS)                    */}
+      {/* ==================================================================== */}
+      {state === 'reading' && (
+        <View style={styles.readingContainer}>
+          <View style={styles.readingCard}>
+            <ActivityIndicator size="large" color="#4F46E5" style={{ marginBottom: 16 }} />
+            <Text style={styles.readingTitle}>Reading messages...</Text>
+            <Text style={styles.readingSubtitle}>
+              {progress.scanned} scanned · {progress.detected} bank alerts found
+            </Text>
+
+            {progress.total > 0 && (
               <View style={styles.progressBarWrap}>
                 <View
                   style={[
@@ -437,7 +599,7 @@ export default function SmsImportScreen() {
                     {
                       width: `${Math.min(
                         100,
-                        Math.round((importProgress.scannedCount / importProgress.totalToScan) * 100)
+                        Math.round((progress.scanned / progress.total) * 100)
                       )}%`,
                     },
                   ]}
@@ -445,364 +607,465 @@ export default function SmsImportScreen() {
               </View>
             )}
 
-            <View style={styles.progressStatsGrid}>
-              <View style={styles.progressStatItem}>
-                <Text style={styles.statNumber}>{importProgress.scannedCount}</Text>
-                <Text style={styles.statLabel}>Scanned</Text>
-              </View>
-              <View style={styles.progressStatItem}>
-                <Text style={styles.statNumber}>{importProgress.detectedCount}</Text>
-                <Text style={styles.statLabel}>Detected</Text>
-              </View>
-              <View style={styles.progressStatItem}>
-                <Text style={[styles.statNumber, { color: '#059669' }]}>
-                  {importProgress.addedCount}
-                </Text>
-                <Text style={styles.statLabel}>Added</Text>
-              </View>
-              <View style={styles.progressStatItem}>
-                <Text style={[styles.statNumber, { color: '#D97706' }]}>
-                  {importProgress.reviewCount}
-                </Text>
-                <Text style={styles.statLabel}>Review</Text>
-              </View>
-            </View>
-
-            <TouchableOpacity style={styles.cancelBtn} onPress={handleCancel} activeOpacity={0.8}>
-              <Text style={styles.cancelBtnText}>Cancel Scan</Text>
+            <TouchableOpacity style={styles.cancelScanBtn} onPress={cancelReading} activeOpacity={0.8}>
+              <Text style={styles.cancelScanBtnText}>Cancel</Text>
             </TouchableOpacity>
           </View>
-        )}
+        </View>
+      )}
 
-        {/* Post-Import Results & Clean Message Cards ("acche msg") */}
-        {importSummary && (
-          <View style={styles.resultsWrap}>
-            {/* Summary Top Banner */}
-            <View style={styles.summaryCard}>
-              <View style={styles.summaryTop}>
-                <View style={styles.summaryBadge}>
-                  <Ionicons name="checkmark-circle" size={26} color="#16A34A" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.summaryTitle}>Import Finished</Text>
-                  <Text style={styles.summarySubtitle}>
-                    {importSummary.addedCount} transactions created • {importSummary.duplicatesSkipped} duplicates skipped
-                  </Text>
-                </View>
-              </View>
+      {/* ==================================================================== */}
+      {/* STATE 3 - REVIEW (AUTO-APPEARS AFTER DETECTION)                       */}
+      {/* ==================================================================== */}
+      {state === 'review' && (
+        <View style={{ flex: 1 }}>
+          {/* Summary Header */}
+          <View style={styles.reviewSummaryCard}>
+            <Text style={styles.reviewSummaryTitle}>
+              Found {totals.totalFound} transactions
+            </Text>
+            <Text style={styles.reviewSummarySubtitle}>
+              Expense <Text style={{ color: '#DC2626', fontWeight: '800' }}>₹{totals.expenseTotal.toLocaleString('en-IN')}</Text> · Income <Text style={{ color: '#16A34A', fontWeight: '800' }}>₹{totals.incomeTotal.toLocaleString('en-IN')}</Text>
+            </Text>
 
-              <View style={styles.summaryGrid}>
-                <View style={styles.summaryStatBox}>
-                  <Text style={styles.summaryStatNum}>{importSummary.scannedCount}</Text>
-                  <Text style={styles.summaryStatLbl}>Scanned</Text>
-                </View>
-                <View style={styles.summaryStatBox}>
-                  <Text style={[styles.summaryStatNum, { color: '#16A34A' }]}>
-                    +{importSummary.addedCount}
-                  </Text>
-                  <Text style={styles.summaryStatLbl}>Auto-Added</Text>
-                </View>
-                <View style={styles.summaryStatBox}>
-                  <Text style={[styles.summaryStatNum, { color: '#D97706' }]}>
-                    {importSummary.reviewCount}
-                  </Text>
-                  <Text style={styles.summaryStatLbl}>In Inbox</Text>
-                </View>
-                <View style={styles.summaryStatBox}>
-                  <Text style={[styles.summaryStatNum, { color: '#64748B' }]}>
-                    {importSummary.duplicatesSkipped}
-                  </Text>
-                  <Text style={styles.summaryStatLbl}>Skipped</Text>
-                </View>
-              </View>
+            {/* Controls Bar */}
+            <View style={styles.reviewControlsRow}>
+              <TouchableOpacity
+                onPress={() => selectAll(totals.selectedCount < totals.totalFound - totals.alreadyAddedCount)}
+                activeOpacity={0.7}
+                style={styles.selectAllBtn}
+              >
+                <Ionicons
+                  name={
+                    totals.selectedCount === totals.totalFound - totals.alreadyAddedCount && totals.selectedCount > 0
+                      ? 'checkmark-circle'
+                      : 'ellipse-outline'
+                  }
+                  size={18}
+                  color="#4F46E5"
+                  style={{ marginRight: 6 }}
+                />
+                <Text style={styles.selectAllBtnText}>
+                  {totals.selectedCount === totals.totalFound - totals.alreadyAddedCount && totals.selectedCount > 0
+                    ? 'Select None'
+                    : 'Select All'}
+                </Text>
+              </TouchableOpacity>
 
-              {/* Action Buttons */}
-              <View style={styles.summaryActionsRow}>
+              {totals.alreadyAddedCount > 0 && (
                 <TouchableOpacity
-                  style={styles.dashboardBtn}
-                  onPress={() => router.replace('/(tabs)/dashboard')}
-                  activeOpacity={0.85}
+                  onPress={() => setShowAlreadyAdded(!showAlreadyAdded)}
+                  activeOpacity={0.7}
+                  style={styles.alreadyAddedToggle}
                 >
-                  <Text style={styles.dashboardBtnText}>Continue to Dashboard</Text>
-                  <Ionicons name="arrow-forward" size={16} color="#FFFFFF" style={{ marginLeft: 6 }} />
+                  <Text style={styles.alreadyAddedToggleText}>
+                    {showAlreadyAdded
+                      ? 'Hide already added ▴'
+                      : `Show already added (${totals.alreadyAddedCount}) ▾`}
+                  </Text>
                 </TouchableOpacity>
-
-                {importSummary.reviewCount > 0 && (
-                  <TouchableOpacity
-                    style={styles.inboxBtn}
-                    onPress={() => router.push('/pending-inbox')}
-                    activeOpacity={0.8}
-                  >
-                    <Ionicons name="mail-unread-outline" size={16} color="#D97706" style={{ marginRight: 6 }} />
-                    <Text style={styles.inboxBtnText}>Review ({importSummary.reviewCount})</Text>
-                  </TouchableOpacity>
-                )}
-
-                {importSummary.addedCount > 0 && (
-                  <TouchableOpacity
-                    style={styles.undoBtn}
-                    onPress={handleUndoBatch}
-                    disabled={isUndoing}
-                    activeOpacity={0.8}
-                  >
-                    {isUndoing ? (
-                      <ActivityIndicator size="small" color="#DC2626" />
-                    ) : (
-                      <>
-                        <Ionicons name="arrow-undo-outline" size={15} color="#DC2626" style={{ marginRight: 4 }} />
-                        <Text style={styles.undoBtnText}>Undo Import</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                )}
-              </View>
+              )}
             </View>
+          </View>
 
-            {/* Clean Detected Messages Header & Filter Tabs */}
-            <View style={styles.detectedSectionHeader}>
-              <Text style={styles.detectedTitle}>
-                Detected Messages ({importSummary.detectedItems?.length || 0})
+          {/* Drafts List */}
+          {visibleDrafts.length === 0 ? (
+            <View style={styles.emptyReviewBox}>
+              <Ionicons name="checkmark-done-circle-outline" size={48} color="#94A3B8" />
+              <Text style={styles.emptyReviewTitle}>No new bank messages to add</Text>
+              <Text style={styles.emptyReviewDesc}>
+                {totals.alreadyAddedCount > 0
+                  ? `All ${totals.alreadyAddedCount} detected messages have already been imported previously.`
+                  : 'No bank debit/credit messages detected.'}
               </Text>
-              <View style={styles.filterPills}>
-                <TouchableOpacity
-                  style={[styles.filterPill, filterTab === 'all' && styles.filterPillActive]}
-                  onPress={() => setFilterTab('all')}
-                >
-                  <Text style={[styles.filterPillText, filterTab === 'all' && styles.filterPillTextActive]}>
-                    All ({importSummary.detectedItems?.length || 0})
+              <TouchableOpacity style={styles.emptyBackBtn} onPress={discard} activeOpacity={0.8}>
+                <Text style={styles.emptyBackBtnText}>Back to Start</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <FlatList
+              data={visibleDrafts}
+              keyExtractor={(item) => item.id}
+              renderItem={renderDraftRow}
+              contentContainerStyle={{ padding: 14, paddingBottom: 110 }}
+              showsVerticalScrollIndicator={false}
+              initialNumToRender={15}
+              maxToRenderPerBatch={15}
+              windowSize={7}
+              removeClippedSubviews={Platform.OS === 'android'}
+            />
+          )}
+
+          {/* Sticky Bottom Bar */}
+          <View style={[styles.stickyBottomBar, { paddingBottom: Math.max(insets.bottom, 14) }]}>
+            <TouchableOpacity
+              style={[styles.saveSelectedBtn, (totals.selectedCount === 0 || isSaving) && styles.saveSelectedBtnDisabled]}
+              onPress={handleSaveSelected}
+              disabled={totals.selectedCount === 0 || isSaving}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel={`Save ${totals.selectedCount} selected transactions`}
+            >
+              {isSaving ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <>
+                  <Ionicons name="checkmark-circle" size={20} color="#FFFFFF" style={{ marginRight: 8 }} />
+                  <Text style={styles.saveSelectedBtnText}>
+                    Save {totals.selectedCount} selected
                   </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.filterPill, filterTab === 'added' && styles.filterPillActive]}
-                  onPress={() => setFilterTab('added')}
-                >
-                  <Text style={[styles.filterPillText, filterTab === 'added' && styles.filterPillTextActive]}>
-                    Added ({importSummary.addedCount})
-                  </Text>
-                </TouchableOpacity>
-                {importSummary.reviewCount > 0 && (
-                  <TouchableOpacity
-                    style={[styles.filterPill, filterTab === 'pending' && styles.filterPillActive]}
-                    onPress={() => setFilterTab('pending')}
-                  >
-                    <Text style={[styles.filterPillText, filterTab === 'pending' && styles.filterPillTextActive]}>
-                      Review ({importSummary.reviewCount})
-                    </Text>
-                  </TouchableOpacity>
-                )}
-              </View>
+                </>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.discardBtn} onPress={handleDiscard} activeOpacity={0.7}>
+              <Text style={styles.discardBtnText}>Discard</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* ==================================================================== */}
+      {/* STATE 4 - DONE                                                       */}
+      {/* ==================================================================== */}
+      {state === 'done' && (
+        <ScrollView style={styles.contentScroll} contentContainerStyle={styles.doneContainer}>
+          <View style={styles.doneCard}>
+            <View style={styles.doneBadgeWrap}>
+              <Ionicons name="checkmark-done" size={38} color="#16A34A" />
             </View>
 
-            {/* List of Clean Detected Message Cards */}
-            {filteredItems.length === 0 ? (
-              <View style={styles.emptyItemsCard}>
-                <Ionicons name="chatbubble-outline" size={32} color="#94A3B8" style={{ marginBottom: 6 }} />
-                <Text style={styles.emptyItemsText}>No messages match this filter</Text>
-              </View>
-            ) : (
-              filteredItems.map((item) => {
-                const theme = getCategoryTheme(item.category, item.type);
-                const isExpense = item.type === 'expense';
-                const formattedDate = new Date(item.date).toLocaleDateString('en-IN', {
-                  day: 'numeric',
-                  month: 'short',
-                  hour: '2-digit',
-                  minute: '2-digit',
-                });
+            <Text style={styles.doneTitle}>
+              {lastBatchResult?.count || 0} Transactions Added
+            </Text>
+            <Text style={styles.doneSubtitle}>
+              Your bank &amp; UPI expenses have been saved safely to your account.
+            </Text>
 
-                return (
-                  <TouchableOpacity
-                    key={item.id}
-                    style={styles.messageCard}
-                    onPress={() => setSelectedItemDetail(item)}
-                    activeOpacity={0.85}
-                  >
-                    {/* Category Icon */}
-                    <View style={[styles.msgIconCircle, { backgroundColor: theme.bg }]}>
-                      <Ionicons name={theme.icon} size={20} color={theme.text} />
-                    </View>
-
-                    {/* Transaction Details */}
-                    <View style={styles.msgDetailsCol}>
-                      <View style={styles.msgTopRow}>
-                        <Text style={styles.msgMerchant} numberOfLines={1}>
-                          {item.merchant}
-                        </Text>
-                        <Text
-                          style={[
-                            styles.msgAmount,
-                            { color: isExpense ? '#DC2626' : '#16A34A' },
-                          ]}
-                        >
-                          {isExpense ? '-' : '+'} ₹{item.amount.toLocaleString('en-IN')}
-                        </Text>
-                      </View>
-
-                      <View style={styles.msgMetaRow}>
-                        <Text style={styles.msgBankInfo} numberOfLines={1}>
-                          {item.bankName}
-                          {item.accountLast4 ? ` • A/c **${item.accountLast4}` : ''}
-                        </Text>
-                        <View
-                          style={[
-                            styles.statusBadge,
-                            {
-                              backgroundColor: item.status === 'added' ? '#ECFDF5' : '#FFFBEB',
-                              borderColor: item.status === 'added' ? '#D1FAE5' : '#FEF3C7',
-                            },
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.statusBadgeText,
-                              { color: item.status === 'added' ? '#059669' : '#D97706' },
-                            ]}
-                          >
-                            {item.status === 'added' ? '✓ Added' : 'Pending'}
-                          </Text>
-                        </View>
-                      </View>
-
-                      <Text style={styles.msgDate}>{formattedDate}</Text>
-                    </View>
-                  </TouchableOpacity>
-                );
-              })
-            )}
-
-            {/* Re-scan or Import More button */}
+            {/* View Transactions (Go to Dashboard) */}
             <TouchableOpacity
-              style={styles.rescanBtn}
-              onPress={() => {
-                setImportSummary(null);
-                setPasteText('');
-              }}
+              style={styles.viewTransactionsBtn}
+              onPress={() => router.replace('/(tabs)/dashboard')}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.viewTransactionsBtnText}>View Transactions</Text>
+              <Ionicons name="arrow-forward" size={18} color="#FFFFFF" style={{ marginLeft: 8 }} />
+            </TouchableOpacity>
+
+            {/* Undo Button */}
+            <TouchableOpacity
+              style={styles.undoBatchBtn}
+              onPress={handleUndo}
+              disabled={isUndoing}
               activeOpacity={0.8}
             >
-              <Ionicons name="refresh" size={16} color="#4F46E5" style={{ marginRight: 6 }} />
-              <Text style={styles.rescanBtnText}>Import More Messages</Text>
+              {isUndoing ? (
+                <ActivityIndicator size="small" color="#DC2626" />
+              ) : (
+                <>
+                  <Ionicons name="arrow-undo-outline" size={16} color="#DC2626" style={{ marginRight: 6 }} />
+                  <Text style={styles.undoBatchBtnText}>Undo This Import Batch</Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            {/* Import More Messages */}
+            <TouchableOpacity
+              style={styles.importMoreLink}
+              onPress={() => {
+                discard();
+                setShowPasteBox(false);
+                setPasteInputText('');
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.importMoreLinkText}>Import more messages</Text>
             </TouchableOpacity>
           </View>
-        )}
+        </ScrollView>
+      )}
 
-        <View style={{ height: 60 }} />
-      </ScrollView>
+      {/* ==================================================================== */}
+      {/* MODALS                                                               */}
+      {/* ==================================================================== */}
 
-      {/* Message Card Detail Modal */}
-      {selectedItemDetail && (
+      {/* 1. First-time Consent Bottom Sheet */}
+      <Modal
+        visible={showConsentModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowConsentModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.consentSheetCard}>
+            <View style={styles.consentIconWrap}>
+              <Ionicons name="shield-checkmark" size={30} color="#4F46E5" />
+            </View>
+
+            <Text style={styles.consentTitle}>Private On-Device Import</Text>
+            <Text style={styles.consentSubtitle}>
+              Rupeo analyzes SMS solely on your device to detect your past bank &amp; UPI expenses.
+            </Text>
+
+            <View style={styles.consentPointsList}>
+              <View style={styles.consentPointRow}>
+                <Ionicons name="lock-closed-outline" size={18} color="#059669" style={{ marginRight: 10 }} />
+                <Text style={styles.consentPointText}>
+                  <Text style={{ fontWeight: '700' }}>100% On-Device:</Text> Message text is never uploaded to any external server.
+                </Text>
+              </View>
+              <View style={styles.consentPointRow}>
+                <Ionicons name="filter-outline" size={18} color="#2563EB" style={{ marginRight: 10 }} />
+                <Text style={styles.consentPointText}>
+                  <Text style={{ fontWeight: '700' }}>Bank Alerts Only:</Text> Personal chats, OTPs, and spam are strictly ignored.
+                </Text>
+              </View>
+              <View style={styles.consentPointRow}>
+                <Ionicons name="card-outline" size={18} color="#7C3AED" style={{ marginRight: 10 }} />
+                <Text style={styles.consentPointText}>
+                  <Text style={{ fontWeight: '700' }}>Masked Accounts:</Text> Bank accounts are masked, keeping only the last 4 digits.
+                </Text>
+              </View>
+              <View style={styles.consentPointRow}>
+                <Ionicons name="checkmark-circle-outline" size={18} color="#D97706" style={{ marginRight: 10 }} />
+                <Text style={styles.consentPointText}>
+                  <Text style={{ fontWeight: '700' }}>You&apos;re In Control:</Text> Nothing is added to your accounts until you confirm.
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.consentActionsRow}>
+              <TouchableOpacity
+                style={styles.consentDeclineBtn}
+                onPress={() => {
+                  setShowConsentModal(false);
+                  setShowPasteBox(true);
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.consentDeclineBtnText}>Not now</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.consentAcceptBtn}
+                onPress={handleAcceptConsent}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.consentAcceptBtnText}>Allow &amp; Read Messages</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* 2. Range Selector Modal */}
+      <Modal
+        visible={showRangeModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowRangeModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.dialogCard}>
+            <Text style={styles.dialogTitle}>Select Scan Range</Text>
+            <Text style={styles.dialogSubtitle}>Choose how far back to scan for messages</Text>
+
+            <View style={{ gap: 8, marginVertical: 14 }}>
+              {[
+                { key: '30d' as const, label: 'Last 30 Days' },
+                { key: '90d' as const, label: 'Last 3 Months (Recommended)' },
+                { key: '365d' as const, label: 'Last 1 Year' },
+                { key: 'all' as const, label: 'All Time' },
+              ].map((item) => (
+                <TouchableOpacity
+                  key={item.key}
+                  style={[styles.rangeOptionRow, selectedRange === item.key && styles.rangeOptionRowActive]}
+                  onPress={() => {
+                    setSelectedRange(item.key);
+                    setShowRangeModal(false);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.rangeOptionText, selectedRange === item.key && styles.rangeOptionTextActive]}>
+                    {item.label}
+                  </Text>
+                  {selectedRange === item.key && <Ionicons name="checkmark" size={18} color="#4F46E5" />}
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <TouchableOpacity style={styles.dialogCancelBtn} onPress={() => setShowRangeModal(false)}>
+              <Text style={styles.dialogCancelBtnText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* 3. Edit Draft Bottom Sheet */}
+      {editingDraft && (
         <Modal
-          visible={Boolean(selectedItemDetail)}
+          visible={Boolean(editingDraft)}
           transparent
-          animationType="fade"
-          onRequestClose={() => setSelectedItemDetail(null)}
+          animationType="slide"
+          onRequestClose={() => setEditingDraft(null)}
         >
           <View style={styles.modalOverlay}>
-            <View style={styles.detailCard}>
-              <View style={styles.detailHeader}>
-                <View style={styles.detailTitleWrap}>
-                  <Text style={styles.detailMerchant}>{selectedItemDetail.merchant}</Text>
-                  <Text style={styles.detailBank}>
-                    {selectedItemDetail.bankName}
-                    {selectedItemDetail.accountLast4 ? ` • A/c **${selectedItemDetail.accountLast4}` : ''}
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  onPress={() => setSelectedItemDetail(null)}
-                  style={styles.detailCloseBtn}
-                >
+            <View style={styles.editSheetCard}>
+              <View style={styles.editSheetHeader}>
+                <Text style={styles.editSheetTitle}>Edit Transaction</Text>
+                <TouchableOpacity onPress={() => setEditingDraft(null)} style={styles.editCloseBtn}>
                   <Ionicons name="close" size={20} color="#64748B" />
                 </TouchableOpacity>
               </View>
 
-              <View style={styles.detailAmountRow}>
-                <Text style={styles.detailAmountLabel}>Transaction Amount</Text>
-                <Text
-                  style={[
-                    styles.detailAmountVal,
-                    { color: selectedItemDetail.type === 'expense' ? '#DC2626' : '#16A34A' },
-                  ]}
+              <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 420 }}>
+                {/* Type Toggle: Expense / Income */}
+                <View style={styles.typeToggleRow}>
+                  <TouchableOpacity
+                    style={[styles.typeBtn, editType === 'expense' && styles.typeBtnActiveExpense]}
+                    onPress={() => setEditType('expense')}
+                  >
+                    <Text style={[styles.typeBtnText, editType === 'expense' && styles.typeBtnTextActive]}>
+                      Expense
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.typeBtn, editType === 'income' && styles.typeBtnActiveIncome]}
+                    onPress={() => setEditType('income')}
+                  >
+                    <Text style={[styles.typeBtnText, editType === 'income' && styles.typeBtnTextActive]}>
+                      Income
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Amount Input */}
+                <Text style={styles.inputLabel}>Amount (₹)</Text>
+                <TextInput
+                  style={styles.editInput}
+                  value={editAmount}
+                  onChangeText={setEditAmount}
+                  keyboardType="numeric"
+                  placeholder="0.00"
+                />
+
+                {/* Merchant / Payee Input */}
+                <Text style={styles.inputLabel}>Merchant / Payee</Text>
+                <TextInput
+                  style={styles.editInput}
+                  value={editMerchant}
+                  onChangeText={setEditMerchant}
+                  placeholder="e.g. Swiggy, Amazon"
+                />
+
+                {/* Category Selector */}
+                <Text style={styles.inputLabel}>Category</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryScroll}>
+                  {CATEGORIES.map((cat) => (
+                    <TouchableOpacity
+                      key={cat}
+                      style={[styles.categoryPill, editCategory === cat && styles.categoryPillActive]}
+                      onPress={() => setEditCategory(cat)}
+                    >
+                      <Text style={[styles.categoryPillText, editCategory === cat && styles.categoryPillTextActive]}>
+                        {cat}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+
+                {/* View Original Masked Message */}
+                <TouchableOpacity
+                  style={styles.viewOriginalToggle}
+                  onPress={() => setShowOriginalMessage(!showOriginalMessage)}
+                  activeOpacity={0.7}
                 >
-                  {selectedItemDetail.type === 'expense' ? '-' : '+'} ₹
-                  {selectedItemDetail.amount.toLocaleString('en-IN')}
-                </Text>
-              </View>
+                  <Text style={styles.viewOriginalToggleText}>
+                    {showOriginalMessage ? 'Hide original message ▴' : 'View original message ▾'}
+                  </Text>
+                </TouchableOpacity>
 
-              <View style={styles.detailDivider} />
+                {showOriginalMessage && (
+                  <View style={styles.originalMessageBox}>
+                    <Text style={styles.originalMessageText}>{editingDraft.rawText}</Text>
+                  </View>
+                )}
 
-              <Text style={styles.detailRawLabel}>Original Message Content (Masked)</Text>
-              <View style={styles.detailRawBox}>
-                <Text style={styles.detailRawText}>{selectedItemDetail.rawText}</Text>
-              </View>
+                {/* Actions: Ignore / Save */}
+                <View style={styles.editActionRow}>
+                  <TouchableOpacity
+                    style={styles.ignoreDraftBtn}
+                    onPress={() => {
+                      ignoreDraft(editingDraft.id);
+                      setEditingDraft(null);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="trash-outline" size={16} color="#DC2626" style={{ marginRight: 6 }} />
+                    <Text style={styles.ignoreDraftBtnText}>Ignore this</Text>
+                  </TouchableOpacity>
 
-              <TouchableOpacity
-                style={styles.detailDoneBtn}
-                onPress={() => setSelectedItemDetail(null)}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.detailDoneBtnText}>Done</Text>
-              </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.saveDraftBtn}
+                    onPress={handleSaveDraftEdit}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.saveDraftBtnText}>Save Changes</Text>
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
             </View>
           </View>
         </Modal>
       )}
 
-      {/* Custom & International Banks Modal */}
+      {/* 4. Custom & International Banks Modal */}
       <Modal
-        visible={customBankModalVisible}
+        visible={showCustomBankModal}
         transparent
         animationType="slide"
-        onRequestClose={() => setCustomBankModalVisible(false)}
+        onRequestClose={() => setShowCustomBankModal(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.customBankCard}>
-            <View style={styles.detailHeader}>
+          <View style={styles.dialogCard}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <Ionicons name="globe-outline" size={22} color="#4F46E5" style={{ marginRight: 8 }} />
-                <Text style={styles.detailMerchant}>Bank Senders &amp; International</Text>
+                <Ionicons name="globe-outline" size={20} color="#4F46E5" style={{ marginRight: 8 }} />
+                <Text style={styles.dialogTitle}>Custom &amp; Country Banks</Text>
               </View>
-              <TouchableOpacity
-                onPress={() => setCustomBankModalVisible(false)}
-                style={styles.detailCloseBtn}
-              >
-                <Ionicons name="close" size={20} color="#64748B" />
+              <TouchableOpacity onPress={() => setShowCustomBankModal(false)} style={styles.editCloseBtn}>
+                <Ionicons name="close" size={18} color="#64748B" />
               </TouchableOpacity>
             </View>
 
             <ScrollView style={{ maxHeight: 380 }} showsVerticalScrollIndicator={false}>
-              {/* Pre-saved Indian Banks Note */}
-              <View style={styles.preSavedCard}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-                  <Ionicons name="checkmark-circle" size={17} color="#16A34A" style={{ marginRight: 6 }} />
-                  <Text style={styles.preSavedTitle}>75+ Indian Banks Pre-Configured</Text>
-                </View>
-                <Text style={styles.preSavedDesc}>
-                  SBI, HDFC, ICICI, Axis, Kotak, PNB, BOB, Canara, IndusInd, Federal, PhonePe, Google Pay, Paytm, CRED &amp; UPI are 100% pre-configured.
+              <View style={styles.preSavedInfoBox}>
+                <Text style={styles.preSavedInfoTitle}>✓ 75+ Indian Banks Pre-Saved</Text>
+                <Text style={styles.preSavedInfoDesc}>
+                  SBI, HDFC, ICICI, Axis, Kotak, PNB, BOB, Canara, PhonePe, GPay, Paytm, CRED &amp; UPI are 100% pre-configured.
                 </Text>
               </View>
 
-              {/* Add Custom Bank Section */}
-              <Text style={styles.addBankSectionTitle}>Add Custom Bank / Country Senders</Text>
-              <Text style={styles.addBankSectionDesc}>
-                For users outside India or regional banks, add bank names (e.g. Chase, Emirates NBD, Barclays, ADCB). Messages from added banks will be automatically parsed and auto-added.
+              <Text style={styles.inputLabel}>Add Your Country Bank or Sender ID</Text>
+              <Text style={{ fontSize: 11.5, color: '#64748B', marginBottom: 8, lineHeight: 16 }}>
+                For users outside India, add bank names (e.g. Chase, Emirates NBD, Barclays). SMS from added banks will be automatically parsed and auto-added.
               </Text>
 
-              {/* Input Row */}
-              <View style={styles.addBankInputRow}>
+              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
                 <TextInput
-                  style={styles.addBankInput}
+                  style={[styles.editInput, { flex: 1, marginBottom: 0 }]}
                   value={customBankInput}
                   onChangeText={setCustomBankInput}
-                  placeholder="e.g. Chase, Emirates NBD, Barclays"
-                  placeholderTextColor="#94A3B8"
+                  placeholder="e.g. Chase, Emirates NBD"
                   autoCapitalize="characters"
                 />
                 <TouchableOpacity
-                  style={styles.addBankBtn}
+                  style={styles.addCustomBankBtn}
                   onPress={async () => {
                     const clean = customBankInput.trim().toUpperCase();
                     if (!clean) return;
-                    const updated = await addCustomBank(userId, clean);
-                    setSmsSettings(updated);
+                    await addCustomBank(userId, clean);
+                    await refreshSettings();
                     setCustomBankInput('');
                     Toast.show({
                       type: 'success',
@@ -812,27 +1075,23 @@ export default function SmsImportScreen() {
                   }}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.addBankBtnText}>+ Add</Text>
+                  <Text style={styles.addCustomBankBtnText}>+ Add</Text>
                 </TouchableOpacity>
               </View>
 
-              {/* List of added banks */}
               {smsSettings.customBanks && smsSettings.customBanks.length > 0 && (
                 <View style={{ marginBottom: 14 }}>
-                  <Text style={styles.yourBanksTitle}>Your Custom Banks ({smsSettings.customBanks.length})</Text>
-                  <View style={styles.bankChipsWrap}>
+                  <Text style={{ fontSize: 11.5, fontWeight: '700', color: '#475569', marginBottom: 6, textTransform: 'uppercase' }}>
+                    Your Added Banks ({smsSettings.customBanks.length})
+                  </Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
                     {smsSettings.customBanks.map((b) => (
-                      <View key={b} style={styles.bankChip}>
-                        <Text style={styles.bankChipText}>{b}</Text>
+                      <View key={b} style={styles.customBankTag}>
+                        <Text style={styles.customBankTagText}>{b}</Text>
                         <TouchableOpacity
                           onPress={async () => {
-                            const updated = await removeCustomBank(userId, b);
-                            setSmsSettings(updated);
-                            Toast.show({
-                              type: 'info',
-                              text1: 'Bank Removed',
-                              text2: `Removed ${b}.`,
-                            });
+                            await removeCustomBank(userId, b);
+                            await refreshSettings();
                           }}
                         >
                           <Ionicons name="close-circle" size={16} color="#6366F1" style={{ marginLeft: 4 }} />
@@ -843,12 +1102,8 @@ export default function SmsImportScreen() {
                 </View>
               )}
 
-              <TouchableOpacity
-                style={styles.detailDoneBtn}
-                onPress={() => setCustomBankModalVisible(false)}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.detailDoneBtnText}>Done</Text>
+              <TouchableOpacity style={styles.dialogDoneBtn} onPress={() => setShowCustomBankModal(false)}>
+                <Text style={styles.dialogDoneBtnText}>Done</Text>
               </TouchableOpacity>
             </ScrollView>
           </View>
@@ -885,546 +1140,835 @@ const styles = StyleSheet.create({
     color: '#0F172A',
   },
   headerSubtitle: {
-    fontSize: 12,
+    fontSize: 11.5,
     color: '#64748B',
     marginTop: 1,
   },
-  headerCustomBankBtn: {
+  globeBtn: {
     padding: 8,
     backgroundColor: '#EEF2FF',
     borderRadius: 10,
   },
-  content: {
-    flex: 1,
-    padding: 16,
-  },
-  bankStatusBanner: {
+  bankChipBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: '#F0FDF4',
-    padding: 12,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#DCFCE7',
-    marginBottom: 14,
+    paddingVertical: 9,
+    paddingHorizontal: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#DCFCE7',
   },
-  bankStatusLeft: {
+  bankChipLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
+    marginRight: 10,
   },
-  bankStatusTitle: {
-    fontSize: 13,
+  bankChipTitle: {
+    fontSize: 12.5,
     fontWeight: '700',
     color: '#166534',
   },
-  bankStatusSubtitle: {
+  bankChipSubtitle: {
     fontSize: 11,
     color: '#15803D',
-    marginTop: 1,
   },
-  addCustomBankChip: {
+  addBankBtnSmall: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
     borderColor: '#C7D2FE',
     borderWidth: 1,
-    paddingVertical: 5,
-    paddingHorizontal: 9,
-    borderRadius: 16,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 14,
   },
-  addCustomBankChipText: {
-    fontSize: 11.5,
+  addBankBtnSmallText: {
+    fontSize: 11,
     fontWeight: '700',
     color: '#4F46E5',
   },
-  heroCard: {
+  contentScroll: {
+    flex: 1,
+    padding: 16,
+  },
+  readyCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 18,
+    borderRadius: 20,
+    padding: 24,
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    marginBottom: 16,
+    alignItems: 'center',
     shadowColor: '#0F172A',
     shadowOpacity: 0.04,
     shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 8,
+    shadowRadius: 10,
     elevation: 2,
+    marginTop: 12,
   },
-  heroTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 16,
-  },
-  heroIconWrap: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
+  readyIconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
     backgroundColor: '#EEF2FF',
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: 16,
   },
-  heroTitle: {
+  readyMainHeading: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#0F172A',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  readyMainDesc: {
+    fontSize: 13.5,
+    color: '#64748B',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 20,
+    maxWidth: 320,
+  },
+  oneTapBigButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#4F46E5',
+    paddingVertical: 15,
+    paddingHorizontal: 28,
+    borderRadius: 14,
+    width: '100%',
+    shadowColor: '#4F46E5',
+    shadowOpacity: 0.3,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  oneTapBigButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  changeRangeLink: {
+    marginTop: 14,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+  },
+  changeRangeLinkText: {
+    fontSize: 12.5,
+    color: '#64748B',
+  },
+  pasteToggleRow: {
+    marginTop: 16,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+    width: '100%',
+    alignItems: 'center',
+  },
+  pasteToggleText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#4F46E5',
+  },
+  pasteBoxContainer: {
+    width: '100%',
+    marginTop: 14,
+  },
+  pasteTextInput: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    padding: 12,
+    fontSize: 13,
+    color: '#0F172A',
+    minHeight: 90,
+    marginBottom: 10,
+  },
+  analyzePastedBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EEF2FF',
+    borderColor: '#C7D2FE',
+    borderWidth: 1,
+    paddingVertical: 11,
+    borderRadius: 10,
+  },
+  analyzePastedBtnText: {
+    color: '#4F46E5',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  privacyNoteBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 16,
+    paddingHorizontal: 14,
+  },
+  privacyNoteText: {
+    fontSize: 11.5,
+    color: '#64748B',
+    textAlign: 'center',
+    lineHeight: 16,
+  },
+  readingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  readingCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 28,
+    width: '100%',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  readingTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginBottom: 4,
+  },
+  readingSubtitle: {
+    fontSize: 13,
+    color: '#64748B',
+    marginBottom: 16,
+  },
+  progressBarWrap: {
+    width: '100%',
+    height: 6,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 3,
+    overflow: 'hidden',
+    marginBottom: 18,
+  },
+  progressBarFill: {
+    height: '100%',
+    backgroundColor: '#4F46E5',
+  },
+  cancelScanBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  cancelScanBtnText: {
+    color: '#DC2626',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  reviewSummaryCard: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+  },
+  reviewSummaryTitle: {
     fontSize: 16,
     fontWeight: '800',
     color: '#0F172A',
   },
-  heroSubtitle: {
-    fontSize: 12,
-    color: '#64748B',
+  reviewSummarySubtitle: {
+    fontSize: 13,
+    color: '#475569',
     marginTop: 2,
-    lineHeight: 16,
   },
-  rangePillsRow: {
+  reviewControlsRow: {
     flexDirection: 'row',
-    gap: 8,
-    marginBottom: 16,
-  },
-  rangePill: {
-    flex: 1,
+    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 8,
-    backgroundColor: '#F8FAFC',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
+    marginTop: 10,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#F8FAFC',
   },
-  rangePillActive: {
-    backgroundColor: '#EEF2FF',
-    borderColor: '#4F46E5',
+  selectAllBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  rangePillText: {
-    fontSize: 12,
+  selectAllBtnText: {
+    fontSize: 12.5,
     fontWeight: '700',
-    color: '#64748B',
-  },
-  rangePillTextActive: {
     color: '#4F46E5',
   },
-  pasteArea: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 12,
+  alreadyAddedToggle: {
+    paddingVertical: 2,
+  },
+  alreadyAddedToggleText: {
+    fontSize: 12,
+    color: '#64748B',
+    fontWeight: '600',
+  },
+  draftRowCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    padding: 12,
-    fontSize: 13,
-    color: '#0F172A',
-    minHeight: 110,
-    marginBottom: 14,
+    marginBottom: 8,
+    overflow: 'hidden',
   },
-  primaryBtn: {
+  draftRowCardDisabled: {
+    backgroundColor: '#F8FAFC',
+    opacity: 0.75,
+  },
+  checkboxTouchTarget: {
+    width: 48,
+    height: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxBox: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: '#94A3B8',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxBoxActive: {
+    backgroundColor: '#4F46E5',
+    borderColor: '#4F46E5',
+  },
+  checkboxDisabled: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    backgroundColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  draftContentTouch: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingRight: 12,
+  },
+  categoryIconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  draftMiddleCol: {
+    flex: 1,
+    marginRight: 8,
+  },
+  draftTopLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  draftMerchant: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0F172A',
+    flexShrink: 1,
+    marginRight: 6,
+  },
+  checkThisBadge: {
+    backgroundColor: '#FFFBEB',
+    borderColor: '#FDE68A',
+    borderWidth: 1,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 6,
+  },
+  checkThisBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#B45309',
+  },
+  alreadyAddedBadge: {
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 6,
+  },
+  alreadyAddedBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  draftMetaLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  draftMetaText: {
+    fontSize: 11.5,
+    color: '#64748B',
+  },
+  draftDateText: {
+    fontSize: 10.5,
+    color: '#94A3B8',
+  },
+  draftRightCol: {
+    alignItems: 'flex-end',
+  },
+  draftAmountText: {
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  emptyReviewBox: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+  },
+  emptyReviewTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginTop: 12,
+    marginBottom: 4,
+  },
+  emptyReviewDesc: {
+    fontSize: 12.5,
+    color: '#64748B',
+    textAlign: 'center',
+    lineHeight: 18,
+    marginBottom: 16,
+  },
+  emptyBackBtn: {
+    backgroundColor: '#EEF2FF',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+  },
+  emptyBackBtnText: {
+    color: '#4F46E5',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  stickyBottomBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    shadowColor: '#000000',
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: -3 },
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  saveSelectedBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#4F46E5',
     paddingVertical: 14,
     borderRadius: 14,
-    shadowColor: '#4F46E5',
-    shadowOpacity: 0.25,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 10,
-    elevation: 3,
   },
-  primaryBtnText: {
+  saveSelectedBtnDisabled: {
+    backgroundColor: '#94A3B8',
+  },
+  saveSelectedBtnText: {
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '800',
   },
-  switchModeWrap: {
+  discardBtn: {
     alignItems: 'center',
-    marginTop: 12,
+    paddingVertical: 8,
+    marginTop: 4,
   },
-  switchModeText: {
-    fontSize: 12.5,
-    color: '#6366F1',
+  discardBtnText: {
+    color: '#64748B',
+    fontSize: 13,
     fontWeight: '600',
   },
-  progressCard: {
+  doneContainer: {
+    padding: 20,
+    alignItems: 'center',
+  },
+  doneCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
+    borderRadius: 22,
+    padding: 26,
+    alignItems: 'center',
+    width: '100%',
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    marginBottom: 16,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.04,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 10,
+    elevation: 2,
+    marginTop: 20,
   },
-  progressHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 12,
-  },
-  progressTitle: {
-    fontSize: 13.5,
-    fontWeight: '700',
-    color: '#0F172A',
-  },
-  progressBarWrap: {
-    height: 6,
-    backgroundColor: '#F1F5F9',
-    borderRadius: 3,
-    overflow: 'hidden',
-    marginBottom: 14,
-  },
-  progressBarFill: {
-    height: '100%',
-    backgroundColor: '#4F46E5',
-  },
-  progressStatsGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#F8FAFC',
-    borderBottomWidth: 1,
-    borderBottomColor: '#F8FAFC',
-  },
-  progressStatItem: {
-    alignItems: 'center',
-  },
-  statNumber: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#0F172A',
-  },
-  statLabel: {
-    fontSize: 10.5,
-    color: '#64748B',
-    marginTop: 2,
-  },
-  cancelBtn: {
-    alignItems: 'center',
-    paddingVertical: 8,
-    marginTop: 8,
-  },
-  cancelBtnText: {
-    color: '#DC2626',
-    fontSize: 12.5,
-    fontWeight: '700',
-  },
-  resultsWrap: {
-    gap: 14,
-  },
-  summaryCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  summaryTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 14,
-  },
-  summaryBadge: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
+  doneBadgeWrap: {
+    width: 70,
+    height: 70,
+    borderRadius: 24,
     backgroundColor: '#DCFCE7',
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: 16,
   },
-  summaryTitle: {
-    fontSize: 16,
+  doneTitle: {
+    fontSize: 20,
     fontWeight: '800',
     color: '#0F172A',
+    marginBottom: 6,
   },
-  summarySubtitle: {
-    fontSize: 12,
+  doneSubtitle: {
+    fontSize: 13,
     color: '#64748B',
-    marginTop: 2,
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 18,
   },
-  summaryGrid: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 14,
-  },
-  summaryStatBox: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
-    padding: 10,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-  summaryStatNum: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#0F172A',
-  },
-  summaryStatLbl: {
-    fontSize: 10,
-    color: '#64748B',
-    marginTop: 2,
-  },
-  summaryActionsRow: {
-    gap: 8,
-  },
-  dashboardBtn: {
+  viewTransactionsBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#0F172A',
-    paddingVertical: 12,
-    borderRadius: 12,
+    paddingVertical: 14,
+    borderRadius: 14,
+    width: '100%',
+    marginBottom: 12,
   },
-  dashboardBtnText: {
+  viewTransactionsBtnText: {
     color: '#FFFFFF',
-    fontSize: 13.5,
-    fontWeight: '700',
+    fontSize: 15,
+    fontWeight: '800',
   },
-  inboxBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFBEB',
-    borderColor: '#FDE68A',
-    borderWidth: 1,
-    paddingVertical: 10,
-    borderRadius: 10,
-  },
-  inboxBtnText: {
-    color: '#D97706',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  undoBtn: {
+  undoBatchBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#FEF2F2',
     borderColor: '#FECACA',
     borderWidth: 1,
-    paddingVertical: 9,
-    borderRadius: 10,
+    paddingVertical: 11,
+    borderRadius: 12,
+    width: '100%',
+    marginBottom: 14,
   },
-  undoBtnText: {
+  undoBatchBtnText: {
     color: '#DC2626',
-    fontSize: 12.5,
-    fontWeight: '700',
-  },
-  detectedSectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 6,
-    marginBottom: 4,
-  },
-  detectedTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#0F172A',
-  },
-  filterPills: {
-    flexDirection: 'row',
-    gap: 6,
-  },
-  filterPill: {
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 12,
-    backgroundColor: '#F1F5F9',
-  },
-  filterPillActive: {
-    backgroundColor: '#EEF2FF',
-  },
-  filterPillText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#64748B',
-  },
-  filterPillTextActive: {
-    color: '#4F46E5',
-    fontWeight: '700',
-  },
-  emptyItemsCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    padding: 24,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  emptyItemsText: {
-    fontSize: 13,
-    color: '#94A3B8',
-    fontWeight: '600',
-  },
-  messageCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    padding: 14,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#0F172A',
-    shadowOpacity: 0.03,
-    shadowOffset: { width: 0, height: 1 },
-    shadowRadius: 4,
-    elevation: 1,
-  },
-  msgIconCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  msgDetailsCol: {
-    flex: 1,
-  },
-  msgTopRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 3,
-  },
-  msgMerchant: {
-    fontSize: 14.5,
-    fontWeight: '700',
-    color: '#0F172A',
-    flex: 1,
-    marginRight: 8,
-  },
-  msgAmount: {
-    fontSize: 14.5,
-    fontWeight: '800',
-  },
-  msgMetaRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 2,
-  },
-  msgBankInfo: {
-    fontSize: 12,
-    color: '#64748B',
-    flex: 1,
-    marginRight: 6,
-  },
-  statusBadge: {
-    paddingVertical: 2,
-    paddingHorizontal: 7,
-    borderRadius: 10,
-    borderWidth: 1,
-  },
-  statusBadgeText: {
-    fontSize: 10.5,
-    fontWeight: '700',
-  },
-  msgDate: {
-    fontSize: 11,
-    color: '#94A3B8',
-  },
-  rescanBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#EEF2FF',
-    paddingVertical: 12,
-    borderRadius: 12,
-    marginTop: 6,
-  },
-  rescanBtnText: {
     fontSize: 13,
     fontWeight: '700',
+  },
+  importMoreLink: {
+    paddingVertical: 6,
+  },
+  importMoreLinkText: {
+    fontSize: 13,
     color: '#4F46E5',
+    fontWeight: '700',
   },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    padding: 20,
+    justifyContent: 'flex-end',
   },
-  detailCard: {
+  consentSheetCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 20,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    paddingBottom: 32,
   },
-  detailHeader: {
-    flexDirection: 'row',
+  consentIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 18,
+    backgroundColor: '#EEF2FF',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 16,
+    justifyContent: 'center',
+    marginBottom: 14,
   },
-  detailTitleWrap: {
+  consentTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginBottom: 4,
+  },
+  consentSubtitle: {
+    fontSize: 13,
+    color: '#64748B',
+    marginBottom: 18,
+    lineHeight: 18,
+  },
+  consentPointsList: {
+    gap: 12,
+    marginBottom: 24,
+  },
+  consentPointRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  consentPointText: {
+    fontSize: 12.5,
+    color: '#334155',
     flex: 1,
+    lineHeight: 18,
   },
-  detailMerchant: {
+  consentActionsRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  consentDeclineBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 14,
+  },
+  consentDeclineBtnText: {
+    color: '#64748B',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  consentAcceptBtn: {
+    flex: 1.8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    backgroundColor: '#4F46E5',
+    borderRadius: 14,
+  },
+  consentAcceptBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  dialogCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 22,
+    padding: 22,
+    marginHorizontal: 16,
+    marginBottom: 24,
+  },
+  dialogTitle: {
     fontSize: 16,
     fontWeight: '800',
     color: '#0F172A',
   },
-  detailBank: {
+  dialogSubtitle: {
     fontSize: 12,
     color: '#64748B',
-    marginTop: 1,
+    marginTop: 2,
   },
-  detailCloseBtn: {
-    padding: 6,
-    backgroundColor: '#F1F5F9',
-    borderRadius: 10,
-  },
-  detailAmountRow: {
+  rangeOptionRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
-  detailAmountLabel: {
+  rangeOptionRowActive: {
+    backgroundColor: '#EEF2FF',
+    borderColor: '#C7D2FE',
+  },
+  rangeOptionText: {
+    fontSize: 13.5,
+    fontWeight: '600',
+    color: '#334155',
+  },
+  rangeOptionTextActive: {
+    color: '#4F46E5',
+    fontWeight: '700',
+  },
+  dialogCancelBtn: {
+    alignItems: 'center',
+    paddingVertical: 10,
+    marginTop: 4,
+  },
+  dialogCancelBtnText: {
     fontSize: 13,
     color: '#64748B',
     fontWeight: '600',
   },
-  detailAmountVal: {
-    fontSize: 18,
+  dialogDoneBtn: {
+    backgroundColor: '#4F46E5',
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 6,
+  },
+  dialogDoneBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13.5,
+    fontWeight: '700',
+  },
+  editSheetCard: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 22,
+    paddingBottom: 30,
+  },
+  editSheetHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  editSheetTitle: {
+    fontSize: 17,
     fontWeight: '800',
+    color: '#0F172A',
   },
-  detailDivider: {
-    height: 1,
+  editCloseBtn: {
+    padding: 6,
     backgroundColor: '#F1F5F9',
-    marginVertical: 12,
+    borderRadius: 10,
   },
-  detailRawLabel: {
+  typeToggleRow: {
+    flexDirection: 'row',
+    backgroundColor: '#F1F5F9',
+    borderRadius: 10,
+    padding: 3,
+    marginBottom: 14,
+  },
+  typeBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: 'center',
+    borderRadius: 8,
+  },
+  typeBtnActiveExpense: {
+    backgroundColor: '#FEF2F2',
+  },
+  typeBtnActiveIncome: {
+    backgroundColor: '#ECFDF5',
+  },
+  typeBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  typeBtnTextActive: {
+    color: '#0F172A',
+  },
+  inputLabel: {
     fontSize: 12,
     fontWeight: '700',
     color: '#475569',
     marginBottom: 6,
   },
-  detailRawBox: {
+  editInput: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: '#0F172A',
+    marginBottom: 12,
+  },
+  categoryScroll: {
+    flexDirection: 'row',
+    marginBottom: 14,
+  },
+  categoryPill: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 16,
+    marginRight: 6,
+  },
+  categoryPillActive: {
+    backgroundColor: '#4F46E5',
+  },
+  categoryPillText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  categoryPillTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  viewOriginalToggle: {
+    alignItems: 'center',
+    paddingVertical: 8,
+    marginBottom: 6,
+  },
+  viewOriginalToggleText: {
+    fontSize: 12,
+    color: '#6366F1',
+    fontWeight: '600',
+  },
+  originalMessageBox: {
     backgroundColor: '#F8FAFC',
     borderRadius: 10,
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    padding: 12,
-    marginBottom: 16,
+    padding: 10,
+    marginBottom: 14,
   },
-  detailRawText: {
-    fontSize: 12,
-    color: '#334155',
-    lineHeight: 18,
+  originalMessageText: {
+    fontSize: 11.5,
+    color: '#475569',
+    lineHeight: 16,
   },
-  detailDoneBtn: {
-    backgroundColor: '#4F46E5',
-    borderRadius: 12,
-    paddingVertical: 12,
+  editActionRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 6,
+  },
+  ignoreDraftBtn: {
+    flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+    borderWidth: 1,
+    borderRadius: 12,
   },
-  detailDoneBtnText: {
-    color: '#FFFFFF',
-    fontSize: 14,
+  ignoreDraftBtnText: {
+    color: '#DC2626',
+    fontSize: 13,
     fontWeight: '700',
   },
-  customBankCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 20,
+  saveDraftBtn: {
+    flex: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    backgroundColor: '#4F46E5',
+    borderRadius: 12,
   },
-  preSavedCard: {
+  saveDraftBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13.5,
+    fontWeight: '700',
+  },
+  preSavedInfoBox: {
     backgroundColor: '#F0FDF4',
     borderRadius: 12,
     padding: 12,
@@ -1432,68 +1976,30 @@ const styles = StyleSheet.create({
     borderColor: '#DCFCE7',
     marginBottom: 14,
   },
-  preSavedTitle: {
+  preSavedInfoTitle: {
     fontSize: 13,
     fontWeight: '700',
     color: '#166534',
+    marginBottom: 2,
   },
-  preSavedDesc: {
+  preSavedInfoDesc: {
     fontSize: 11.5,
     color: '#15803D',
     lineHeight: 16,
   },
-  addBankSectionTitle: {
-    fontSize: 13.5,
-    fontWeight: '700',
-    color: '#0F172A',
-    marginBottom: 4,
-  },
-  addBankSectionDesc: {
-    fontSize: 11.5,
-    color: '#64748B',
-    lineHeight: 16,
-    marginBottom: 10,
-  },
-  addBankInputRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 14,
-  },
-  addBankInput: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    fontSize: 13,
-    color: '#0F172A',
-  },
-  addBankBtn: {
+  addCustomBankBtn: {
     backgroundColor: '#4F46E5',
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
     borderRadius: 10,
+    alignItems: 'center',
     justifyContent: 'center',
   },
-  addBankBtnText: {
+  addCustomBankBtnText: {
     color: '#FFFFFF',
     fontSize: 13,
     fontWeight: '700',
   },
-  yourBanksTitle: {
-    fontSize: 11.5,
-    fontWeight: '700',
-    color: '#475569',
-    marginBottom: 6,
-    textTransform: 'uppercase',
-  },
-  bankChipsWrap: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  bankChip: {
+  customBankTag: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#EEF2FF',
@@ -1501,9 +2007,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     paddingVertical: 4,
     paddingHorizontal: 8,
-    borderRadius: 16,
+    borderRadius: 14,
   },
-  bankChipText: {
+  customBankTagText: {
     fontSize: 12,
     fontWeight: '700',
     color: '#4338CA',

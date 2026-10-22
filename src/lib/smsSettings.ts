@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { warn } from './logger';
+import { warn } from './logger.ts';
 
 export interface SmsImportSettings {
   autoAddEnabled: boolean;          // High confidence >= 0.9 auto-added
