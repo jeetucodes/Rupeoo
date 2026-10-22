@@ -5,14 +5,8 @@ const path = require('path');
 const targets = [
   { file: 'assets/images/favicon.png', maxDim: 48 },
   { file: 'assets/images/3D_frinds-icon.png', maxDim: 256 },
-  { file: 'assets/images/3d_calendar_blue_loop.png', maxDim: 360 },
-  { file: 'assets/images/3d_calendar_pink.png', maxDim: 360 },
   { file: 'assets/images/3d_calendar_pink_loop.png', maxDim: 360 },
-  { file: 'assets/images/3d_calendar_scene.png', maxDim: 420 },
-  { file: 'assets/images/3d_qr_card.png', maxDim: 360 },
   { file: 'assets/images/3d_qr_card_loop.png', maxDim: 360 },
-  { file: 'assets/images/3d_qr_scene.png', maxDim: 420 },
-  { file: 'assets/images/3d_udhar_friends.png', maxDim: 320 },
 ];
 
 console.log('Optimizing images...');
