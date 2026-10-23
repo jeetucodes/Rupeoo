@@ -14,6 +14,7 @@ import {
 import { checkIsOnline } from './offlineSync';
 import { syncWidgetWithTransactions } from './widgetSync';
 import { warn } from '@/lib/logger';
+import { safeJsonParse } from './safeStorage';
 
 export interface FriendContact {
   id: string;
@@ -260,7 +261,7 @@ export async function getUdharSyncQueue(userId?: string): Promise<UdharSyncActio
   try {
     const raw = await AsyncStorage.getItem(getUdharSyncQueueKey(userId));
     if (!raw) return [];
-    const list = JSON.parse(raw);
+    const list = safeJsonParse(raw, [], { keyForBackup: getUdharSyncQueueKey(userId) });
     return Array.isArray(list) ? list : [];
   } catch {
     // Intended fallback: if queue cache is corrupt or unreadable, return empty queue
@@ -620,15 +621,15 @@ export async function preloadFriendsAndUdhar(userId?: string): Promise<void> {
     ]);
 
     if (rawFriends) {
-      const parsed = JSON.parse(rawFriends);
-      if (Array.isArray(parsed)) {
+      const parsed = safeJsonParse(rawFriends, [], { keyForBackup: getFriendsKey(uid) });
+      if (Array.isArray(parsed) && parsed.length > 0) {
         friendsMemoryCache.set(uid, parsed);
       }
     }
 
     if (rawEntries) {
-      const parsed = JSON.parse(rawEntries);
-      if (Array.isArray(parsed)) {
+      const parsed = safeJsonParse(rawEntries, [], { keyForBackup: getEntriesKey(uid) });
+      if (Array.isArray(parsed) && parsed.length > 0) {
         entriesMemoryCache.set(uid, parsed);
       }
     }
@@ -670,7 +671,7 @@ export async function getFriends(userId?: string): Promise<FriendContact[]> {
   try {
     const raw = await AsyncStorage.getItem(getFriendsKey(uid));
     if (raw) {
-      const list = JSON.parse(raw);
+      const list = safeJsonParse<FriendContact[]>(raw, [], { keyForBackup: getFriendsKey(uid) });
       if (Array.isArray(list)) {
         friendsMemoryCache.set(uid, list);
         if (uid !== 'guest') {
@@ -814,7 +815,7 @@ export async function getUdharEntries(userId?: string, friendId?: string): Promi
   try {
     const raw = await AsyncStorage.getItem(getEntriesKey(uid));
     if (raw) {
-      const list: UdharEntry[] = JSON.parse(raw);
+      const list: UdharEntry[] = safeJsonParse<UdharEntry[]>(raw, [], { keyForBackup: getEntriesKey(uid) });
       if (Array.isArray(list)) {
         entriesMemoryCache.set(uid, list);
         if (uid !== 'guest') {

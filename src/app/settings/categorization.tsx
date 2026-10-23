@@ -16,6 +16,7 @@ import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
+import { safeJsonParse } from '@/lib/safeStorage';
 import { useAuth } from '@/context/AuthContext';
 import { SettingsSection } from '@/components/settings/SettingsSection';
 import { SettingsRow } from '@/components/settings/SettingsRow';
@@ -69,7 +70,7 @@ export default function CategorizationSettingsScreen() {
 
       const rawSettings = await AsyncStorage.getItem(CATEGORIZATION_SETTINGS_KEY);
       if (rawSettings) {
-        const parsed = JSON.parse(rawSettings);
+        const parsed = safeJsonParse<{ aiFallbackEnabled?: boolean }>(rawSettings, {}, CATEGORIZATION_SETTINGS_KEY);
         setAiFallbackEnabled(!!parsed.aiFallbackEnabled);
       }
     } catch {

@@ -14,7 +14,8 @@ import {
 } from 'firebase/firestore';
 import { AppState } from 'react-native';
 import { warn } from '@/lib/logger';
-import { toRemote } from './dataMinimization';
+import { safeJsonParse } from './safeStorage';
+import { toRemote, fromRemote } from './dataMinimization';
 import { isCloudSyncEnabled } from './cloudSync';
 
 export interface SyncAction {
@@ -107,10 +108,10 @@ export async function getOfflineTransactions(userId: string): Promise<any[]> {
     return pendingSaveData.get(userId) || [];
   }
   try {
-    const raw = await AsyncStorage.getItem(getTxsKey(userId));
+    const txKey = getTxsKey(userId);
+    const raw = await AsyncStorage.getItem(txKey);
     if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    const result = Array.isArray(parsed) ? parsed : [];
+    const result = safeJsonParse<any[]>(raw, [], txKey, (v) => Array.isArray(v));
     pendingSaveData.set(userId, result);
     return result;
   } catch (err) {
@@ -180,10 +181,10 @@ export async function saveOfflineTransactions(
 export async function getOfflineCategories(userId: string): Promise<any[] | null> {
   if (!userId) return null;
   try {
-    const raw = await AsyncStorage.getItem(getCategoriesKey(userId));
+    const catKey = getCategoriesKey(userId);
+    const raw = await AsyncStorage.getItem(catKey);
     if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : null;
+    return safeJsonParse<any[] | null>(raw, null, catKey, (v) => Array.isArray(v));
   } catch {
     return null;
   }
@@ -231,10 +232,10 @@ export async function enqueueSyncAction(
 export async function getSyncQueue(userId: string): Promise<SyncAction[]> {
   if (!userId) return [];
   try {
-    const raw = await AsyncStorage.getItem(getQueueKey(userId));
+    const queueKey = getQueueKey(userId);
+    const raw = await AsyncStorage.getItem(queueKey);
     if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    return safeJsonParse<SyncAction[]>(raw, [], queueKey, (v) => Array.isArray(v));
   } catch {
     return [];
   }
@@ -427,17 +428,9 @@ export async function syncRemoteTransactions(
       // 2. Overlay / add remote transactions (excluding items pending deletion)
       for (const tx of remoteList) {
         if (tx?.id && !pendingDeleteIds.has(tx.id)) {
-          const existing = mergedMap.get(tx.id) || {};
-          const remoteCreated = tx.created_at;
-          const resolvedCreatedAt =
-            remoteCreated !== undefined && remoteCreated !== null
-              ? remoteCreated
-              : existing.created_at || Date.now();
-          mergedMap.set(tx.id, {
-            ...existing,
-            ...tx,
-            created_at: resolvedCreatedAt,
-          });
+          const existing = mergedMap.get(tx.id);
+          const mapped = fromRemote(tx, existing);
+          mergedMap.set(tx.id, mapped);
         }
       }
 

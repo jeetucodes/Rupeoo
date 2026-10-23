@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { warn } from './logger.ts';
 import { cleanMojibakeString } from '../utils/mojibake.ts';
+import { safeJsonParse } from './safeStorage.ts';
 
 export interface SmsImportSettings {
   autoAddEnabled: boolean;          // High confidence >= 0.9 auto-added
@@ -79,9 +80,10 @@ export async function getSmsImportSettings(userId: string, _fresh = true): Promi
   if (!userId) return DEFAULT_SMS_SETTINGS;
 
   try {
-    const raw = await AsyncStorage.getItem(getSmsSettingsKey(userId));
+    const key = getSmsSettingsKey(userId);
+    const raw = await AsyncStorage.getItem(key);
     if (raw) {
-      const parsed = JSON.parse(raw);
+      const parsed = safeJsonParse(raw, DEFAULT_SMS_SETTINGS, { keyForBackup: key });
       return {
         ...DEFAULT_SMS_SETTINGS,
         ...parsed,
@@ -308,7 +310,7 @@ export interface WrongParseReport {
 export async function reportWrongParse(report: Omit<WrongParseReport, 'id' | 'timestamp'>): Promise<void> {
   try {
     const existingRaw = await AsyncStorage.getItem(WRONG_PARSES_KEY);
-    const list: WrongParseReport[] = existingRaw ? JSON.parse(existingRaw) : [];
+    const list: WrongParseReport[] = safeJsonParse(existingRaw, [], { keyForBackup: WRONG_PARSES_KEY });
 
     const newReport: WrongParseReport = {
       ...report,
@@ -332,7 +334,7 @@ export async function reportWrongParse(report: Omit<WrongParseReport, 'id' | 'ti
 export async function getWrongParseReports(): Promise<WrongParseReport[]> {
   try {
     const raw = await AsyncStorage.getItem(WRONG_PARSES_KEY);
-    return raw ? JSON.parse(raw) : [];
+    return safeJsonParse(raw, [], { keyForBackup: WRONG_PARSES_KEY });
   } catch {
     return [];
   }

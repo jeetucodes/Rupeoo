@@ -3,6 +3,7 @@ import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { NotificationLanguage, NotificationSettings } from './types';
 import { warn, log } from '@/lib/logger';
+import { safeJsonParse } from '@/lib/safeStorage';
 
 export const MASTER_NOTIFICATIONS_KEY = '@rupeo_master_notifications_enabled';
 export const USER_NAME_KEY = '@rupeo_notif_user_name';
@@ -141,7 +142,7 @@ export async function getLastUsedVariantIndex(typeKey: string): Promise<number> 
   try {
     const raw = await AsyncStorage.getItem(LAST_VARIANTS_KEY);
     if (!raw) return -1;
-    const map = JSON.parse(raw);
+    const map = safeJsonParse<Record<string, number>>(raw, {}, LAST_VARIANTS_KEY);
     return typeof map[typeKey] === 'number' ? map[typeKey] : -1;
   } catch {
     return -1;
@@ -151,7 +152,7 @@ export async function getLastUsedVariantIndex(typeKey: string): Promise<number> 
 export async function setLastUsedVariantIndex(typeKey: string, index: number): Promise<void> {
   try {
     const raw = await AsyncStorage.getItem(LAST_VARIANTS_KEY);
-    const map = raw ? JSON.parse(raw) : {};
+    const map = raw ? safeJsonParse<Record<string, number>>(raw, {}, LAST_VARIANTS_KEY) : {};
     map[typeKey] = index;
     await AsyncStorage.setItem(LAST_VARIANTS_KEY, JSON.stringify(map));
   } catch (error) {
@@ -169,7 +170,7 @@ export async function hasBudgetAlertFiredToday(
   try {
     const raw = await AsyncStorage.getItem(BUDGET_ALERTS_SENT_DATE_KEY);
     if (!raw) return false;
-    const record: Record<string, string> = JSON.parse(raw);
+    const record = safeJsonParse<Record<string, string>>(raw, {}, BUDGET_ALERTS_SENT_DATE_KEY);
     return record[threshold] === dateStr;
   } catch {
     return false;
@@ -182,7 +183,7 @@ export async function markBudgetAlertFiredToday(
 ): Promise<void> {
   try {
     const raw = await AsyncStorage.getItem(BUDGET_ALERTS_SENT_DATE_KEY);
-    const record: Record<string, string> = raw ? JSON.parse(raw) : {};
+    const record = raw ? safeJsonParse<Record<string, string>>(raw, {}, BUDGET_ALERTS_SENT_DATE_KEY) : {};
     record[threshold] = dateStr;
     await AsyncStorage.setItem(BUDGET_ALERTS_SENT_DATE_KEY, JSON.stringify(record));
   } catch (error) {

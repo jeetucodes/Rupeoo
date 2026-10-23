@@ -1,6 +1,7 @@
 import { User } from 'firebase/auth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth } from '@/lib/firebase';
+import { safeJsonParse } from '@/lib/safeStorage';
 
 /**
  * Only email/password accounts created AFTER this cutoff will be gated for email verification.
@@ -11,15 +12,12 @@ export const VERIFICATION_CUTOFF: number = new Date("2026-10-15T00:00:00Z").getT
 // In-memory cache of verified user IDs for snappy synchronous checks
 const _verifiedUids = new Set<string>();
 
+const VERIFIED_UIDS_KEY = '@rupeo_verified_uids';
 // Preload verified UIDs from AsyncStorage
-AsyncStorage.getItem('@rupeo_verified_uids').then((raw) => {
+AsyncStorage.getItem(VERIFIED_UIDS_KEY).then((raw) => {
   if (raw) {
-    try {
-      const arr = JSON.parse(raw);
-      if (Array.isArray(arr)) {
-        arr.forEach((id: string) => _verifiedUids.add(id));
-      }
-    } catch {}
+    const arr = safeJsonParse<string[]>(raw, [], VERIFIED_UIDS_KEY, (v) => Array.isArray(v));
+    arr.forEach((id: string) => _verifiedUids.add(id));
   }
 }).catch(() => {});
 
@@ -132,15 +130,14 @@ export async function verifyEmailOtpOnServer(code: string): Promise<{ success: b
     throw new Error('Please enter a valid 6-digit code.');
   }
 
-  const storedRaw = await AsyncStorage.getItem(`@pending_email_otp_${currentUser.uid}`);
+  const pendingKey = `@pending_email_otp_${currentUser.uid}`;
+  const storedRaw = await AsyncStorage.getItem(pendingKey);
   let token = '';
   let expiresAt = 0;
   if (storedRaw) {
-    try {
-      const parsed = JSON.parse(storedRaw);
-      token = parsed.token || '';
-      expiresAt = Number(parsed.expiresAt || 0);
-    } catch {}
+    const parsed = safeJsonParse<{ token?: string; expiresAt?: number }>(storedRaw, {}, pendingKey);
+    token = parsed.token || '';
+    expiresAt = Number(parsed.expiresAt || 0);
   }
 
   const idToken = await currentUser.getIdToken();

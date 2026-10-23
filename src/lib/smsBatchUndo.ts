@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { deleteTransaction, getAllTransactions } from './database.ts';
 import { warn } from './logger.ts';
+import { safeJsonParse } from './safeStorage.ts';
 
 export interface SmsImportBatch {
   batchId: string;
@@ -21,12 +22,13 @@ const getBatchesKey = (userId: string) => `@rupeo_sms_batches_${userId}`;
 export async function recordImportBatch(userId: string, batch: SmsImportBatch): Promise<void> {
   if (!userId || !batch) return;
   try {
-    const raw = await AsyncStorage.getItem(getBatchesKey(userId));
-    const list: SmsImportBatch[] = raw ? JSON.parse(raw) : [];
+    const key = getBatchesKey(userId);
+    const raw = await AsyncStorage.getItem(key);
+    const list: SmsImportBatch[] = safeJsonParse(raw, [], { keyForBackup: key });
     list.unshift(batch);
     // Keep last 20 batches
     if (list.length > 20) list.pop();
-    await AsyncStorage.setItem(getBatchesKey(userId), JSON.stringify(list));
+    await AsyncStorage.setItem(key, JSON.stringify(list));
   } catch (err) {
     warn('Failed to record SMS import batch:', err);
   }
@@ -38,8 +40,9 @@ export async function recordImportBatch(userId: string, batch: SmsImportBatch): 
 export async function getImportBatches(userId: string): Promise<SmsImportBatch[]> {
   if (!userId) return [];
   try {
-    const raw = await AsyncStorage.getItem(getBatchesKey(userId));
-    return raw ? JSON.parse(raw) : [];
+    const key = getBatchesKey(userId);
+    const raw = await AsyncStorage.getItem(key);
+    return safeJsonParse(raw, [], { keyForBackup: key });
   } catch {
     return [];
   }

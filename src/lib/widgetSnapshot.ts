@@ -9,6 +9,7 @@ import {
 } from '@/lib/database';
 import { getAllFriendsSummaries } from '@/lib/udharStorage';
 import { log, warn, error } from '@/lib/logger';
+import { safeJsonParse } from '@/lib/safeStorage';
 
 export const WIDGET_SNAPSHOT_KEY = 'rupeo_widget_snapshot_v1';
 export const WIDGET_LOGGED_OUT_KEY = 'rupeo_widget_logged_out_v1';
@@ -79,7 +80,7 @@ export async function getWidgetSnapshot(): Promise<WidgetSnapshot | null> {
   try {
     const raw = await AsyncStorage.getItem(WIDGET_SNAPSHOT_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw);
+    const parsed = safeJsonParse(raw, null as any, { keyForBackup: WIDGET_SNAPSHOT_KEY });
     if (!parsed || parsed.version !== 1) return null;
     return parsed as WidgetSnapshot;
   } catch (err) {
@@ -297,7 +298,7 @@ export async function buildWidgetSnapshotFromApp(userId?: string): Promise<Widge
       .slice(0, 5)
       .map((tx: any) => ({
         id: String(tx.id || Math.random()),
-        title: String(tx.description || tx.merchant_name || tx.category || 'Transaction'),
+        title: String(tx.merchant_name || tx.payee || tx.merchant || tx.description || tx.userNote || tx.note || tx.category || 'Transaction'),
         category: String(tx.category || 'General'),
         amount: Number(tx.amount) || 0,
         type: (tx.type === 'credit' ? 'credit' : 'debit') as 'debit' | 'credit',

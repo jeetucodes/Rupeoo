@@ -4,6 +4,7 @@ import { insertTransaction, normalizeDate } from './database.ts';
 import { createDeterministicTxId, markMsgsProcessedBatch } from './smsDedupe.ts';
 import { getSmsImportSettings, formatTransactionNote } from './smsSettings.ts';
 import { warn } from './logger.ts';
+import { safeJsonParse } from './safeStorage.ts';
 
 export interface PendingAlertItem {
   id: string;                       // e.g. "pending_" + payKey
@@ -32,9 +33,10 @@ export async function getPendingAlerts(userId: string): Promise<PendingAlertItem
   }
 
   try {
-    const raw = await AsyncStorage.getItem(getInboxKey(userId));
+    const key = getInboxKey(userId);
+    const raw = await AsyncStorage.getItem(key);
     if (raw) {
-      const list: PendingAlertItem[] = JSON.parse(raw);
+      const list: PendingAlertItem[] = safeJsonParse(raw, [], { keyForBackup: key });
       cachedInbox.set(userId, list);
       return list;
     }
@@ -132,7 +134,8 @@ export async function confirmPendingAlert(
     category: finalCategory,
     merchant_name: finalMerchant,
     description: formattedNote,
-    payment_mode: overrides?.payment_mode || (target.alert.channel === 'card' ? 'Card' : target.alert.channel === 'ATM' ? 'Cash' : 'UPI'),
+    payment_mode: overrides?.payment_mode || 'UPI',
+    paymentMode: overrides?.payment_mode || 'UPI',
     ref_no: target.alert.refNo,
     utr: target.alert.refNo,
     date: dateStr,

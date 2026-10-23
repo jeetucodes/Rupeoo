@@ -14,6 +14,7 @@ import {
   Animated,
   Easing,
   Modal,
+  AppState,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -37,14 +38,13 @@ import { Ionicons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
 import {
   requestNotificationPermissions,
-  sendWelcomeNotification,
-
 } from '@/lib/notifications';
 import { warn, error } from '@/lib/logger';
 import { LegalModal } from '@/components/LegalModal';
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { setOfflineModeActive, setCloudSyncEnabled } from '@/lib/cloudSync';
+import { safeJsonParse } from '@/lib/safeStorage';
+import { migrateGuestDataToUser, OFFLINE_GUEST_TXS_KEY } from '@/lib/cloudSync';
 
 export default function AuthScreen() {
   const router = useRouter();
@@ -63,6 +63,19 @@ export default function AuthScreen() {
 
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [hasGuestData, setHasGuestData] = useState(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem(OFFLINE_GUEST_TXS_KEY).then((raw) => {
+      if (raw) {
+        const parsed = safeJsonParse<any[]>(raw, [], OFFLINE_GUEST_TXS_KEY, (v) => Array.isArray(v));
+        if (parsed.length > 0) {
+          setHasGuestData(true);
+          setIsSignUp(true); // Default to signup for guest users with local data
+        }
+      }
+    }).catch(() => {});
+  }, []);
 
   const ambientMotion = useRef(new Animated.Value(0)).current;
 
@@ -79,8 +92,20 @@ export default function AuthScreen() {
         useNativeDriver: true,
       })
     );
-    animation.start();
-    return () => animation.stop();
+    if (AppState.currentState === 'active') {
+      animation.start();
+    }
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        animation.start();
+      } else {
+        animation.stop();
+      }
+    });
+    return () => {
+      sub.remove();
+      animation.stop();
+    };
   }, [ambientMotion]);
 
   // Email & Password Auth Handler
@@ -128,6 +153,9 @@ export default function AuthScreen() {
             await updateProfile(cred.user, { displayName: name.trim() });
           }
 
+          // Attach all local guest rows to the new account (Bug 6)
+          await migrateGuestDataToUser(cred.user.uid).catch((e) => warn('Guest migration on signup warning:', e));
+
           // Send 6-digit OTP via Supabase Edge Function (primary verification method)
           // The Firebase magic link is sent on-demand from the verify-email screen if the user requests it
           try {
@@ -145,6 +173,9 @@ export default function AuthScreen() {
           requestNotificationPermissions().then((granted) => {
 
           }).catch(() => {});
+
+          // Attach all local guest rows to the account (merge with cloud data, dedupe, never delete local)
+          await migrateGuestDataToUser(cred.user.uid).catch((e) => warn('Guest migration on signin warning:', e));
 
           const userDoc = await getDoc(doc(db, 'users', cred.user.uid));
           if (!userDoc.exists() || userDoc.data()?.has_set_starting_balance === false) {
@@ -194,6 +225,9 @@ export default function AuthScreen() {
           }
         }).catch(() => {});
 
+        // Attach local guest rows to the Google account
+        await migrateGuestDataToUser(result.user.uid).catch((e) => warn('Guest migration on Google signin warning:', e));
+
         if (getAdditionalUserInfo(result)?.isNewUser) {
           await setDoc(doc(db, 'users', result.user.uid), {
             email: result.user.email,
@@ -203,7 +237,6 @@ export default function AuthScreen() {
             has_set_starting_balance: false,
           }, { merge: true });
 
-          sendWelcomeNotification(result.user.uid).catch(() => {});
           router.replace('/setup');
         } else {
           router.replace('/(tabs)/dashboard');
@@ -217,16 +250,6 @@ export default function AuthScreen() {
     } finally {
       setGoogleLoading(false);
     }
-  };
-
-  const handleContinueOffline = async () => {
-    try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } catch {}
-    await setOfflineModeActive(true);
-    await setCloudSyncEnabled(false);
-    await AsyncStorage.setItem('@rupeo_active_user_id', 'local');
-    router.replace('/(tabs)/dashboard');
   };
 
   return (
@@ -300,6 +323,19 @@ export default function AuthScreen() {
               </Text>
             </TouchableOpacity>
           </View>
+
+          {/* EXISTING GUEST USER NOTICE (Change 6) */}
+          {hasGuestData && (
+            <View style={styles.guestNoticeCard}>
+              <Ionicons name="information-circle" size={22} color="#0284C7" style={{ marginRight: 8, marginTop: 1 }} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.guestNoticeTitle}>Create your account to continue</Text>
+                <Text style={styles.guestNoticeSub}>
+                  Your existing data will be kept and securely attached to your new account.
+                </Text>
+              </View>
+            </View>
+          )}
 
           {/* FORM INPUTS */}
           <View style={styles.formContainer}>
@@ -480,15 +516,16 @@ export default function AuthScreen() {
               </Text>
             </TouchableOpacity>
 
-            {/* USE OFFLINE WITHOUT ACCOUNT */}
-            <TouchableOpacity
-              onPress={handleContinueOffline}
-              style={styles.offlineModeBtn}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="phone-portrait-outline" size={16} color="#475569" style={{ marginRight: 6 }} />
-              <Text style={styles.offlineModeText}>Use Offline Without Account</Text>
-            </TouchableOpacity>
+            {/* TRANSPARENCY DISCLOSURE (Change 7) */}
+            <View style={styles.transparencyCard}>
+              <Ionicons name="cloud-done-outline" size={16} color="#0284C7" style={{ marginRight: 8, marginTop: 2 }} />
+              <Text style={styles.transparencyText}>
+                Your transactions are backed up to your account so you can restore them on a new phone. Only transaction details are uploaded (never your account numbers, UPI refs or original messages). You can turn this off in Settings.{' '}
+                <Text style={styles.transparencyLink} onPress={() => setLegalModal('privacy')}>
+                  Privacy Policy
+                </Text>
+              </Text>
+            </View>
           </View>
 
           {/* FOOTER */}
@@ -864,20 +901,46 @@ const styles = StyleSheet.create({
     fontSize: 14.5,
     fontWeight: '800',
   },
-  offlineModeBtn: {
+  guestNoticeCard: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 11,
-    marginTop: 10,
+    alignItems: 'flex-start',
+    backgroundColor: '#F0F9FF',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#BAE6FD',
+  },
+  guestNoticeTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0369A1',
+    marginBottom: 2,
+  },
+  guestNoticeSub: {
+    fontSize: 12,
+    color: '#0284C7',
+    lineHeight: 16,
+  },
+  transparencyCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#F8FAFC',
     borderRadius: 14,
+    padding: 12,
+    marginTop: 14,
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    backgroundColor: '#FFFFFF',
   },
-  offlineModeText: {
-    fontSize: 13.5,
+  transparencyText: {
+    flex: 1,
+    fontSize: 11,
+    color: '#64748B',
+    lineHeight: 16,
+  },
+  transparencyLink: {
+    color: '#0284C7',
     fontWeight: '700',
-    color: '#475569',
+    textDecorationLine: 'underline',
   },
 });

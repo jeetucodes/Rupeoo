@@ -30,6 +30,11 @@
   "exclude": [
     "node_modules",
     "supabase",
-    "functions"
+    "functions",
+    "android",
+    "dist",
+    "archive-test-2",
+    "temp_export_test",
+    "scratch"
   ]
 }

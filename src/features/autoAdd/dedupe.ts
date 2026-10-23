@@ -16,6 +16,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { sha256 } from '../../lib/cryptoUtils.ts';
 import { normalizeWhitespace } from '../../lib/alertParser.ts';
 import { warn } from '../../lib/logger.ts';
+import { safeJsonParse } from '../../lib/safeStorage.ts';
 
 const NOTIF_HASHES_KEY = '@rupeo_notif_processed_hashes';
 const RECENT_PAYMENTS_KEY = '@rupeo_notif_recent_payments';
@@ -77,13 +78,13 @@ export async function loadNotifDedupeCache(): Promise<void> {
   try {
     const rawHashes = await AsyncStorage.getItem(NOTIF_HASHES_KEY);
     if (rawHashes) {
-      const parsed: string[] = JSON.parse(rawHashes);
+      const parsed = safeJsonParse<string[]>(rawHashes, [], NOTIF_HASHES_KEY, (v) => Array.isArray(v));
       for (const h of parsed) memoryNotifHashes.add(h);
     }
 
     const rawPayments = await AsyncStorage.getItem(RECENT_PAYMENTS_KEY);
     if (rawPayments) {
-      memoryRecentPayments = JSON.parse(rawPayments);
+      memoryRecentPayments = safeJsonParse<RecentPaymentEntry[]>(rawPayments, [], RECENT_PAYMENTS_KEY, (v) => Array.isArray(v));
       pruneRecentPayments();
     }
 

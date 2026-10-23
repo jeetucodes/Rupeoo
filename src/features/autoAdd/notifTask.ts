@@ -18,6 +18,7 @@
 import { AppRegistry, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
+import { safeJsonParse } from '@/lib/safeStorage';
 import { parseAlert, ParsedAlert } from '@/lib/alertParser';
 import { shouldProcessNotification, getFriendlySenderName } from './filter';
 import {
@@ -264,9 +265,10 @@ export async function handleNotificationTask(taskData: NotificationTaskPayload):
       let bills = getRecurringBillsFromSQLite();
       if (!bills || bills.length === 0) {
         try {
-          const offlineRaw = await AsyncStorage.getItem(`@rupeo_offline_bills_${activeUserId}`);
+          const billsKey = `@rupeo_offline_bills_${activeUserId}`;
+          const offlineRaw = await AsyncStorage.getItem(billsKey);
           if (offlineRaw) {
-            bills = JSON.parse(offlineRaw);
+            bills = safeJsonParse(offlineRaw, [], billsKey, (v) => Array.isArray(v));
           }
         } catch {}
       }

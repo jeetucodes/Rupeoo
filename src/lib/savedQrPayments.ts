@@ -3,6 +3,7 @@ import { insertTransaction } from './database';
 import { getLocalDateString, formatTime12Hour } from './dateUtils';
 import { triggerTransactionVibration } from './sound';
 import { warn, error } from '@/lib/logger';
+import { safeJsonParse } from './safeStorage';
 
 export interface SavedQrPart {
   id: string;
@@ -37,9 +38,10 @@ const getStorageKey = (userId?: string) => `@rupeo_saved_qr_cards_${userId || 'g
  */
 export async function getSavedQrPayments(userId?: string): Promise<SavedQrPaymentCard[]> {
   try {
-    const raw = await AsyncStorage.getItem(getStorageKey(userId));
+    const key = getStorageKey(userId);
+    const raw = await AsyncStorage.getItem(key);
     if (!raw) return [];
-    const list: SavedQrPaymentCard[] = JSON.parse(raw);
+    const list: SavedQrPaymentCard[] = safeJsonParse(raw, [], { keyForBackup: key });
     return Array.isArray(list) ? list : [];
   } catch (err) {
     warn('Error fetching saved QR payments:', err);

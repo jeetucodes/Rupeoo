@@ -3,9 +3,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { User, onAuthStateChanged, signOut } from 'firebase/auth';
 import { auth, db } from '@/lib/firebase';
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
-import { getStartingBalanceProfile, getUserSettings, UserSettings } from '@/lib/database';
+import { router } from 'expo-router';
+import { getStartingBalanceProfile, getUserSettings, UserSettings, invalidateAllUserCache } from '@/lib/database';
 import { clearWidgetSnapshot } from '@/lib/widgetSnapshot';
 import { triggerWidgetUpdate } from '@/lib/widgetSync';
+import { resetCloudPullState } from '@/lib/cloudSync';
+import { stopRealtimeNotificationWatcher } from '@/lib/notifications';
+import { scheduleWelcomeNotification, handleWelcomeNotificationOnLogout } from '@/lib/welcomeNotification';
+import { safeJsonParse, withTimeout } from '@/lib/safeStorage';
 import { warn, error } from '@/lib/logger';
 
 export type AdsStrategy = 'custom_only' | 'custom_first' | 'network_only' | 'both';
@@ -283,6 +288,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState<UserSettings | null>(null);
 
+  // Track initial auth check on app launch to ensure welcome notification is NEVER scheduled on app open
+  const isInitialAuthCheckDoneRef = React.useRef(false);
+  const previousUidRef = React.useRef<string | null>(null);
+
   // Real-time Admin Config State
   const [appConfig, setAppConfig] = useState<AppConfig>(DEFAULT_APP_CONFIG);
 
@@ -291,11 +300,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     AsyncStorage.getItem('@rupeo_app_config')
       .then((raw) => {
         if (raw) {
-          try {
-            setAppConfig(JSON.parse(raw));
-          } catch (parseErr) {
-            warn('Failed to parse cached app config from AsyncStorage:', parseErr);
-          }
+          const parsed = safeJsonParse(raw, DEFAULT_APP_CONFIG, { keyForBackup: '@rupeo_app_config' });
+          setAppConfig(parsed);
         }
       })
       .catch(() => {});
@@ -337,9 +343,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const fetchUserProfile = async (currentUser: User) => {
     try {
       if (db && currentUser?.uid) {
-        const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
-        const balanceProfile = await getStartingBalanceProfile(currentUser.uid);
-        if (userDoc.exists()) {
+        const userDocPromise = getDoc(doc(db, 'users', currentUser.uid));
+        const userDoc = await withTimeout(userDocPromise, 3500, null as any);
+
+        const balancePromise = getStartingBalanceProfile(currentUser.uid);
+        const balanceProfile = await withTimeout(balancePromise, 3500, { startingBalance: 0, hasSetStartingBalance: true });
+
+        if (userDoc && userDoc.exists()) {
           const data = userDoc.data();
           return {
             ...currentUser,
@@ -372,13 +382,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } as RupeoUser;
   };
 
-  const fetchSettings = async (currentUser: User) => {
+  const fetchSettings = async (currentUser: User): Promise<UserSettings | null> => {
     try {
-      const userSettings = await getUserSettings(currentUser.uid);
+      const settingsPromise = getUserSettings(currentUser.uid);
+      const userSettings = await withTimeout(settingsPromise, 3500, null);
       setSettings(userSettings);
+      return userSettings;
     } catch (error) {
       setSettings(null);
       warn('Could not load settings; using defaults.', error);
+      return null;
     }
   };
 
@@ -388,21 +401,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      if (currentUser) {
-        // B4: Refresh token once on auth change so new claims (e.g. grandfathered, email_verified) are picked up
-        try {
-          await currentUser.getIdToken(true);
-        } catch (tokenErr) {
-          warn('Token claim refresh error:', tokenErr);
+      try {
+        if (currentUser) {
+          // B4: Refresh token once on auth change so new claims (e.g. grandfathered, email_verified) are picked up
+          try {
+            await withTimeout(currentUser.getIdToken(true), 3000, null);
+          } catch (tokenErr) {
+            warn('Token claim refresh error:', tokenErr);
+          }
+          const profileUser = await fetchUserProfile(currentUser);
+          setUser(profileUser);
+          const userSettings = await fetchSettings(currentUser);
+
+          // Schedule welcome notification in EXACTLY ONE PLACE:
+          // Right after a successful login/signup (auth session confirmed),
+          // NEVER on initial app start or onboarding screens.
+          const isFreshLoginOrSignup =
+            isInitialAuthCheckDoneRef.current &&
+            (!previousUidRef.current || previousUidRef.current !== currentUser.uid);
+
+          if (isFreshLoginOrSignup) {
+            scheduleWelcomeNotification({
+              userId: currentUser.uid,
+              displayName: profileUser.displayName,
+              language: userSettings?.language,
+            }).catch((err) => warn('Welcome notification scheduling failed:', err));
+          }
+
+          previousUidRef.current = currentUser.uid;
+        } else {
+          previousUidRef.current = null;
+          setUser(null);
+          setSettings(null);
         }
-        const profileUser = await fetchUserProfile(currentUser);
-        setUser(profileUser);
-        await fetchSettings(currentUser);
-      } else {
-        setUser(null);
-        setSettings(null);
+      } catch (authErr) {
+        warn('onAuthStateChanged handler error:', authErr);
+      } finally {
+        isInitialAuthCheckDoneRef.current = true;
+        setLoading(false);
       }
-      setLoading(false);
     });
 
     return unsubscribe;
@@ -452,9 +489,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     try {
+      // 1. FIRST navigate to login screen, resetting the navigation stack
+      // This ensures protected screens are unmounted before session is cleared
+      try {
+        router.replace('/login');
+      } catch (navErr) {
+        warn('Navigation to login on logout:', navErr);
+      }
+
+      // 2. Stop listeners, clear user memory caches & active background session IDs
+      await AsyncStorage.removeItem('@rupeo_active_user_id').catch(() => {});
+      await AsyncStorage.removeItem('@rupeo_pending_redirect').catch(() => {});
+
+      // Cancel pending welcome notification on logout.
+      // If user logged out within 5 minutes (before shown), allows rescheduling once on next login.
+      await handleWelcomeNotificationOnLogout(user?.uid).catch(() => {});
+      previousUidRef.current = null;
+
+      try {
+        stopRealtimeNotificationWatcher();
+      } catch {}
+
+      try {
+        invalidateAllUserCache();
+      } catch {}
+
+      try {
+        resetCloudPullState();
+      } catch {}
+
       await clearWidgetSnapshot().catch(() => {});
       await triggerWidgetUpdate().catch(() => {});
+
+      // 3. Clear auth state in Firebase
       await signOut(auth);
+
+      setUser(null);
+      setSettings(null);
     } catch (err) {
       error('Logout error:', err);
     }

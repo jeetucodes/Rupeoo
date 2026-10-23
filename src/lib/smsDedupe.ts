@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { sha256 } from './cryptoUtils.ts';
 import { type ParsedAlert, normalizeWhitespace } from './alertParser.ts';
 import { warn } from './logger.ts';
+import { safeJsonParse } from './safeStorage.ts';
 
 // ---------------------------------------------------------------------------
 // Storage Keys
@@ -126,20 +127,23 @@ export async function loadDedupeCache(userId: string): Promise<void> {
 
   try {
     if (!inMemoryProcessedHashes.has(userId)) {
-      const storedHashes = await AsyncStorage.getItem(getProcessedHashesKey(userId));
-      const parsedHashes: string[] = storedHashes ? JSON.parse(storedHashes) : [];
+      const key = getProcessedHashesKey(userId);
+      const storedHashes = await AsyncStorage.getItem(key);
+      const parsedHashes: string[] = safeJsonParse(storedHashes, [], { keyForBackup: key });
       inMemoryProcessedHashes.set(userId, new Set(parsedHashes));
     }
 
     if (!inMemoryProcessedIds.has(userId)) {
-      const storedIds = await AsyncStorage.getItem(getProcessedIdsKey(userId));
-      const parsedIds: string[] = storedIds ? JSON.parse(storedIds) : [];
+      const key = getProcessedIdsKey(userId);
+      const storedIds = await AsyncStorage.getItem(key);
+      const parsedIds: string[] = safeJsonParse(storedIds, [], { keyForBackup: key });
       inMemoryProcessedIds.set(userId, new Set(parsedIds));
     }
 
     if (!inMemoryIgnoredPayKeys.has(userId)) {
-      const storedIgnored = await AsyncStorage.getItem(getIgnoredPayKeysKey(userId));
-      const parsedIgnored: string[] = storedIgnored ? JSON.parse(storedIgnored) : [];
+      const key = getIgnoredPayKeysKey(userId);
+      const storedIgnored = await AsyncStorage.getItem(key);
+      const parsedIgnored: string[] = safeJsonParse(storedIgnored, [], { keyForBackup: key });
       inMemoryIgnoredPayKeys.set(userId, new Set(parsedIgnored));
     }
   } catch (err) {

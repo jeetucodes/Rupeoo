@@ -18,6 +18,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { warn } from './logger.ts';
+import { safeJsonParse } from './safeStorage.ts';
 
 export type CategorizationSource =
   | 'user_rule'
@@ -597,9 +598,10 @@ export async function getUserRules(userId?: string): Promise<Record<string, stri
   }
 
   try {
-    const raw = await AsyncStorage.getItem(`${USER_RULES_STORAGE_PREFIX}${uid}`);
+    const rulesKey = `${USER_RULES_STORAGE_PREFIX}${uid}`;
+    const raw = await AsyncStorage.getItem(rulesKey);
     if (raw) {
-      const parsed: Record<string, string> = JSON.parse(raw);
+      const parsed = safeJsonParse<Record<string, string>>(raw, {}, rulesKey, (v) => typeof v === 'object' && v !== null);
       inMemoryUserRules = new Map(Object.entries(parsed));
       inMemoryUserRulesUserId = uid;
       return parsed;

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Platform, Clipboard } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { safeJsonParse } from '@/lib/safeStorage';
 import {
   detectDraftTransactions,
   DraftTransactionItem,
@@ -52,16 +53,15 @@ export function useBankImport({ userId }: UseBankImportOptions) {
 
     getSmsImportSettings(userId).then(setSmsSettings).catch(() => {});
 
-    AsyncStorage.getItem(getDraftStorageKey(userId))
+    const draftKey = getDraftStorageKey(userId);
+    AsyncStorage.getItem(draftKey)
       .then((raw) => {
         if (raw) {
-          try {
-            const restored: DraftTransactionItem[] = JSON.parse(raw);
-            if (Array.isArray(restored) && restored.length > 0) {
-              setDrafts(restored);
-              setState('review');
-            }
-          } catch { }
+          const restored = safeJsonParse<DraftTransactionItem[]>(raw, [], draftKey, (v) => Array.isArray(v));
+          if (restored.length > 0) {
+            setDrafts(restored);
+            setState('review');
+          }
         }
       })
       .catch(() => {});
