@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,8 @@ import {
   Platform,
   ActivityIndicator,
   TextInput,
+  Clipboard,
+  Modal,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,7 +28,9 @@ import { deleteAllTransactions, getAllTransactions } from '@/lib/database';
 import { generateAndShareTransactionStatementPDF } from '@/lib/statementPdf';
 import { getLocalMonthString } from '@/lib/dateUtils';
 import Constants from 'expo-constants';
-import { APP_VERSION_DISPLAY, APP_PLATFORM } from '@/constants/version';
+import { APP_VERSION, APP_VERSION_CODE, APP_VERSION_DISPLAY, APP_PLATFORM } from '@/constants/version';
+import { repairCorruptedStorageKeys } from '@/lib/safeStorage';
+import { getLastCrash, clearLastCrash, CrashReport } from '@/lib/crashReporting';
 
 export default function AdvancedSettingsScreen() {
   const router = useRouter();
@@ -41,6 +45,15 @@ export default function AdvancedSettingsScreen() {
   const [adminUpdateModalVisible, setAdminUpdateModalVisible] = useState(false);
   const [versionTapCount, setVersionTapCount] = useState(0);
 
+  // Diagnostics & Reliability state
+  const [isRepairingData, setIsRepairingData] = useState(false);
+  const [lastCrash, setLastCrash] = useState<CrashReport | null>(null);
+  const [crashModalVisible, setCrashModalVisible] = useState(false);
+
+  useEffect(() => {
+    getLastCrash().then(setLastCrash).catch(() => {});
+  }, []);
+
   const isAdmin =
     user?.email === 'admin@rupeo.app' ||
     user?.email === 'ya041304@gmail.com' ||
@@ -49,7 +62,8 @@ export default function AdvancedSettingsScreen() {
     versionTapCount >= 5;
 
   // Quick export state
-  const [isExporting, setIsExporting] = useState(false);
+  const [isExportingJson, setIsExportingJson] = useState(false);
+  const [isExportingCsv, setIsExportingCsv] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
@@ -84,9 +98,53 @@ export default function AdvancedSettingsScreen() {
     });
   };
 
+  const handleRepairAppData = async () => {
+    setIsRepairingData(true);
+    try {
+      try {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      } catch {}
+      const repairRes = await repairCorruptedStorageKeys();
+      if (repairRes.corruptedKeys.length > 0) {
+        Toast.show({
+          type: 'success',
+          text1: 'Storage Repaired ✅',
+          text2: `Cleaned ${repairRes.corruptedKeys.length} corrupt item(s). Transactions and session safe.`,
+          visibilityTime: 4000,
+        });
+      } else {
+        Toast.show({
+          type: 'success',
+          text1: 'All Storage Healthy ✨',
+          text2: 'No corrupted cache keys found. Transactions and login intact.',
+          visibilityTime: 3500,
+        });
+      }
+    } catch (err: any) {
+      Toast.show({
+        type: 'error',
+        text1: 'Repair Error',
+        text2: err?.message || 'Failed to check storage keys.',
+      });
+    } finally {
+      setIsRepairingData(false);
+    }
+  };
+
+  const handleClearCrashLog = async () => {
+    await clearLastCrash();
+    setLastCrash(null);
+    setCrashModalVisible(false);
+    Toast.show({
+      type: 'info',
+      text1: 'Crash Log Cleared',
+      text2: 'Diagnostic crash report was removed.',
+    });
+  };
+
   const handleQuickExportJson = async () => {
     if (!uid) return;
-    setIsExporting(true);
+    setIsExportingJson(true);
     try {
       const res = await exportTransactions(uid, 'json', { periodMode: 'all' });
       if (res.success) {
@@ -109,13 +167,13 @@ export default function AdvancedSettingsScreen() {
         text2: e?.message || 'Failed to export transactions.',
       });
     } finally {
-      setIsExporting(false);
+      setIsExportingJson(false);
     }
   };
 
   const handleQuickExportCsv = async () => {
     if (!uid) return;
-    setIsExporting(true);
+    setIsExportingCsv(true);
     try {
       const res = await exportTransactions(uid, 'csv', { periodMode: 'all' });
       if (res.success) {
@@ -138,7 +196,7 @@ export default function AdvancedSettingsScreen() {
         text2: e?.message || 'Failed to export transactions.',
       });
     } finally {
-      setIsExporting(false);
+      setIsExportingCsv(false);
     }
   };
 
@@ -276,7 +334,8 @@ export default function AdvancedSettingsScreen() {
             iconColor="#059669"
             label="Export JSON Backup"
             subtitle="Full data snapshot with categories, notes & tags"
-            loading={isExporting}
+            loading={isExportingJson}
+            disabled={isExportingJson || isExportingCsv}
             onPress={handleQuickExportJson}
           />
           <SettingsRow
@@ -285,7 +344,8 @@ export default function AdvancedSettingsScreen() {
             iconColor="#2563EB"
             label="Export Spreadsheet (CSV)"
             subtitle="Compatible with Microsoft Excel, Google Sheets & Numbers"
-            loading={isExporting}
+            loading={isExportingCsv}
+            disabled={isExportingJson || isExportingCsv}
             onPress={handleQuickExportCsv}
           />
           <SettingsRow
@@ -322,14 +382,44 @@ export default function AdvancedSettingsScreen() {
           />
         </SettingsSection>
 
-        {/* SECTION 4: APP INFORMATION */}
-        <SettingsSection title="App Information">
+        {/* SECTION 4: DIAGNOSTICS & RELIABILITY */}
+        <SettingsSection title="Diagnostics & Reliability">
+          <SettingsRow
+            icon="build-outline"
+            iconBg="#FEF3C7"
+            iconColor="#D97706"
+            label="Repair App Data"
+            subtitle="Safe non-destructive cache check. Cleans corrupted items without touching transactions or session."
+            loading={isRepairingData}
+            disabled={isRepairingData}
+            onPress={handleRepairAppData}
+          />
+          <SettingsRow
+            icon="bug-outline"
+            iconBg={lastCrash ? '#FEF2F2' : '#F1F5F9'}
+            iconColor={lastCrash ? '#DC2626' : '#64748B'}
+            label="Last Crash Report"
+            subtitle={
+              lastCrash
+                ? `${new Date(lastCrash.timestamp).toLocaleDateString()} ${new Date(lastCrash.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • ${lastCrash.source}`
+                : 'No crashes recorded'
+            }
+            badge={lastCrash ? (lastCrash.fatal ? 'FATAL' : 'WARNED') : undefined}
+            badgeBg={lastCrash ? (lastCrash.fatal ? '#FEE2E2' : '#FEF3C7') : undefined}
+            badgeColor={lastCrash ? (lastCrash.fatal ? '#DC2626' : '#D97706') : undefined}
+            onPress={() => setCrashModalVisible(true)}
+            isLast
+          />
+        </SettingsSection>
+
+        {/* SECTION 5: ABOUT / APP INFORMATION */}
+        <SettingsSection title="About">
           <SettingsRow
             icon="information-circle"
             iconBg="#F1F5F9"
             iconColor="#475569"
-            label="App Version"
-            value={APP_VERSION_DISPLAY}
+            label="App version"
+            value={`v${APP_VERSION}`}
             showChevron={false}
             onPress={() => {
               const next = versionTapCount + 1;
@@ -341,6 +431,34 @@ export default function AdvancedSettingsScreen() {
                   text2: 'Remote update broadcast manager is now available.',
                 });
               }
+            }}
+            onLongPress={() => {
+              Clipboard.setString(`Rupeo ${APP_VERSION_DISPLAY}`);
+              try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+              Toast.show({
+                type: 'success',
+                text1: 'Copied',
+                text2: `Rupeo ${APP_VERSION_DISPLAY}`,
+                visibilityTime: 2000,
+              });
+            }}
+          />
+          <SettingsRow
+            icon="code-slash-outline"
+            iconBg="#F1F5F9"
+            iconColor="#475569"
+            label="Build number"
+            value={`${APP_VERSION_CODE}`}
+            showChevron={false}
+            onLongPress={() => {
+              Clipboard.setString(`Rupeo ${APP_VERSION_DISPLAY}`);
+              try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+              Toast.show({
+                type: 'success',
+                text1: 'Copied',
+                text2: `Rupeo ${APP_VERSION_DISPLAY}`,
+                visibilityTime: 2000,
+              });
             }}
           />
           <SettingsRow
@@ -360,7 +478,7 @@ export default function AdvancedSettingsScreen() {
               subtitle={
                 appConfig.updatePromptEnabled !== false &&
                 (appConfig.latestVersion || appConfig.latestVersionCode)
-                  ? `Active: v${appConfig.latestVersion || '2.1.11'} • ${appConfig.forceUpdate ? 'Mandatory' : 'Optional'}`
+                  ? `Active: v${appConfig.latestVersion || APP_VERSION} • ${appConfig.forceUpdate ? 'Mandatory' : 'Optional'}`
                   : 'Broadcast update popup to users (Play Store)'
               }
               onPress={() => setAdminUpdateModalVisible(true)}
@@ -410,6 +528,121 @@ export default function AdvancedSettingsScreen() {
         visible={adminUpdateModalVisible}
         onClose={() => setAdminUpdateModalVisible(false)}
       />
+
+      {/* Crash Diagnostics Modal */}
+      <Modal
+        visible={crashModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCrashModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.crashModalCard}>
+            <View style={styles.crashModalHeader}>
+              <View style={styles.crashModalTitleContainer}>
+                <View style={[styles.crashModalIcon, { backgroundColor: lastCrash ? '#FEF2F2' : '#EFF6FF' }]}>
+                  <Ionicons
+                    name={lastCrash ? 'bug' : 'shield-checkmark'}
+                    size={20}
+                    color={lastCrash ? '#DC2626' : '#2563EB'}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.crashModalTitle}>Crash Diagnostics</Text>
+                  <Text style={styles.crashModalSubtitle}>
+                    {lastCrash ? 'Last captured runtime exception' : 'Application health status'}
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                onPress={() => setCrashModalVisible(false)}
+                style={styles.modalCloseButton}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="close" size={20} color="#64748B" />
+              </TouchableOpacity>
+            </View>
+
+            {lastCrash ? (
+              <ScrollView style={styles.crashModalBody} showsVerticalScrollIndicator={false}>
+                <View style={styles.crashMetaRow}>
+                  <View style={styles.crashMetaBadge}>
+                    <Text style={styles.crashMetaLabel}>SOURCE</Text>
+                    <Text style={styles.crashMetaValue}>{lastCrash.source}</Text>
+                  </View>
+                  <View style={[styles.crashMetaBadge, { backgroundColor: lastCrash.fatal ? '#FEF2F2' : '#FEF3C7' }]}>
+                    <Text style={[styles.crashMetaLabel, { color: lastCrash.fatal ? '#991B1B' : '#92400E' }]}>
+                      SEVERITY
+                    </Text>
+                    <Text style={[styles.crashMetaValue, { color: lastCrash.fatal ? '#DC2626' : '#D97706' }]}>
+                      {lastCrash.fatal ? 'Fatal Crash' : 'Startup Delay'}
+                    </Text>
+                  </View>
+                </View>
+
+                <Text style={styles.crashSectionHeader}>Timestamp</Text>
+                <Text style={styles.crashTimestampText}>
+                  {new Date(lastCrash.timestamp).toLocaleString()}
+                </Text>
+
+                <Text style={styles.crashSectionHeader}>Error Message</Text>
+                <View style={styles.crashMessageBox}>
+                  <Text style={styles.crashMessageText} selectable>
+                    {lastCrash.message || 'No error message provided'}
+                  </Text>
+                </View>
+
+                {lastCrash.stack ? (
+                  <>
+                    <View style={styles.crashStackHeaderRow}>
+                      <Text style={styles.crashSectionHeader}>Sanitized Call Stack</Text>
+                      <TouchableOpacity
+                        onPress={() => {
+                          Clipboard.setString(lastCrash.stack || '');
+                          try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+                          Toast.show({
+                            type: 'success',
+                            text1: 'Stack Copied',
+                            text2: 'Sanitized stack trace copied to clipboard.',
+                          });
+                        }}
+                        style={styles.copyStackBtn}
+                      >
+                        <Ionicons name="copy-outline" size={13} color="#4F46E5" style={{ marginRight: 4 }} />
+                        <Text style={styles.copyStackBtnText}>Copy</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <ScrollView style={styles.crashStackBox} nestedScrollEnabled>
+                      <Text style={styles.crashStackText} selectable>
+                        {lastCrash.stack}
+                      </Text>
+                    </ScrollView>
+                  </>
+                ) : null}
+
+                <View style={styles.crashModalActions}>
+                  <TouchableOpacity
+                    style={styles.clearCrashBtn}
+                    onPress={handleClearCrashLog}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="trash-outline" size={16} color="#DC2626" style={{ marginRight: 6 }} />
+                    <Text style={styles.clearCrashBtnText}>Clear Crash Report</Text>
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
+            ) : (
+              <View style={styles.emptyCrashState}>
+                <Ionicons name="checkmark-circle" size={48} color="#10B981" />
+                <Text style={styles.emptyCrashTitle}>No Crashes Recorded</Text>
+                <Text style={styles.emptyCrashSubtitle}>
+                  Your app has been running smoothly without unhandled exceptions or watchdog timeouts.
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -452,5 +685,196 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingTop: 16,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  crashModalCard: {
+    width: '100%',
+    maxWidth: 440,
+    maxHeight: '80%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#000000',
+    shadowOpacity: 0.1,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 16,
+    elevation: 6,
+  },
+  crashModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  crashModalTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 10,
+  },
+  crashModalIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  crashModalTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  crashModalSubtitle: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 1,
+  },
+  modalCloseButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F1F5F9',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  crashModalBody: {
+    marginTop: 14,
+  },
+  crashMetaRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 14,
+  },
+  crashMetaBadge: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 10,
+    padding: 8,
+  },
+  crashMetaLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#64748B',
+    letterSpacing: 0.5,
+  },
+  crashMetaValue: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0F172A',
+    marginTop: 2,
+    textTransform: 'capitalize',
+  },
+  crashSectionHeader: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#475569',
+    marginBottom: 6,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  crashTimestampText: {
+    fontSize: 14,
+    color: '#0F172A',
+    marginBottom: 14,
+    fontWeight: '500',
+  },
+  crashMessageBox: {
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FEE2E2',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 14,
+  },
+  crashMessageText: {
+    fontSize: 13,
+    color: '#991B1B',
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+  crashStackHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  copyStackBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  copyStackBtnText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#4F46E5',
+  },
+  crashStackBox: {
+    maxHeight: 150,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginBottom: 16,
+  },
+  crashStackText: {
+    fontSize: 11,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    color: '#334155',
+    lineHeight: 16,
+  },
+  crashModalActions: {
+    paddingTop: 8,
+    paddingBottom: 12,
+  },
+  clearCrashBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FCA5A5',
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+  },
+  clearCrashBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#DC2626',
+  },
+  emptyCrashState: {
+    paddingVertical: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyCrashTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#0F172A',
+    marginTop: 12,
+    marginBottom: 6,
+  },
+  emptyCrashSubtitle: {
+    fontSize: 13,
+    color: '#64748B',
+    textAlign: 'center',
+    lineHeight: 18,
+    paddingHorizontal: 16,
   },
 });
