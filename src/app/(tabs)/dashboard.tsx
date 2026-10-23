@@ -31,6 +31,7 @@ import Svg, { Circle, Path, Rect, Line, Defs, RadialGradient, Stop, LinearGradie
 import { useRouter, useFocusEffect } from 'expo-router';
 import {
   getAllTransactions,
+  getCachedTransactionsSync,
   sortTransactionsRecentFirst,
   insertTransaction,
   subscribeTransactions,
@@ -66,6 +67,8 @@ import { formatTime12Hour, getLocalDateString, getLocalMonthString, getRelativeD
 import { warn, error } from '@/lib/logger';
 import { AutoAddBoltButton, AutoAddBottomSheet, DashboardBatteryWarningCard } from '@/features/autoAdd';
 import { formatCurrency, resolveCurrencySymbol } from '@/utils/formatCurrency';
+import { subscribeCloudPullState, CloudPullState } from '@/lib/cloudSync';
+import { formatPaymentModeDisplay } from '@/lib/dataMinimization';
 
 const { width, height } = Dimensions.get('window');
 
@@ -410,7 +413,7 @@ const DashboardTransactionItem = React.memo(function DashboardTransactionItem({
       <View style={styles.txMainInfo}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <Text style={styles.txMerchantName} numberOfLines={1}>
-            {tx.merchant_name || tx.category || 'Transaction'}
+            {tx.merchant_name || tx.payee || tx.merchant || tx.category || 'Transaction'}
           </Text>
           {hasProof && (
             <View style={styles.proofBadge}>
@@ -422,10 +425,15 @@ const DashboardTransactionItem = React.memo(function DashboardTransactionItem({
           <Text style={styles.txDate}>{tx.date}</Text>
           {Boolean(tx.time) && <Text style={styles.txTime}> • {formatTime12Hour(tx.time)}</Text>}
           <View style={[styles.txModePill, { flexDirection: 'row', alignItems: 'center' }]}>
-            <PaymentModeIcon mode={tx.payment_mode || 'Cash'} size={11} color="#64748B" style={{ marginRight: 4 }} />
-            <Text style={styles.txModeText}>{tx.payment_mode || 'Cash'}</Text>
+            <PaymentModeIcon mode={tx.payment_mode || tx.paymentMode || 'unknown'} size={11} color="#64748B" style={{ marginRight: 4 }} />
+            <Text style={styles.txModeText}>{formatPaymentModeDisplay(tx.payment_mode || tx.paymentMode)}</Text>
           </View>
         </View>
+        {Boolean((tx.description || tx.userNote || tx.note) && String(tx.description || tx.userNote || tx.note).trim()) && (
+          <Text style={{ fontSize: 11, color: '#94A3B8', marginTop: 2 }} numberOfLines={1}>
+            {tx.description || tx.userNote || tx.note}
+          </Text>
+        )}
       </View>
 
       <View style={styles.txAmountCol}>
@@ -464,21 +472,47 @@ export default function DashboardScreen() {
     return Math.min(Math.max(Math.round(windowWidth * 0.175), 60), 72);
   }, [windowWidth]);
 
-  const [totalSpend, setTotalSpend] = useState<number>(0);
-  const [totalCredit, setTotalCredit] = useState<number>(0);
-  const [thisMonthSpend, setThisMonthSpend] = useState<number>(0);
-  const [transactions, setTransactions] = useState<any[]>([]);
+  const cachedInitial = user?.uid ? getCachedTransactionsSync(user.uid) : null;
+  const hasCache = Boolean(cachedInitial && cachedInitial.length > 0);
+
+  const initialTotals = useMemo(() => {
+    if (!cachedInitial || cachedInitial.length === 0) return { s: 0, c: 0, curM: 0 };
+    let s = 0;
+    let c = 0;
+    let curM = 0;
+    const currentMonthKey = getLocalMonthString();
+    cachedInitial.forEach((tx: any) => {
+      const amt = Number(tx.amount) || 0;
+      if (tx.type === 'debit') {
+        s += amt;
+        if (tx.date && tx.date.startsWith(currentMonthKey)) curM += amt;
+      } else {
+        c += amt;
+      }
+    });
+    return { s, c, curM };
+  }, [cachedInitial]);
+
+  const [totalSpend, setTotalSpend] = useState<number>(() => initialTotals.s);
+  const [totalCredit, setTotalCredit] = useState<number>(() => initialTotals.c);
+  const [thisMonthSpend, setThisMonthSpend] = useState<number>(() => initialTotals.curM);
+  const [transactions, setTransactions] = useState<any[]>(() => hasCache ? sortTransactionsRecentFirst(cachedInitial!) : []);
   const [categories, setCategories] = useState<CategoryItem[]>([]);
   const [recurringBills, setRecurringBills] = useState<RecurringBill[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [unreadNotifications, setUnreadNotifications] = useState<number>(0);
   const [hideBalance, setHideBalance] = useState<boolean>(true);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState<boolean>(() => !hasCache);
   const [refreshing, setRefreshing] = useState(false);
   const [showUdharCard, setShowUdharCard] = useState<boolean>(true);
   const [udharDues, setUdharDues] = useState<{ totalToReceive: number; totalToPay: number } | null>(null);
   const [voiceModalVisible, setVoiceModalVisible] = useState(false);
   const [autoAddSheetVisible, setAutoAddSheetVisible] = useState(false);
+  const [pullState, setPullState] = useState<CloudPullState>({ isPulling: false, message: '', count: 0 });
+
+  useEffect(() => {
+    return subscribeCloudPullState(setPullState);
+  }, []);
 
   // In-App Custom Ads State
   const customAds = useCustomAds();
@@ -1375,6 +1409,16 @@ export default function DashboardScreen() {
         </View>
 
 
+        {/* RESTORING PROGRESS BANNER */}
+        {pullState.isPulling && transactions.length === 0 && (
+          <View style={styles.restoringBanner}>
+            <ActivityIndicator size="small" color="#D97706" style={{ marginRight: 8 }} />
+            <Text style={styles.restoringBannerText}>
+              Restoring your data... {pullState.count > 0 ? `(${pullState.count} transactions)` : ''}
+            </Text>
+          </View>
+        )}
+
         {/* RECENT TRANSACTIONS LIST */}
         {recentTransactions.length > 0 ? (
           <View style={styles.transactionsListCard}>
@@ -1388,6 +1432,14 @@ export default function DashboardScreen() {
                 onPress={handlePressRecentTx}
               />
             ))}
+          </View>
+        ) : pullState.isPulling && transactions.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <ActivityIndicator size="small" color="#D97706" style={{ marginBottom: 12 }} />
+            <Text style={styles.emptyTitle}>Restoring your data...</Text>
+            <Text style={styles.emptySub}>
+              {pullState.count > 0 ? `Loaded ${pullState.count} transactions, updating list...` : 'Connecting to cloud database...'}
+            </Text>
           </View>
         ) : (
           <View style={styles.emptyCard}>
@@ -3227,6 +3279,24 @@ const styles = StyleSheet.create({
   catChipTextActive: {
     color: '#FFD740',
     fontWeight: '800',
+  },
+  restoringBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: 20,
+    marginBottom: 12,
+    backgroundColor: '#FEF3C7',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  restoringBannerText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#D97706',
   },
   transactionsListCard: {
     marginHorizontal: 20,

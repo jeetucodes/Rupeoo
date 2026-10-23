@@ -2,12 +2,15 @@
  * Cloud Sync & Privacy Control Engine
  *
  * Implements granular user control over cloud backups and on-device privacy:
- * 1. Cloud Sync ON/OFF toggle (default ON for logged-in, persisted locally).
- * 2. Complete on-device operation (SQLite & local cache) when sync is OFF.
- * 3. Safe deletion of remote cloud copies without touching local data.
- * 4. Batch cloud upload with conflict resolution by updatedAt (latest wins).
- * 5. Full account & data deletion (confirm by typing "DELETE").
- * 6. 100% offline CSV export from local on-device records.
+ * 1. Cloud Sync ON by default for all logged-in accounts.
+ * 2. Explicit user choice OFF persisted permanently (@rupeo_user_chose_sync_off).
+ * 3. Initial pull (pullFromCloud) with paginated batches (300/page), exponential backoff,
+ *    and upsert by id using updatedAt (latest wins, never delete local rows).
+ * 4. Incremental push with per-row sync metadata (syncedAt, syncStatus, updatedAt, deleted).
+ * 5. Deterministic document IDs and setDoc with merge to avoid duplication.
+ * 6. Safe guest account data migration preserving exact row counts.
+ * 7. 100% offline CSV export from local on-device records.
+ * 8. Safe cloud copy and account deletion.
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -15,38 +18,74 @@ import {
   collection,
   doc,
   getDocs,
+  getDoc,
   setDoc,
   deleteDoc,
   writeBatch,
   query,
   limit,
+  orderBy,
+  startAfter,
+  DocumentSnapshot,
 } from 'firebase/firestore';
 import { deleteUser } from 'firebase/auth';
 import { auth, db } from './firebase';
-import { toRemote, RemoteTransaction } from './dataMinimization';
-import { getOfflineTransactions, saveOfflineTransactions, checkIsOnline } from './offlineSync';
-import { invalidateAllUserCache } from './database';
-import { getAutoAddDatabase } from '@/features/autoAdd/sqliteStorage';
-import { warn, error as logError } from '@/lib/logger';
+import {
+  toRemote,
+  fromRemote,
+  RemoteTransaction,
+  normalizePaymentMode,
+  validateRemotePayload,
+} from './dataMinimization';
+import {
+  getOfflineTransactions,
+  saveOfflineTransactions,
+  checkIsOnline,
+  getOfflineCategories,
+  saveOfflineCategories,
+} from './offlineSync';
+import {
+  invalidateAllUserCache,
+  invalidateTransactionsCache,
+  notifyTransactionsListeners,
+  sortTransactionsRecentFirst,
+} from './database';
+import {
+  getAutoAddDatabase,
+  saveTransactionToSQLite,
+  syncRecurringBillsToSQLite,
+  getRecurringBillsFromSQLite,
+} from '@/features/autoAdd/sqliteStorage';
+import { warn, log, error as logError } from '@/lib/logger';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 
 export const CLOUD_SYNC_KEY = '@rupeo_cloud_sync_enabled';
-export const OFFLINE_MODE_KEY = '@rupeo_offline_mode';
+export const USER_CHOSE_OFF_KEY = '@rupeo_user_chose_sync_off';
+export const LAST_SYNC_KEY_PREFIX = '@rupeo_last_sync_';
+export const GUEST_USER_ID = 'local';
+export const OFFLINE_GUEST_TXS_KEY = `@rupeo_offline_txs_${GUEST_USER_ID}`;
 
 /**
  * Checks if Cloud Sync is currently enabled.
- * Defaults to true for authenticated users, false if in explicit offline mode or guest.
+ * Default is TRUE for every logged-in user unless they explicitly chose OFF.
  */
 export async function isCloudSyncEnabled(userId?: string): Promise<boolean> {
   try {
+    // 1. Check if user explicitly chose OFF (persisted across updates/logins)
+    const userChoseOff = await AsyncStorage.getItem(USER_CHOSE_OFF_KEY);
+    if (userChoseOff === 'true') {
+      return false;
+    }
+
+    // 2. Check stored toggle key
     const raw = await AsyncStorage.getItem(CLOUD_SYNC_KEY);
     if (raw !== null) {
       return raw === 'true';
     }
-    // Default to true for authenticated users, false for guests or 'local'
-    const currentUid = userId || auth?.currentUser?.uid;
-    return Boolean(currentUid && currentUid !== 'local');
+
+    // 3. Default to true for authenticated users
+    return true;
   } catch (err) {
     warn('Failed to read cloud sync state:', err);
     return true;
@@ -55,40 +94,757 @@ export async function isCloudSyncEnabled(userId?: string): Promise<boolean> {
 
 /**
  * Sets Cloud Sync state (persisted locally).
+ * If turned OFF, explicitly records userChoseOff flag so updates/logins never re-enable it.
  */
 export async function setCloudSyncEnabled(enabled: boolean): Promise<void> {
   try {
     await AsyncStorage.setItem(CLOUD_SYNC_KEY, enabled ? 'true' : 'false');
+    if (enabled) {
+      await AsyncStorage.removeItem(USER_CHOSE_OFF_KEY);
+    } else {
+      await AsyncStorage.setItem(USER_CHOSE_OFF_KEY, 'true');
+    }
   } catch (err) {
     warn('Failed to set cloud sync state:', err);
   }
 }
 
 /**
- * Checks if explicit offline guest mode is active.
+ * Helper: Sleep with promise for exponential backoff
  */
-export async function isOfflineModeActive(): Promise<boolean> {
-  try {
-    const raw = await AsyncStorage.getItem(OFFLINE_MODE_KEY);
-    return raw === 'true';
-  } catch {
-    return false;
-  }
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
- * Toggles explicit offline guest mode.
+ * Helper: Retry an async operation with exponential backoff (up to 3 retries)
  */
-export async function setOfflineModeActive(active: boolean): Promise<void> {
+async function retryWithBackoff<T>(
+  operation: () => Promise<T>,
+  retries = 3,
+  delayMs = 300
+): Promise<T> {
   try {
-    await AsyncStorage.setItem(OFFLINE_MODE_KEY, active ? 'true' : 'false');
-    if (active) {
-      await setCloudSyncEnabled(false);
-    }
+    return await operation();
   } catch (err) {
-    warn('Failed to set offline mode state:', err);
+    if (retries <= 1) throw err;
+    await sleep(delayMs);
+    return retryWithBackoff(operation, retries - 1, delayMs * 2);
   }
 }
+
+// ---------------------------------------------------------------------------
+// BUG 1: Initial Pull from Remote DB
+// ---------------------------------------------------------------------------
+
+export interface CloudPullState {
+  isPulling: boolean;
+  message: string;
+  count: number;
+}
+
+let currentPullState: CloudPullState = {
+  isPulling: false,
+  message: '',
+  count: 0,
+};
+
+const pullStateListeners = new Set<(state: CloudPullState) => void>();
+
+export function subscribeCloudPullState(listener: (state: CloudPullState) => void): () => void {
+  pullStateListeners.add(listener);
+  listener(currentPullState);
+  return () => {
+    pullStateListeners.delete(listener);
+  };
+}
+
+function emitPullState(isPulling: boolean, message: string, count: number) {
+  currentPullState = { isPulling, message, count };
+  pullStateListeners.forEach((l) => l(currentPullState));
+}
+
+export function resetCloudPullState() {
+  currentPullState = { isPulling: false, message: '', count: 0 };
+  pullStateListeners.forEach((l) => l(currentPullState));
+}
+
+export interface PullProgressCallback {
+  (phase: string, current: number, total: number): void;
+}
+
+export interface PullFromCloudOptions {
+  silent?: boolean;
+  forceRestoreBanner?: boolean;
+}
+
+/**
+ * Initial pull: fetches user's transactions, bills, friends/udhar, category rules,
+ * and settings from remote Firestore in paginated batches (300 per page, retry with backoff).
+ * Upserts into local SQLite & persistent storage by id using updatedAt (latest wins).
+ * Never deletes local rows.
+ */
+export async function pullFromCloud(
+  userId: string,
+  onProgress?: PullProgressCallback,
+  options: PullFromCloudOptions = {}
+): Promise<{ success: boolean; count: number; transactions: any[] }> {
+  if (!userId || userId === GUEST_USER_ID || !db) {
+    return { success: false, count: 0, transactions: [] };
+  }
+
+  const syncEnabled = await isCloudSyncEnabled(userId);
+  if (!syncEnabled) {
+    const existing = await getOfflineTransactions(userId);
+    return { success: true, count: existing.length, transactions: existing };
+  }
+
+  const isOnline = await checkIsOnline();
+  if (!isOnline) {
+    const existing = await getOfflineTransactions(userId);
+    return { success: true, count: existing.length, transactions: existing };
+  }
+
+  const localExistingTxs = await getOfflineTransactions(userId);
+  const isInitialRestore = localExistingTxs.length === 0;
+  const shouldShowRestoreBanner = options.forceRestoreBanner || (isInitialRestore && !options.silent);
+
+  try {
+    if (shouldShowRestoreBanner) {
+      emitPullState(true, 'Restoring your data...', 0);
+    }
+    if (onProgress) onProgress('Connecting...', 0, 0);
+
+    // 1. Fetch remote transactions in paginated batches of 300
+    const remoteTxDocs: any[] = [];
+    const txsRef = collection(db, `users/${userId}/transactions`);
+    let lastDoc: DocumentSnapshot | null = null;
+    let hasMore = true;
+    const PAGE_SIZE = 300;
+
+    while (hasMore) {
+      const q: any = lastDoc
+        ? query(txsRef, orderBy('date', 'desc'), startAfter(lastDoc), limit(PAGE_SIZE))
+        : query(txsRef, orderBy('date', 'desc'), limit(PAGE_SIZE));
+
+      const snap: any = await retryWithBackoff(async () => {
+        try {
+          return await getDocs(q);
+        } catch {
+          // Fallback if index for orderBy date is not ready
+          return lastDoc
+            ? await getDocs(query(txsRef, startAfter(lastDoc), limit(PAGE_SIZE)))
+            : await getDocs(query(txsRef, limit(PAGE_SIZE)));
+        }
+      });
+
+      if (snap.empty) {
+        hasMore = false;
+        break;
+      }
+
+      snap.docs.forEach((d: any) => {
+        remoteTxDocs.push({ id: d.id, ...d.data() });
+      });
+
+      if (shouldShowRestoreBanner) {
+        emitPullState(true, 'Restoring your data...', remoteTxDocs.length);
+      }
+      if (onProgress) {
+        onProgress('Restoring transactions...', remoteTxDocs.length, remoteTxDocs.length);
+      }
+
+      if (snap.size < PAGE_SIZE) {
+        hasMore = false;
+      } else {
+        lastDoc = snap.docs[snap.docs.length - 1];
+      }
+    }
+
+    // 2. Fetch recurring bills
+    let remoteBills: any[] = [];
+    try {
+      const billsSnap = await retryWithBackoff(() =>
+        getDocs(query(collection(db, `users/${userId}/recurring_bills`), limit(300)))
+      );
+      remoteBills = billsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    } catch (billErr) {
+      warn('Could not pull recurring bills:', billErr);
+    }
+
+    // 3. Fetch friends / udhar
+    let remoteFriends: any[] = [];
+    try {
+      const friendsSnap = await retryWithBackoff(() =>
+        getDocs(query(collection(db, `users/${userId}/friends`), limit(300)))
+      );
+      remoteFriends = friendsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    } catch (friendErr) {
+      warn('Could not pull friends:', friendErr);
+    }
+
+    // 4. Fetch categories & rules
+    let remoteCats: any[] = [];
+    try {
+      const catsSnap = await retryWithBackoff(() =>
+        getDocs(query(collection(db, `users/${userId}/categories`), limit(300)))
+      );
+      remoteCats = catsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    } catch (catErr) {
+      warn('Could not pull categories:', catErr);
+    }
+
+    // 5. Fetch settings / preferences
+    try {
+      const settingsSnap = await getDoc(doc(db, `users/${userId}/settings/preferences`));
+      if (settingsSnap.exists()) {
+        const remoteSettings = settingsSnap.data();
+        if (remoteSettings) {
+          await AsyncStorage.setItem(`@rupeo_settings_${userId}`, JSON.stringify(remoteSettings));
+        }
+      }
+    } catch (setErr) {
+      warn('Could not pull settings:', setErr);
+    }
+
+    // 6. Merge remote transactions with existing local transactions
+    const localTxs = await getOfflineTransactions(userId);
+    const localMap = new Map<string, any>();
+    for (const t of localTxs) {
+      if (t?.id) localMap.set(t.id, t);
+    }
+
+    for (const remoteDoc of remoteTxDocs) {
+      const localExisting = localMap.get(remoteDoc.id);
+      if (!localExisting) {
+        // New remote transaction -> map and insert
+        const mapped = fromRemote(remoteDoc);
+        mapped.syncStatus = 'synced';
+        mapped.syncedAt = Date.now();
+        localMap.set(remoteDoc.id, mapped);
+      } else {
+        // Conflict resolution: compare updatedAt (latest wins)
+        const localUpdated = Number(localExisting.updatedAt || localExisting.updated_at || localExisting.created_at) || 0;
+        const remoteUpdated = Number(remoteDoc.updatedAt || remoteDoc.updated_at || remoteDoc.created_at) || 0;
+
+        if (remoteUpdated >= localUpdated) {
+          // Remote is newer or equal -> overlay server truth while preserving local-only fields
+          const mapped = fromRemote(remoteDoc, localExisting);
+          mapped.syncStatus = 'synced';
+          mapped.syncedAt = Date.now();
+          localMap.set(remoteDoc.id, mapped);
+        } else {
+          // Local is newer -> keep local, leave syncStatus as pending
+          localExisting.syncStatus = 'pending';
+          localMap.set(remoteDoc.id, localExisting);
+        }
+      }
+    }
+
+    const mergedTxs = sortTransactionsRecentFirst(Array.from(localMap.values()));
+
+    // 7. Save merged data to persistent storage (AsyncStorage + SQLite)
+    await saveOfflineTransactions(userId, mergedTxs, true);
+
+    // Sync pulled transactions into SQLite auto_added_transactions
+    if (mergedTxs.length > 0) {
+      try {
+        for (const tx of mergedTxs) {
+          const isAutoTx =
+            tx.source === 'auto' ||
+            tx.source === 'notification_listener' ||
+            tx.source === 'sms_inbox' ||
+            tx.status === 'auto_added' ||
+            (typeof tx.id === 'string' && tx.id.startsWith('auto_'));
+          const txPaymentMode =
+            tx.payment_mode && tx.payment_mode !== 'unknown'
+              ? tx.payment_mode
+              : tx.paymentMode && tx.paymentMode !== 'unknown'
+              ? tx.paymentMode
+              : isAutoTx
+              ? 'UPI'
+              : 'unknown';
+
+          saveTransactionToSQLite({
+            id: tx.id,
+            amount: Number(tx.amount) || 0,
+            type: tx.type || 'debit',
+            merchant: tx.merchant_name || tx.payee || null,
+            category: tx.category || 'Others',
+            bankName: tx.bankName || null,
+            accountLast4: tx.accountLast4 || null,
+            refNo: tx.ref_no || tx.utr || null,
+            timestamp: tx.created_at || tx.updatedAt || Date.now(),
+            channel: txPaymentMode,
+            rawText: tx.originalMessage || null,
+            status: 'synced',
+            billId: tx.billId || null,
+            originalMessage: tx.originalMessage || null,
+            userNote: tx.userNote || tx.description || tx.note || null,
+            payment_mode: txPaymentMode,
+            syncedAt: tx.syncedAt || Date.now(),
+            syncStatus: 'synced',
+            updatedAt: tx.updatedAt || Date.now(),
+            deleted: 0,
+            userId,
+            created_at: tx.created_at || Date.now(),
+          });
+        }
+      } catch (sqliteErr) {
+        warn('Error saving pulled transactions to SQLite:', sqliteErr);
+      }
+    }
+
+    // Save recurring bills to SQLite & AsyncStorage
+    if (remoteBills.length > 0) {
+      try {
+        syncRecurringBillsToSQLite(remoteBills);
+        await AsyncStorage.setItem(`@rupeo_bills_${userId}`, JSON.stringify(remoteBills));
+      } catch (saveBillErr) {
+        warn('Error saving pulled recurring bills:', saveBillErr);
+      }
+    }
+
+    // Save friends to AsyncStorage
+    if (remoteFriends.length > 0) {
+      try {
+        const existingFriendsRaw = await AsyncStorage.getItem(`@rupeo_friends_${userId}`);
+        const existingFriends = existingFriendsRaw ? JSON.parse(existingFriendsRaw) : [];
+        const friendMap = new Map<string, any>();
+        for (const f of existingFriends) {
+          if (f?.id) friendMap.set(f.id, f);
+        }
+        for (const rf of remoteFriends) {
+          if (rf?.id) friendMap.set(rf.id, rf);
+        }
+        await AsyncStorage.setItem(
+          `@rupeo_friends_${userId}`,
+          JSON.stringify(Array.from(friendMap.values()))
+        );
+      } catch (fErr) {
+        warn('Error saving pulled friends:', fErr);
+      }
+    }
+
+    // Save categories to AsyncStorage
+    if (remoteCats.length > 0) {
+      try {
+        const existingCats = (await getOfflineCategories(userId)) || [];
+        const catMap = new Map<string, any>();
+        for (const c of existingCats) {
+          if (c?.name) catMap.set(c.name.toLowerCase(), c);
+        }
+        for (const rc of remoteCats) {
+          if (rc?.name) catMap.set(rc.name.toLowerCase(), rc);
+        }
+        await saveOfflineCategories(userId, Array.from(catMap.values()));
+      } catch (cErr) {
+        warn('Error saving pulled categories:', cErr);
+      }
+    }
+
+    // 8. Invalidate all caches and notify all UI listeners
+    invalidateAllUserCache(userId);
+    invalidateTransactionsCache(userId);
+    notifyTransactionsListeners(mergedTxs);
+    await AsyncStorage.setItem(`${LAST_SYNC_KEY_PREFIX}${userId}`, Date.now().toString());
+
+    if (onProgress) {
+      onProgress('All backed up', mergedTxs.length, mergedTxs.length);
+    }
+
+    if (shouldShowRestoreBanner) {
+      emitPullState(false, 'Done', mergedTxs.length);
+    } else {
+      resetCloudPullState();
+    }
+    return { success: true, count: mergedTxs.length, transactions: mergedTxs };
+  } catch (err: any) {
+    logError('pullFromCloud error:', err);
+    const fallback = await getOfflineTransactions(userId);
+    if (shouldShowRestoreBanner) {
+      emitPullState(false, 'Error', fallback.length);
+    } else {
+      resetCloudPullState();
+    }
+    return { success: false, count: fallback.length, transactions: fallback };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// BUG 5: Incremental Push with Sync Metadata
+// ---------------------------------------------------------------------------
+
+export interface PushResult {
+  success: number;
+  failed: number;
+  pending: number;
+}
+
+/**
+ * Validates a transaction row before upload.
+ * Returns true if valid, false if required fields are missing.
+ */
+function isValidLocalRow(tx: any): boolean {
+  if (!tx || typeof tx !== 'object') return false;
+  if (!tx.id || typeof tx.id !== 'string') return false;
+  if (typeof tx.amount !== 'number' || isNaN(tx.amount) || tx.amount < 0) return false;
+  if (!tx.date || typeof tx.date !== 'string') return false;
+  return true;
+}
+
+/**
+ * Pushes only 'pending' or 'failed' rows to Firestore.
+ * Batches of 300 with exponential backoff retry.
+ * Marks rows 'synced' and records syncedAt only after the write is confirmed.
+ * Never re-uploads synced rows.
+ */
+export async function uploadLocalDataToCloud(
+  userId: string,
+  onProgress?: (current: number, total: number) => void
+): Promise<PushResult> {
+  if (!userId || userId === GUEST_USER_ID || !db) {
+    return { success: 0, failed: 0, pending: 0 };
+  }
+
+  const syncEnabled = await isCloudSyncEnabled(userId);
+  if (!syncEnabled) {
+    return { success: 0, failed: 0, pending: 0 };
+  }
+
+  const isOnline = await checkIsOnline();
+  if (!isOnline) {
+    throw new Error('No internet connection. Please check your network and try again.');
+  }
+
+  const localTxs = await getOfflineTransactions(userId);
+  if (!localTxs || localTxs.length === 0) {
+    if (onProgress) onProgress(0, 0);
+    return { success: 0, failed: 0, pending: 0 };
+  }
+
+  // Filter ONLY rows that need syncing ('pending', 'failed', or missing syncStatus)
+  const pendingRows = localTxs.filter(
+    (tx) => tx.syncStatus === 'pending' || tx.syncStatus === 'failed' || !tx.syncStatus
+  );
+
+  const totalToPush = pendingRows.length;
+  if (totalToPush === 0) {
+    if (onProgress) onProgress(0, 0);
+    return { success: 0, failed: 0, pending: 0 };
+  }
+
+  let successCount = 0;
+  let failedCount = 0;
+  const BATCH_SIZE = 300;
+  const updatedLocalMap = new Map<string, any>(localTxs.map((t) => [t.id, t]));
+
+  for (let i = 0; i < totalToPush; i += BATCH_SIZE) {
+    const chunk = pendingRows.slice(i, i + BATCH_SIZE);
+    const validRowsInChunk: { tx: any; remote: RemoteTransaction }[] = [];
+
+    for (const tx of chunk) {
+      if (!isValidLocalRow(tx)) {
+        warn('Skipping invalid transaction row during push:', tx?.id);
+        failedCount++;
+        continue;
+      }
+
+      try {
+        const remoteObj = toRemote(tx);
+        const val = validateRemotePayload(remoteObj);
+        if (!val.valid) {
+          warn('Data minimization violation on push; skipping:', val.violations);
+          failedCount++;
+          continue;
+        }
+        validRowsInChunk.push({ tx, remote: remoteObj });
+      } catch (mapErr) {
+        warn('toRemote mapping error on push:', mapErr);
+        failedCount++;
+      }
+    }
+
+    if (validRowsInChunk.length > 0) {
+      try {
+        await retryWithBackoff(async () => {
+          const batch = writeBatch(db);
+          for (const item of validRowsInChunk) {
+            const docRef = doc(db, `users/${userId}/transactions`, item.remote.id);
+            // Use setDoc with merge to ensure deterministic updates and avoid duplicates
+            batch.set(docRef, item.remote, { merge: true });
+          }
+          await batch.commit();
+        });
+
+        // Confirmation received -> mark rows as 'synced' with syncedAt timestamp
+        const now = Date.now();
+        for (const item of validRowsInChunk) {
+          const localItem = updatedLocalMap.get(item.tx.id);
+          if (localItem) {
+            localItem.syncStatus = 'synced';
+            localItem.syncedAt = now;
+            updatedLocalMap.set(item.tx.id, localItem);
+          }
+        }
+        successCount += validRowsInChunk.length;
+      } catch (commitErr) {
+        logError('Batch commit failed on push:', commitErr);
+        for (const item of validRowsInChunk) {
+          const localItem = updatedLocalMap.get(item.tx.id);
+          if (localItem) {
+            localItem.syncStatus = 'failed';
+            updatedLocalMap.set(item.tx.id, localItem);
+          }
+        }
+        failedCount += validRowsInChunk.length;
+      }
+    }
+
+    if (onProgress) {
+      onProgress(Math.min(i + BATCH_SIZE, totalToPush), totalToPush);
+    }
+  }
+
+  // Persist updated sync metadata back to local storage
+  const updatedList = sortTransactionsRecentFirst(Array.from(updatedLocalMap.values()));
+  await saveOfflineTransactions(userId, updatedList, true);
+  await AsyncStorage.setItem(`${LAST_SYNC_KEY_PREFIX}${userId}`, Date.now().toString());
+
+  const remainingPending = updatedList.filter(
+    (t) => t.syncStatus === 'pending' || t.syncStatus === 'failed'
+  ).length;
+
+  return { success: successCount, failed: failedCount, pending: remainingPending };
+}
+
+/**
+ * Called when Cloud Sync is turned ON:
+ * 1. Pulls from cloud first.
+ * 2. Compares remote ids and timestamps.
+ * 3. Marks matching local rows as 'synced'.
+ * 4. Pushes only missing or newer local rows.
+ * Toggling OFF then ON will not re-upload anything extra.
+ */
+export async function syncLocalAndCloud(
+  userId: string,
+  onProgress?: (phase: string, current: number, total: number) => void
+): Promise<{ success: number; failed: number }> {
+  if (!userId || userId === GUEST_USER_ID) {
+    return { success: 0, failed: 0 };
+  }
+
+  // 1. First run pullFromCloud
+  await pullFromCloud(userId, onProgress);
+
+  // 2. Fetch remote timestamps to identify already synced docs
+  const remoteTimestamps = new Map<string, number>();
+  try {
+    const remoteSnap = await getDocs(collection(db, `users/${userId}/transactions`));
+    remoteSnap.docs.forEach((d) => {
+      const data = d.data();
+      const updated = data.updatedAt || data.updated_at || data.created_at || 0;
+      remoteTimestamps.set(d.id, typeof updated === 'number' ? updated : 0);
+    });
+  } catch (err) {
+    warn('Could not read remote timestamps for syncLocalAndCloud:', err);
+  }
+
+  // 3. Mark local rows matching remote timestamps as 'synced'
+  const localTxs = await getOfflineTransactions(userId);
+  let updatedAny = false;
+  for (const tx of localTxs) {
+    if (remoteTimestamps.has(tx.id)) {
+      const remoteUpdated = remoteTimestamps.get(tx.id) || 0;
+      const localUpdated = Number(tx.updatedAt || tx.updated_at || tx.created_at) || 0;
+      if (remoteUpdated >= localUpdated && tx.syncStatus !== 'synced') {
+        tx.syncStatus = 'synced';
+        tx.syncedAt = Date.now();
+        updatedAny = true;
+      }
+    }
+  }
+
+  if (updatedAny) {
+    await saveOfflineTransactions(userId, localTxs, true);
+  }
+
+  // 4. Push only pending rows
+  const pushRes = await uploadLocalDataToCloud(userId, (cur, tot) => {
+    if (onProgress) {
+      onProgress(`Backing up ${cur} of ${tot} new transactions`, cur, tot);
+    }
+  });
+
+  if (onProgress) {
+    onProgress('All backed up', pushRes.success, pushRes.success);
+  }
+
+  return { success: pushRes.success, failed: pushRes.failed };
+}
+
+// ---------------------------------------------------------------------------
+// BUG 2: Backfill missing remote paymentMode
+// ---------------------------------------------------------------------------
+
+/**
+ * Scans remote transactions; for rows where remote paymentMode is missing but local
+ * has a valid payment mode, pushes the paymentMode backfill once in batches.
+ */
+export async function backfillMissingRemotePaymentModes(userId: string): Promise<number> {
+  if (!userId || userId === GUEST_USER_ID || !db) return 0;
+  const isOnline = await checkIsOnline();
+  if (!isOnline) return 0;
+
+  try {
+    const localTxs = await getOfflineTransactions(userId);
+    const localMap = new Map<string, any>(localTxs.map((t) => [t.id, t]));
+
+    const remoteSnap = await getDocs(collection(db, `users/${userId}/transactions`));
+    const toUpdate: { id: string; paymentMode: string }[] = [];
+
+    remoteSnap.docs.forEach((d) => {
+      const data = d.data();
+      const remoteMode = data.paymentMode || data.payment_mode;
+      const local = localMap.get(d.id);
+      const localMode = local?.payment_mode || local?.paymentMode;
+
+      if ((!remoteMode || remoteMode === 'unknown') && localMode && localMode !== 'unknown') {
+        toUpdate.push({ id: d.id, paymentMode: normalizePaymentMode(localMode) });
+      }
+    });
+
+    if (toUpdate.length === 0) return 0;
+
+    let updatedCount = 0;
+    const BATCH_SIZE = 300;
+    for (let i = 0; i < toUpdate.length; i += BATCH_SIZE) {
+      const chunk = toUpdate.slice(i, i + BATCH_SIZE);
+      const batch = writeBatch(db);
+      for (const item of chunk) {
+        const docRef = doc(db, `users/${userId}/transactions`, item.id);
+        batch.set(docRef, { paymentMode: item.paymentMode, updatedAt: Date.now() }, { merge: true });
+      }
+      await batch.commit();
+      updatedCount += chunk.length;
+    }
+
+    log(`[Backfill] Successfully backfilled paymentMode for ${updatedCount} transactions.`);
+    return updatedCount;
+  } catch (err) {
+    warn('backfillMissingRemotePaymentModes error:', err);
+    return 0;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// CHANGE 6: Guest Data Migration to Authenticated User
+// ---------------------------------------------------------------------------
+
+/**
+ * Migrates local guest data (from previous versions with no account) to a newly signed in account.
+ * Transactional: counts before/after, never deletes local rows, marks syncStatus 'pending'.
+ */
+export async function migrateGuestDataToUser(userId: string): Promise<{ migrated: number }> {
+  if (!userId || userId === GUEST_USER_ID) return { migrated: 0 };
+
+  try {
+    const guestTxs = await getOfflineTransactions(GUEST_USER_ID);
+    if (!guestTxs || guestTxs.length === 0) {
+      return { migrated: 0 };
+    }
+
+    const countBefore = guestTxs.length;
+
+    // Attach all guest rows to the new account
+    const existingUserTxs = await getOfflineTransactions(userId);
+    const mergedMap = new Map<string, any>();
+
+    for (const tx of existingUserTxs) {
+      if (tx?.id) mergedMap.set(tx.id, tx);
+    }
+
+    for (const gTx of guestTxs) {
+      if (gTx?.id) {
+        const migrated = {
+          ...gTx,
+          userId,
+          syncStatus: 'pending',
+          updatedAt: Date.now(),
+        };
+        // If conflict with existing user row, keep existing or merge
+        if (!mergedMap.has(gTx.id)) {
+          mergedMap.set(gTx.id, migrated);
+        }
+      }
+    }
+
+    const mergedList = sortTransactionsRecentFirst(Array.from(mergedMap.values()));
+    const countAfter = mergedList.length;
+
+    if (countAfter < countBefore) {
+      throw new Error(`Row count verification failed: before=${countBefore}, after=${countAfter}`);
+    }
+
+    // Save under the new user's storage
+    await saveOfflineTransactions(userId, mergedList, true);
+
+    // Clean up old guest key safely after verification
+    await AsyncStorage.removeItem(OFFLINE_GUEST_TXS_KEY);
+
+    // Invalidate and notify
+    invalidateTransactionsCache(userId);
+    notifyTransactionsListeners(mergedList);
+
+    log(`[Migration] Migrated ${countBefore} guest transactions to user ${userId}.`);
+    return { migrated: countBefore };
+  } catch (err) {
+    warn('migrateGuestDataToUser error:', err);
+    return { migrated: 0 };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Sync Status Information for Settings UI
+// ---------------------------------------------------------------------------
+
+export interface SyncStatusInfo {
+  lastSyncedTime: number | null;
+  pendingCount: number;
+  syncEnabled: boolean;
+}
+
+/**
+ * Returns sync metadata for the Settings screen.
+ */
+export async function getSyncStatusInfo(userId: string): Promise<SyncStatusInfo> {
+  const syncEnabled = await isCloudSyncEnabled(userId);
+  let lastSyncedTime: number | null = null;
+  let pendingCount = 0;
+
+  try {
+    const rawLast = await AsyncStorage.getItem(`${LAST_SYNC_KEY_PREFIX}${userId}`);
+    if (rawLast) {
+      const parsed = parseInt(rawLast, 10);
+      if (!isNaN(parsed)) lastSyncedTime = parsed;
+    }
+
+    const txs = await getOfflineTransactions(userId);
+    pendingCount = txs.filter((t) => t.syncStatus === 'pending' || t.syncStatus === 'failed').length;
+  } catch (err) {
+    warn('getSyncStatusInfo error:', err);
+  }
+
+  return {
+    lastSyncedTime,
+    pendingCount,
+    syncEnabled,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Cloud Deletion & Cleanup
+// ---------------------------------------------------------------------------
 
 /**
  * Helper to delete an entire Firestore collection in batches of 500.
@@ -115,7 +871,6 @@ async function deleteCollectionInBatches(path: string): Promise<number> {
 
 /**
  * Deletes all remote documents for a user in Firestore without touching local data.
- * Purges transactions, recurring bills, categories, notifications, devices, settings, and user doc.
  */
 export async function deleteCloudCopy(userId: string): Promise<{ success: boolean; error?: string }> {
   if (!userId || !db) {
@@ -123,33 +878,18 @@ export async function deleteCloudCopy(userId: string): Promise<{ success: boolea
   }
 
   try {
-    // 1. Delete transactions
     await deleteCollectionInBatches(`users/${userId}/transactions`);
-
-    // 2. Delete recurring bills
     await deleteCollectionInBatches(`users/${userId}/recurring_bills`);
-
-    // 3. Delete categories
     await deleteCollectionInBatches(`users/${userId}/categories`);
-
-    // 4. Delete notifications
     await deleteCollectionInBatches(`users/${userId}/notifications`);
-
-    // 5. Delete devices
     await deleteCollectionInBatches(`users/${userId}/devices`);
-
-    // 6. Delete friends / udhar
     await deleteCollectionInBatches(`users/${userId}/friends`);
-
-    // 7. Delete rules
     await deleteCollectionInBatches(`users/${userId}/rules`);
 
-    // 8. Delete settings
     try {
       await deleteDoc(doc(db, `users/${userId}/settings/preferences`));
     } catch {}
 
-    // 9. Delete user document
     try {
       await deleteDoc(doc(db, 'users', userId));
     } catch {}
@@ -162,93 +902,7 @@ export async function deleteCloudCopy(userId: string): Promise<{ success: boolea
 }
 
 /**
- * Uploads local data to Firestore in batches, resolving conflicts by updatedAt (latest wins).
- * All payloads are strictly filtered through toRemote() for data minimization.
- */
-export async function uploadLocalDataToCloud(
-  userId: string,
-  onProgress?: (current: number, total: number) => void
-): Promise<{ success: number; failed: number }> {
-  if (!userId || !db) {
-    return { success: 0, failed: 0 };
-  }
-
-  const isOnline = await checkIsOnline();
-  if (!isOnline) {
-    throw new Error('No internet connection. Please check your network and try again.');
-  }
-
-  const localTxs = await getOfflineTransactions(userId);
-  if (!localTxs || localTxs.length === 0) {
-    if (onProgress) onProgress(0, 0);
-    return { success: 0, failed: 0 };
-  }
-
-  const total = localTxs.length;
-  let successCount = 0;
-  let failedCount = 0;
-
-  // 1. Fetch remote timestamps to resolve conflicts by updatedAt (latest wins)
-  const remoteTimestamps = new Map<string, number>();
-  try {
-    const remoteSnap = await getDocs(collection(db, `users/${userId}/transactions`));
-    remoteSnap.docs.forEach((d) => {
-      const data = d.data();
-      const updated = data.updatedAt || data.updated_at || data.created_at || 0;
-      remoteTimestamps.set(d.id, typeof updated === 'number' ? updated : 0);
-    });
-  } catch (remoteErr) {
-    warn('Could not pre-fetch remote timestamps for conflict resolution:', remoteErr);
-  }
-
-  // 2. Batch upload in chunks of 200
-  const BATCH_SIZE = 200;
-  for (let i = 0; i < total; i += BATCH_SIZE) {
-    const chunk = localTxs.slice(i, i + BATCH_SIZE);
-    const batch = writeBatch(db);
-    let chunkCount = 0;
-
-    for (const tx of chunk) {
-      try {
-        const remoteObj: RemoteTransaction = toRemote(tx);
-        const remoteUpdated = remoteTimestamps.get(remoteObj.id) || 0;
-
-        // Conflict resolution: only write if local is newer or equal (latest wins)
-        if (remoteObj.updatedAt >= remoteUpdated) {
-          const docRef = doc(db, `users/${userId}/transactions`, remoteObj.id);
-          batch.set(docRef, remoteObj);
-          chunkCount++;
-        } else {
-          // Remote is newer, count as success without overwriting
-          successCount++;
-        }
-      } catch (mapErr) {
-        warn('toRemote mapping error on upload:', mapErr);
-        failedCount++;
-      }
-    }
-
-    if (chunkCount > 0) {
-      try {
-        await batch.commit();
-        successCount += chunkCount;
-      } catch (commitErr) {
-        logError('Batch commit failed on uploadLocalDataToCloud:', commitErr);
-        failedCount += chunkCount;
-      }
-    }
-
-    if (onProgress) {
-      onProgress(Math.min(i + BATCH_SIZE, total), total);
-    }
-  }
-
-  return { success: successCount, failed: failedCount };
-}
-
-/**
  * Exports all local transactions to a clean, formatted CSV on-device and triggers native sharing.
- * Works 100% offline directly from local SQLite / AsyncStorage cache.
  */
 export async function exportTransactionsToCSV(
   userId: string
@@ -259,10 +913,7 @@ export async function exportTransactionsToCSV(
       return { success: false, error: 'No transactions found on this device to export.' };
     }
 
-    // Sort descending by date
     const sorted = [...txs].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-
-    // CSV Headers
     const headers = ['Date', 'Time', 'Type', 'Category', 'Amount', 'Payee', 'Note', 'Payment Mode', 'Source'];
     const rows: string[] = [headers.join(',')];
 
@@ -279,8 +930,8 @@ export async function exportTransactionsToCSV(
       const category = tx.category || 'Others';
       const amount = Number(tx.amount) || 0;
       const payee = tx.merchant_name || tx.payee || '';
-      const note = tx.description || tx.note || '';
-      const paymentMode = tx.payment_mode || 'UPI';
+      const note = tx.userNote || tx.description || tx.note || '';
+      const paymentMode = tx.payment_mode || 'unknown';
       const source = tx.source || 'manual';
 
       rows.push([
@@ -298,7 +949,8 @@ export async function exportTransactionsToCSV(
 
     const csvContent = rows.join('\r\n');
     const fileName = `rupeo_transactions_${new Date().toISOString().split('T')[0]}.csv`;
-    const filePath = `${FileSystem.cacheDirectory}${fileName}`;
+    const baseDir = (FileSystem as any).cacheDirectory || (FileSystem as any).documentDirectory || '';
+    const filePath = `${baseDir}${fileName}`;
 
     await FileSystem.writeAsStringAsync(filePath, csvContent, {
       encoding: FileSystem.EncodingType.UTF8,
@@ -321,26 +973,20 @@ export async function exportTransactionsToCSV(
 }
 
 /**
- * Permanently deletes user account and all remote and local data:
- * 1. Purges all Firestore collections.
- * 2. Deletes the Firebase Auth account.
- * 3. Wipes all local SQLite tables and AsyncStorage keys.
+ * Permanently deletes user account and all remote and local data.
  */
 export async function deleteAccountAndAllData(
   userId: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    // 1. Delete remote cloud data first
     if (userId && db) {
       await deleteCloudCopy(userId);
     }
 
-    // 2. Delete Firebase Auth account
     if (auth?.currentUser) {
       await deleteUser(auth.currentUser);
     }
 
-    // 3. Clear SQLite tables
     try {
       const sqlite = getAutoAddDatabase();
       if (sqlite) {
@@ -355,7 +1001,6 @@ export async function deleteAccountAndAllData(
       warn('SQLite wipe error on account deletion:', sqliteErr);
     }
 
-    // 4. Wipe all AsyncStorage keys matching @rupeo_*
     try {
       const allKeys = await AsyncStorage.getAllKeys();
       const rupeoKeys = allKeys.filter((k) => k.startsWith('@rupeo_'));
@@ -366,9 +1011,7 @@ export async function deleteAccountAndAllData(
       warn('AsyncStorage wipe error on account deletion:', storageErr);
     }
 
-    // 5. Invalidate in-memory caches
     invalidateAllUserCache(userId);
-
     return { success: true };
   } catch (err: any) {
     logError('deleteAccountAndAllData error:', err);

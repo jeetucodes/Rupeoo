@@ -81,7 +81,7 @@ if (typeof AppState !== 'undefined' && AppState.addEventListener) {
 export async function checkIsOnline(): Promise<boolean> {
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3000);
+    const timeout = setTimeout(() => controller.abort(), 2500);
 
     const response = await fetch('https://clients3.google.com/generate_204', {
       method: 'GET',
@@ -93,9 +93,19 @@ export async function checkIsOnline(): Promise<boolean> {
     clearTimeout(timeout);
     return response.status === 204 || response.status === 200 || response.type === 'opaque' || response.ok;
   } catch {
-    // Graceful fallback: return true so Firestore SDK can handle its own online/offline connectivity
-    return true;
+    return false;
   }
+}
+
+/**
+ * Returns cached transactions synchronously from memory if available (0ms latency).
+ */
+export function getCachedOfflineTransactionsSync(userId: string): any[] | null {
+  if (!userId) return null;
+  if (pendingSaveData.has(userId)) {
+    return pendingSaveData.get(userId) || null;
+  }
+  return null;
 }
 
 /**
@@ -287,6 +297,8 @@ export async function flushSyncQueue(
     }
 
     const remainingQueue: SyncAction[] = [];
+    const localTxs = await getOfflineTransactions(userId);
+    let localUpdated = false;
 
     for (const item of queue) {
       try {
@@ -295,6 +307,12 @@ export async function flushSyncQueue(
             const txDocRef = doc(db, `users/${userId}/transactions`, item.targetId);
             const remotePayload = toRemote({ ...item.payload, id: item.targetId });
             await setDoc(txDocRef, remotePayload);
+            const localItem = localTxs.find((t) => t.id === item.targetId);
+            if (localItem) {
+              localItem.syncStatus = 'synced';
+              localItem.syncedAt = Date.now();
+              localUpdated = true;
+            }
             success++;
             break;
           }
@@ -302,6 +320,12 @@ export async function flushSyncQueue(
             const txDocRef = doc(db, `users/${userId}/transactions`, item.targetId);
             const remotePayload = toRemote({ ...item.payload, id: item.targetId });
             await setDoc(txDocRef, remotePayload, { merge: true });
+            const localItem = localTxs.find((t) => t.id === item.targetId);
+            if (localItem) {
+              localItem.syncStatus = 'synced';
+              localItem.syncedAt = Date.now();
+              localUpdated = true;
+            }
             success++;
             break;
           }
@@ -324,10 +348,22 @@ export async function flushSyncQueue(
             break;
           }
         }
-      } catch (itemErr) {
+      } catch (itemErr: any) {
         warn(`Sync item failed (${item.type} on ${item.targetId}):`, itemErr);
-        // Only retry up to 5 times to prevent poison pill tasks from blocking queue forever
-        if (item.retryCount < 5) {
+        const errMsg = String(itemErr?.message || '').toLowerCase();
+        const errCode = String(itemErr?.code || '').toLowerCase();
+        const isNetworkErr =
+          errMsg.includes('network') ||
+          errMsg.includes('offline') ||
+          errMsg.includes('unavailable') ||
+          errMsg.includes('failed to get document') ||
+          errMsg.includes('timeout') ||
+          errCode.includes('unavailable');
+
+        if (isNetworkErr) {
+          // Never drop a transaction due to temporary network failure
+          remainingQueue.push(item);
+        } else if (item.retryCount < 5) {
           remainingQueue.push({
             ...item,
             retryCount: item.retryCount + 1,
@@ -335,6 +371,10 @@ export async function flushSyncQueue(
         }
         failed++;
       }
+    }
+
+    if (localUpdated && localTxs.length > 0) {
+      await saveOfflineTransactions(userId, localTxs, true);
     }
 
     await AsyncStorage.setItem(getQueueKey(userId), JSON.stringify(remainingQueue));

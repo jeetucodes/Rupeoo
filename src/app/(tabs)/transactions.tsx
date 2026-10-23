@@ -20,6 +20,7 @@ import { Image as ExpoImage } from 'expo-image';
 import { useFocusEffect, useRouter } from 'expo-router';
 import {
   getAllTransactions,
+  getCachedTransactionsSync,
   sortTransactionsRecentFirst,
   getUserCategories,
   CategoryItem,
@@ -56,12 +57,23 @@ const formatCashflow = (amount: number) => {
 };
 
 const getPaymentModeMeta = (modeName: string) => {
-  const m = (modeName || '').toLowerCase();
-  if (m.includes('upi')) return { label: 'UPI', icon: 'flash', color: '#7C3AED', bg: '#EDE9FE' };
-  if (m.includes('cash')) return { label: 'Cash', icon: 'cash', color: '#16A34A', bg: '#DCFCE7' };
-  if (m.includes('card')) return { label: 'Card', icon: 'card', color: '#2563EB', bg: '#DBEAFE' };
-  if (m.includes('bank')) return { label: 'Bank', icon: 'business', color: '#D97706', bg: '#FEF3C7' };
-  return { label: modeName || 'Cash', icon: 'wallet', color: '#6B7280', bg: '#F3F4F6' };
+  const m = (modeName || '').toLowerCase().trim();
+  if (m.includes('upi') || m.includes('gpay') || m.includes('phonepe') || m.includes('paytm')) {
+    return { label: 'UPI', icon: 'flash', color: '#7C3AED', bg: '#EDE9FE' };
+  }
+  if (m.includes('cash') || m.includes('rokad')) {
+    return { label: 'Cash', icon: 'cash', color: '#16A34A', bg: '#DCFCE7' };
+  }
+  if (m.includes('card') || m.includes('debit') || m.includes('credit')) {
+    return { label: 'Card', icon: 'card', color: '#2563EB', bg: '#DBEAFE' };
+  }
+  if (m.includes('bank') || m.includes('netbanking') || m.includes('net banking') || m.includes('transfer')) {
+    return { label: 'Bank', icon: 'business', color: '#D97706', bg: '#FEF3C7' };
+  }
+  if (!modeName || m === 'unknown' || m === 'not set' || m === 'none') {
+    return { label: 'Not set', icon: 'help-circle-outline', color: '#64748B', bg: '#F1F5F9' };
+  }
+  return { label: modeName, icon: 'wallet', color: '#6B7280', bg: '#F3F4F6' };
 };
 
 const getPieSlicePath = (cx: number, cy: number, radius: number, startAngle: number, endAngle: number) => {
@@ -326,7 +338,7 @@ const TransactionItemRow = React.memo(function TransactionItemRow({
         <View style={styles.txTitleRow}>
           <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 }}>
             <Text style={styles.txMerchantName} numberOfLines={1}>
-              {tx.merchant_name || tx.category || 'Transaction'}
+              {tx.merchant_name || tx.payee || tx.merchant || tx.category || 'Transaction'}
             </Text>
             {hasProof && (
               <View style={styles.proofPill}>
@@ -355,7 +367,7 @@ const TransactionItemRow = React.memo(function TransactionItemRow({
           </View>
 
           <View style={[styles.txModePill, { backgroundColor: pMeta.bg }]}>
-            <PaymentModeIcon mode={tx.payment_mode} size={11} color={pMeta.color} style={{ marginRight: 4 }} />
+            <PaymentModeIcon mode={tx.payment_mode || tx.paymentMode} size={11} color={pMeta.color} style={{ marginRight: 4 }} />
             <Text style={[styles.txModeText, { color: pMeta.color }]}>{pMeta.label}</Text>
           </View>
 
@@ -364,11 +376,11 @@ const TransactionItemRow = React.memo(function TransactionItemRow({
           )}
         </View>
 
-        {Boolean(tx.description && tx.description.trim()) && (
+        {Boolean((tx.description || tx.userNote || tx.note) && String(tx.description || tx.userNote || tx.note).trim()) && (
           <View style={styles.txNoteBox}>
             <Ionicons name="chatbox-ellipses-outline" size={11} color="#94A3B8" style={{ marginRight: 4 }} />
             <Text style={styles.txDescText} numberOfLines={1}>
-              {tx.description}
+              {tx.description || tx.userNote || tx.note}
             </Text>
           </View>
         )}
@@ -413,7 +425,7 @@ const DateGroupCard = React.memo(function DateGroupCard({
       <View style={styles.dateGroupCard}>
         {group.items.map((tx: any, idx: number) => {
           const meta = getCategoryMeta(tx.category);
-          const pMeta = getPaymentModeMeta(tx.payment_mode);
+          const pMeta = getPaymentModeMeta(tx.payment_mode || tx.paymentMode);
           const isLast = idx === group.items.length - 1;
           return (
             <TransactionItemRow
@@ -440,6 +452,9 @@ export default function TransactionsScreen() {
 
   const curr = settings?.currency === 'INR' ? '₹' : (settings?.currency || '₹');
 
+  const cachedInitial = user?.uid ? getCachedTransactionsSync(user.uid) : null;
+  const hasCache = Boolean(cachedInitial && cachedInitial.length > 0);
+
   const [period, setPeriod] = useState<'This Month' | 'Last 3 Months' | 'Last 6 Months' | 'All' | 'Custom'>('This Month');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -447,9 +462,9 @@ export default function TransactionsScreen() {
   const [showEndPicker, setShowEndPicker] = useState(false);
   const [showPeriodModal, setShowPeriodModal] = useState(false);
   const [displayLimit, setDisplayLimit] = useState(20);
-  const [allTransactions, setAllTransactions] = useState<any[]>([]);
+  const [allTransactions, setAllTransactions] = useState<any[]>(() => hasCache ? sortTransactionsRecentFirst(cachedInitial!) : []);
   const [categories, setCategories] = useState<CategoryItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState<boolean>(() => !hasCache);
   const [refreshing, setRefreshing] = useState(false);
   const [breakdownMode, setBreakdownMode] = useState<'bar' | 'line'>('bar');
 
@@ -560,14 +575,16 @@ export default function TransactionsScreen() {
       // 2. Search query filter (matches merchant, description, category, payment mode, amount, date, utr, ref_no)
       if (isSearching) {
         const q = debouncedSearchQuery.toLowerCase().trim();
-        const m = (tx.merchant_name || '').toLowerCase();
-        const d = (tx.description || '').toLowerCase();
+        const m = (tx.merchant_name || tx.payee || tx.merchant || '').toLowerCase();
+        const d = (tx.description || tx.userNote || tx.note || '').toLowerCase();
         const c = (tx.category || '').toLowerCase();
-        const p = (tx.payment_mode || '').toLowerCase();
+        const p = (tx.payment_mode || tx.paymentMode || '').toLowerCase();
         const amt = String(tx.amount || '');
         const dateStr = (tx.date || '').toLowerCase();
         const utr = (tx.utr || '').toLowerCase();
         const refNo = (tx.ref_no || '').toLowerCase();
+        const acc = (tx.accountLast4 || tx.account_last4 || '').toLowerCase();
+        const bnk = (tx.bankName || tx.bank_name || '').toLowerCase();
 
         const matches =
           m.includes(q) ||
@@ -577,7 +594,9 @@ export default function TransactionsScreen() {
           amt.includes(q) ||
           dateStr.includes(q) ||
           utr.includes(q) ||
-          refNo.includes(q);
+          refNo.includes(q) ||
+          acc.includes(q) ||
+          bnk.includes(q);
 
         if (!matches) return false;
       }
@@ -603,7 +622,8 @@ export default function TransactionsScreen() {
 
       // 6. Payment Mode
       if (filterPaymentMode !== 'All') {
-        if ((tx.payment_mode || 'Cash').toLowerCase() !== filterPaymentMode.toLowerCase()) return false;
+        const mode = (tx.payment_mode || tx.paymentMode || '').toLowerCase();
+        if (mode !== filterPaymentMode.toLowerCase()) return false;
       }
 
       return true;

@@ -23,6 +23,7 @@ import {
 import { formatTime12Hour, getLocalDateString, getLocalMonthString } from './dateUtils';
 import {
   getOfflineTransactions,
+  getCachedOfflineTransactionsSync,
   saveOfflineTransactions,
   getOfflineCategories,
   saveOfflineCategories,
@@ -32,7 +33,7 @@ import {
   checkIsOnline,
 } from './offlineSync';
 import { toRemote, fromRemote, normalizePaymentMode, formatPaymentModeDisplay } from './dataMinimization';
-import { isCloudSyncEnabled, pullFromCloud } from './cloudSync';
+import { isCloudSyncEnabled, pullFromCloud, uploadLocalDataToCloud } from './cloudSync';
 import { syncWidgetWithTransactions } from './widgetSync';
 import { flushUdharSyncQueue } from './udharStorage';
 import { formatCurrency } from './formatCurrency';
@@ -206,6 +207,18 @@ export function invalidateAllUserCache(userId?: string) {
   invalidateNotificationsCache(userId);
 }
 
+/**
+ * Returns cached transactions synchronously from memory or pending storage for 0ms initial render.
+ */
+export function getCachedTransactionsSync(userId: string): any[] | null {
+  if (!userId) return null;
+  const mem = memoryCache.transactions.get(userId);
+  if (mem && mem.data && mem.data.length > 0) {
+    return mem.data;
+  }
+  return getCachedOfflineTransactionsSync(userId);
+}
+
 // Transaction Listeners for Instant Cross-Component and Background Sync Updates
 type TxListener = (txs: Transaction[]) => void;
 const txListeners = new Set<TxListener>();
@@ -351,15 +364,18 @@ export async function insertTransaction(userId: string, tx: any, statementId?: n
   // If local & memory cache were both completely empty, attempt remote fetch before saving
   if (txMap.size === 0) {
     try {
-      const q = query(collection(db, `users/${userId}/transactions`), orderBy('date', 'desc'));
-      let snap;
-      try {
-        snap = await getDocs(q);
-      } catch {
-        snap = await getDocs(collection(db, `users/${userId}/transactions`));
-      }
-      for (const d of snap.docs) {
-        txMap.set(d.id, fromRemote({ id: d.id, ...d.data() }));
+      const isOnline = await checkIsOnline();
+      if (isOnline) {
+        const q = query(collection(db, `users/${userId}/transactions`), orderBy('date', 'desc'), limit(100));
+        let snap;
+        try {
+          snap = await getDocs(q);
+        } catch {
+          snap = await getDocs(query(collection(db, `users/${userId}/transactions`), limit(100)));
+        }
+        for (const d of snap.docs) {
+          txMap.set(d.id, fromRemote({ id: d.id, ...d.data() }));
+        }
       }
     } catch {
       // Intentional: offline fallback to local persistent cache
@@ -390,7 +406,7 @@ export async function insertTransaction(userId: string, tx: any, statementId?: n
   });
 
   // 4. Background fire-and-forget sync to Firebase (debounced to protect battery/network)
-  triggerDebouncedSync(userId, 5000);
+  triggerDebouncedSync(userId, 1500);
 
   if ((tx.type || 'debit').toLowerCase() === 'debit') {
     checkAndTriggerBudgetAlert(userId).catch(() => { });
@@ -977,6 +993,7 @@ export async function syncUserOfflineData(userId: string): Promise<void> {
   try {
     await flushSyncQueue(userId, db);
     await flushUdharSyncQueue(userId);
+    await uploadLocalDataToCloud(userId).catch(() => { });
     const remoteData = await syncRemoteTransactions(userId, db);
     if (remoteData && remoteData.length > 0) {
       const sorted = sortTransactionsRecentFirst(remoteData);

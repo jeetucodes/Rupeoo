@@ -1,7 +1,7 @@
 import { AppState, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { warn, log } from './logger';
-import { getSyncQueue } from './offlineSync';
+import { getSyncQueue, getOfflineTransactions } from './offlineSync';
 import { syncUserOfflineData, checkIsOnline } from './database';
 import { pullFromCloud } from './cloudSync';
 
@@ -32,6 +32,7 @@ let isSyncInProgress = false;
 let currentUserId: string | null = null;
 let debouncedTimer: any = null;
 let slowFallbackInterval: any = null;
+let dirtyRetryTimer: any = null;
 let backoffDelayMs = 5000;
 const MAX_BACKOFF_MS = 60000;
 const SLOW_FALLBACK_INTERVAL_MS = 12 * 60 * 1000; // 12 minutes
@@ -45,6 +46,10 @@ async function hasDirtyChanges(userId: string): Promise<boolean> {
     const queue = await getSyncQueue(userId);
     if (queue && queue.length > 0) return true;
 
+    const localTxs = await getOfflineTransactions(userId);
+    const hasPendingLocal = localTxs.some((t) => t.syncStatus === 'pending' || t.syncStatus === 'failed');
+    if (hasPendingLocal) return true;
+
     // Check if cloud sync timestamp is older than slow fallback interval
     const now = Date.now();
     if (now - lastSyncTimestamp >= SLOW_FALLBACK_INTERVAL_MS) {
@@ -54,6 +59,30 @@ async function hasDirtyChanges(userId: string): Promise<boolean> {
     return false;
   } catch {
     return true; // If check fails, run safely
+  }
+}
+
+function startDirtyRetryLoop(userId: string) {
+  if (dirtyRetryTimer || !userId) return;
+  dirtyRetryTimer = setInterval(async () => {
+    if (typeof AppState !== 'undefined' && AppState.currentState !== 'active') return;
+    const dirty = await hasDirtyChanges(userId);
+    if (!dirty) {
+      stopDirtyRetryLoop();
+      return;
+    }
+    const online = await checkIsOnline();
+    if (online) {
+      stopDirtyRetryLoop();
+      await syncNow(userId, true);
+    }
+  }, 5000);
+}
+
+function stopDirtyRetryLoop() {
+  if (dirtyRetryTimer) {
+    clearInterval(dirtyRetryTimer);
+    dirtyRetryTimer = null;
   }
 }
 
@@ -95,6 +124,10 @@ export async function syncNow(userId: string, force = false): Promise<boolean> {
     if (__DEV__) {
       metrics.totalSkipped++;
     }
+    const dirty = await hasDirtyChanges(userId);
+    if (dirty) {
+      startDirtyRetryLoop(userId);
+    }
     return false;
   }
 
@@ -104,10 +137,16 @@ export async function syncNow(userId: string, force = false): Promise<boolean> {
   try {
     // 1. Flush offline sync actions & pull remote data
     await syncUserOfflineData(userId);
-    await pullFromCloud(userId);
+
+    // Only pull full cloud data if local database has 0 transactions (fresh install/re-login)
+    const localTxs = await getOfflineTransactions(userId);
+    if (localTxs.length === 0) {
+      await pullFromCloud(userId, undefined, { silent: true });
+    }
 
     lastSyncTimestamp = Date.now();
     backoffDelayMs = 5000; // Reset backoff on success
+    stopDirtyRetryLoop();
 
     if (__DEV__) {
       metrics.totalRuns++;
@@ -124,6 +163,10 @@ export async function syncNow(userId: string, force = false): Promise<boolean> {
 
     // Exponential backoff capped at 60 seconds
     backoffDelayMs = Math.min(backoffDelayMs * 2, MAX_BACKOFF_MS);
+    const dirty = await hasDirtyChanges(userId);
+    if (dirty) {
+      startDirtyRetryLoop(userId);
+    }
     return false;
   } finally {
     isSyncInProgress = false;
@@ -131,9 +174,9 @@ export async function syncNow(userId: string, force = false): Promise<boolean> {
 }
 
 /**
- * Debounced trigger after local writes (debounces rapid local edits ~5s).
+ * Debounced trigger after local writes (debounces rapid local edits ~1.5s).
  */
-export function triggerDebouncedSync(userId: string, delayMs = 5000): void {
+export function triggerDebouncedSync(userId: string, delayMs = 1500): void {
   if (!userId) return;
 
   if (debouncedTimer) {
@@ -181,17 +224,29 @@ export function initSyncEngine(userId: string): () => void {
     }
   });
 
+  // 4. Web online event listener
+  const onWebOnline = () => {
+    syncNow(userId, true).catch(() => {});
+  };
+  if (typeof window !== 'undefined' && window.addEventListener) {
+    window.addEventListener('online', onWebOnline);
+  }
+
   return () => {
     clearTimeout(initialTimer);
     if (slowFallbackInterval) {
       clearInterval(slowFallbackInterval);
       slowFallbackInterval = null;
     }
+    stopDirtyRetryLoop();
     if (debouncedTimer) {
       clearTimeout(debouncedTimer);
       debouncedTimer = null;
     }
     appStateSub.remove();
+    if (typeof window !== 'undefined' && window.removeEventListener) {
+      window.removeEventListener('online', onWebOnline);
+    }
     currentUserId = null;
   };
 }
