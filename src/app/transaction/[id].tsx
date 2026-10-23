@@ -19,6 +19,7 @@ import {
   Easing,
   NativeModules,
   Linking,
+  AppState,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image as ExpoImage } from 'expo-image';
@@ -245,8 +246,22 @@ export default function TransactionDetailScreen() {
         }),
       ])
     );
-    loop.start();
-    return () => loop.stop();
+    if (AppState.currentState === 'active') {
+      loop.start();
+    }
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        loop.start();
+      } else {
+        loop.stop();
+        bgAnim.setValue(0);
+      }
+    });
+    return () => {
+      sub.remove();
+      loop.stop();
+      bgAnim.setValue(0);
+    };
   }, [bgAnim]);
 
   useEffect(() => {

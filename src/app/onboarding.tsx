@@ -19,6 +19,7 @@ import Animated, {
   useAnimatedStyle,
   withRepeat,
   withTiming,
+  cancelAnimation,
   Easing,
 } from 'react-native-reanimated';
 import { requestNotificationPermissions } from '@/lib/notifications';
@@ -50,7 +51,7 @@ const SLIDES = [
     id: '3',
     titlePrefix: '100% ',
     titleHighlight: 'Private',
-    description: 'Your data stays on your device.\nSafe and secure.',
+    description: 'Encrypted cloud backup & privacy.\nSafe and secure.',
     image: require('@/assets/images/onboarding_private.png'),
     buttonText: 'Next: Auto-Add Setup',
   },
@@ -78,6 +79,11 @@ export default function OnboardingScreen() {
       -1,
       true
     );
+
+    return () => {
+      cancelAnimation(floatAnim1);
+      cancelAnimation(floatAnim2);
+    };
   }, []);
 
   const animatedBlob1 = useAnimatedStyle(() => ({

@@ -1,11 +1,12 @@
 import * as Notifications from 'expo-notifications';
-import { Platform } from 'react-native';
+import { Platform, AppState } from 'react-native';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createNotification } from './database';
 import { db } from './firebase';
 import { doc, serverTimestamp, setDoc, collection, query, where, onSnapshot } from 'firebase/firestore';
 import { warn } from '@/lib/logger';
+import { safeJsonParse } from './safeStorage';
 import {
   isMasterNotificationsEnabled,
   setMasterNotificationsEnabled,
@@ -18,18 +19,37 @@ import {
   CHANNEL_DAILY_REMINDERS,
 } from '@/features/notifications';
 
-// Re-export new notification system
+// Re-export new notification system & welcome notification system
 export * from '@/features/notifications';
+export * from './welcomeNotification';
+import {
+  evaluateWelcomeNotificationPresentation,
+  scheduleWelcomeNotification,
+} from './welcomeNotification';
 
-// Configure foreground notification presentation
+// Configure foreground notification presentation with Welcome notification guards
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  } as any),
+  handleNotification: async (notification) => {
+    // Fire-time guard for welcome-notification
+    const welcomeEval = await evaluateWelcomeNotificationPresentation(notification);
+    if (welcomeEval.handled && !welcomeEval.shouldShow) {
+      return {
+        shouldShowAlert: false,
+        shouldPlaySound: false,
+        shouldSetBadge: false,
+        shouldShowBanner: false,
+        shouldShowList: false,
+      } as any;
+    }
+
+    return {
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    } as any;
+  },
 });
 
 const DELIVERED_PUSH_KEY = '@rupeo_delivered_push_ids_v1';
@@ -72,10 +92,22 @@ export async function requestNotificationPermissions(): Promise<boolean> {
   }
 }
 
+let activeNotificationWatcherUnsub: (() => void) | null = null;
+
+export function stopRealtimeNotificationWatcher() {
+  if (activeNotificationWatcherUnsub) {
+    try {
+      activeNotificationWatcherUnsub();
+    } catch {}
+    activeNotificationWatcherUnsub = null;
+  }
+}
+
 /**
  * Real-time watcher that listens to new admin_notifications and personal notifications in Firestore.
  */
 export function startRealtimeNotificationWatcher(userId?: string) {
+  stopRealtimeNotificationWatcher();
   if (Platform.OS === 'web') return () => {};
 
   let isMounted = true;
@@ -86,7 +118,7 @@ export function startRealtimeNotificationWatcher(userId?: string) {
       if (!isMounted || !notifId) return;
 
       const rawDelivered = await AsyncStorage.getItem(DELIVERED_PUSH_KEY);
-      const deliveredList: string[] = rawDelivered ? JSON.parse(rawDelivered) : [];
+      const deliveredList = safeJsonParse<string[]>(rawDelivered, [], DELIVERED_PUSH_KEY, (v) => Array.isArray(v));
       const deliveredSet = new Set(deliveredList);
 
       if (deliveredSet.has(notifId)) {
@@ -130,50 +162,80 @@ export function startRealtimeNotificationWatcher(userId?: string) {
     }
   };
 
-  // 1. Watch global admin_notifications collection
-  try {
-    const adminQuery = query(
-      collection(db, 'admin_notifications'),
-      where('active', '==', true)
-    );
-    const unsubAdmin = onSnapshot(adminQuery, (snapshot) => {
-      snapshot.docChanges().forEach((change) => {
-        if (change.type === 'added' || change.type === 'modified') {
-          handleIncomingNotification(change.doc.id, change.doc.data());
-        }
-      });
-    }, (err) => warn('Admin notification watcher error:', err));
-    unsubs.push(unsubAdmin);
-  } catch (e) {
-    warn('Could not attach admin notification listener:', e);
-  }
+  let activeUnsubs: (() => void)[] = [];
 
-  // 2. Watch personal user notifications collection if logged in
-  if (userId) {
+  const detachListeners = () => {
+    activeUnsubs.forEach((u) => u());
+    activeUnsubs = [];
+  };
+
+  const attachListeners = () => {
+    detachListeners();
+    if (!isMounted || (typeof AppState !== 'undefined' && AppState.currentState !== 'active')) {
+      return;
+    }
+
+    // 1. Watch global admin_notifications collection
     try {
-      const userNotifQuery = query(
-        collection(db, `users/${userId}/notifications`)
+      const adminQuery = query(
+        collection(db, 'admin_notifications'),
+        where('active', '==', true)
       );
-      const unsubUser = onSnapshot(userNotifQuery, (snapshot) => {
+      const unsubAdmin = onSnapshot(adminQuery, (snapshot) => {
         snapshot.docChanges().forEach((change) => {
-          if (change.type === 'added') {
-            const d = change.doc.data();
-            if (!d.isRead && !d.silentPush) {
-              handleIncomingNotification(change.doc.id, d);
-            }
+          if (change.type === 'added' || change.type === 'modified') {
+            handleIncomingNotification(change.doc.id, change.doc.data());
           }
         });
-      }, (err) => warn('User notification watcher error:', err));
-      unsubs.push(unsubUser);
+      }, (err) => warn('Admin notification watcher error:', err));
+      activeUnsubs.push(unsubAdmin);
     } catch (e) {
-      warn('Could not attach user notification listener:', e);
+      warn('Could not attach admin notification listener:', e);
     }
-  }
 
-  return () => {
-    isMounted = false;
-    unsubs.forEach((u) => u());
+    // 2. Watch personal user notifications collection if logged in
+    if (userId) {
+      try {
+        const userNotifQuery = query(
+          collection(db, `users/${userId}/notifications`)
+        );
+        const unsubUser = onSnapshot(userNotifQuery, (snapshot) => {
+          snapshot.docChanges().forEach((change) => {
+            if (change.type === 'added') {
+              const d = change.doc.data();
+              if (!d.isRead && !d.silentPush) {
+                handleIncomingNotification(change.doc.id, d);
+              }
+            }
+          });
+        }, (err) => warn('User notification watcher error:', err));
+        activeUnsubs.push(unsubUser);
+      } catch (e) {
+        warn('Could not attach user notification listener:', e);
+      }
+    }
   };
+
+  attachListeners();
+
+  const appStateSub = AppState.addEventListener('change', (state) => {
+    if (state === 'active') {
+      attachListeners();
+    } else {
+      detachListeners();
+    }
+  });
+
+  const cleanup = () => {
+    isMounted = false;
+    appStateSub.remove();
+    detachListeners();
+    if (activeNotificationWatcherUnsub === cleanup) {
+      activeNotificationWatcherUnsub = null;
+    }
+  };
+  activeNotificationWatcherUnsub = cleanup;
+  return cleanup;
 }
 
 export async function registerDeviceForPushNotifications(userId: string): Promise<string | null> {
@@ -284,40 +346,12 @@ export async function sendLocalPushNotification(
 }
 
 /**
- * Send an immediate Welcome Notification when user signs up, logs in, or verifies email.
+ * Delegates welcome notification scheduling to the new robust one-place scheduling system.
  */
 export async function sendWelcomeNotification(userId?: string): Promise<void> {
-  if (Platform.OS === 'web') return;
-
+  if (Platform.OS === 'web' || !userId) return;
   try {
-    const masterEnabled = await isMasterNotificationsEnabled();
-    if (!masterEnabled) return;
-
-    await setupNotificationChannels();
-
-    const title = 'Welcome to Rupeo 💛';
-    const body = 'Your personal, privacy-first smart expense tracker is ready to go!';
-
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title,
-        body,
-        sound: 'default',
-        priority: Notifications.AndroidNotificationPriority.HIGH,
-        data: { type: 'welcome_notification' },
-        ...(Platform.OS === 'android' ? { channelId: CHANNEL_DAILY_REMINDERS } : {}),
-      },
-      trigger: null,
-    });
-
-    if (userId) {
-      await createNotification(userId, {
-        title,
-        message: body,
-        type: 'system',
-        silentPush: true,
-      }).catch((e) => warn('Could not save welcome notification to DB:', e));
-    }
+    await scheduleWelcomeNotification({ userId });
   } catch (error) {
     warn('sendWelcomeNotification error:', error);
   }

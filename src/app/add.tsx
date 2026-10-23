@@ -16,6 +16,7 @@ import {
   Dimensions,
   BackHandler,
   TouchableWithoutFeedback,
+  AppState,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -224,22 +225,44 @@ export default function AddExpenseScreen() {
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
   const [savedDetails, setSavedDetails] = useState({ amount: '', merchant: '', category: '', paymentMode: '' });
 
-  // Cursor blink animation (disabled on low-end devices to save idle ticks)
+  // Cursor blink animation (disabled on low-end devices and when unfocused/backgrounded to save idle ticks)
   const cursorOpacity = useRef(new Animated.Value(1)).current;
-  useEffect(() => {
-    if (isLowEndDevice()) {
-      cursorOpacity.setValue(1);
-      return;
-    }
-    const blink = Animated.loop(
-      Animated.sequence([
-        Animated.timing(cursorOpacity, { toValue: 0, duration: 500, useNativeDriver: true }),
-        Animated.timing(cursorOpacity, { toValue: 1, duration: 500, useNativeDriver: true }),
-      ])
-    );
-    blink.start();
-    return () => blink.stop();
-  }, [cursorOpacity]);
+  const isScreenFocusedRef = useRef(true);
+
+  useFocusEffect(
+    useCallback(() => {
+      isScreenFocusedRef.current = true;
+      if (isLowEndDevice()) {
+        cursorOpacity.setValue(1);
+        return;
+      }
+      const blink = Animated.loop(
+        Animated.sequence([
+          Animated.timing(cursorOpacity, { toValue: 0, duration: 500, useNativeDriver: true }),
+          Animated.timing(cursorOpacity, { toValue: 1, duration: 500, useNativeDriver: true }),
+        ])
+      );
+      if (AppState.currentState === 'active') {
+        blink.start();
+      }
+
+      const sub = AppState.addEventListener('change', (state) => {
+        if (state === 'active' && isScreenFocusedRef.current) {
+          blink.start();
+        } else {
+          blink.stop();
+          cursorOpacity.setValue(1);
+        }
+      });
+
+      return () => {
+        isScreenFocusedRef.current = false;
+        sub.remove();
+        blink.stop();
+        cursorOpacity.setValue(1);
+      };
+    }, [cursorOpacity])
+  );
 
   // Success Animation refs
   const successScale = useRef(new Animated.Value(0.3)).current;
@@ -421,7 +444,7 @@ export default function AddExpenseScreen() {
       }
 
       const txCat = (tx.category || '').toLowerCase().trim();
-      const rawMerchant = (tx.merchant_name || '').trim();
+      const rawMerchant = (tx.merchant_name || tx.payee || tx.merchant || '').trim();
       if (!rawMerchant) return;
 
       const lower = rawMerchant.toLowerCase();

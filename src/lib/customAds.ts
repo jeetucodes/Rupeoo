@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Linking, Platform } from 'react-native';
+import { Linking, Platform, AppState } from 'react-native';
 import { db } from './firebase';
 import { collection, doc, increment, onSnapshot, query, updateDoc, where } from 'firebase/firestore';
 import * as WebBrowser from 'expo-web-browser';
@@ -60,6 +60,7 @@ const recordedImpressions = new Set<string>();
  */
 export function startCustomAdsListener() {
   if (isListening || !db) return;
+  if (typeof AppState !== 'undefined' && AppState.currentState !== 'active') return;
   isListening = true;
 
   try {
@@ -117,6 +118,21 @@ export function stopCustomAdsListener() {
   adsListeners = [];
 }
 
+// Automatically pause listener in background and resume when active
+if (typeof AppState !== 'undefined') {
+  AppState.addEventListener('change', (state) => {
+    if (state !== 'active') {
+      if (unsubscribeSnapshot) {
+        unsubscribeSnapshot();
+        unsubscribeSnapshot = null;
+      }
+      isListening = false;
+    } else if (adsListeners.length > 0) {
+      startCustomAdsListener();
+    }
+  });
+}
+
 /**
  * React hook to access active custom ads
  */
@@ -137,6 +153,13 @@ export function useCustomAds(): InAppCustomAd[] {
 
     return () => {
       adsListeners = adsListeners.filter((l) => l !== listener);
+      if (adsListeners.length === 0) {
+        if (unsubscribeSnapshot) {
+          unsubscribeSnapshot();
+          unsubscribeSnapshot = null;
+        }
+        isListening = false;
+      }
     };
   }, []);
 

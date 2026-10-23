@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { Animated, ViewStyle, StyleProp, DimensionValue } from 'react-native';
+import { Animated, ViewStyle, StyleProp, DimensionValue, AppState } from 'react-native';
 import { isLowEndDevice } from '@/lib/devicePerf';
 
 interface SkeletonProps {
@@ -38,9 +38,22 @@ export default function Skeleton({
         }),
       ])
     );
-    pulse.start();
+    if (AppState.currentState === 'active') {
+      pulse.start();
+    }
 
-    return () => pulse.stop();
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        pulse.start();
+      } else {
+        pulse.stop();
+      }
+    });
+
+    return () => {
+      sub.remove();
+      pulse.stop();
+    };
   }, [opacityAnim]);
 
   return (

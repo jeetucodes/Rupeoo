@@ -21,6 +21,7 @@ import Animated, {
   useAnimatedStyle,
   withRepeat,
   withTiming,
+  cancelAnimation,
   Easing,
 } from 'react-native-reanimated';
 import {
@@ -68,6 +69,11 @@ export default function OnboardingBatteryStep({
     );
 
     getDeviceManufacturer().then(setManufacturer).catch(() => {});
+
+    return () => {
+      cancelAnimation(floatAnim1);
+      cancelAnimation(floatAnim2);
+    };
   }, []);
 
   const animatedBlob1 = useAnimatedStyle(() => ({

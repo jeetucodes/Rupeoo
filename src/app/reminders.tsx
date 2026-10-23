@@ -22,6 +22,7 @@ import {
   Dimensions,
   Alert,
   useWindowDimensions,
+  AppState,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -549,8 +550,22 @@ export default function RemindersScreen() {
         Animated.timing(fabPulse, { toValue: 1, duration: 1200, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
       ])
     );
-    loop.start();
-    return () => loop.stop();
+    if (AppState.currentState === 'active') {
+      loop.start();
+    }
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        loop.start();
+      } else {
+        loop.stop();
+        fabPulse.setValue(1);
+      }
+    });
+    return () => {
+      sub.remove();
+      loop.stop();
+      fabPulse.setValue(1);
+    };
   }, [fabPulse]);
 
   const loadBills = useCallback(async (forceRefresh = false) => {

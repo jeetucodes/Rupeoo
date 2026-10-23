@@ -34,6 +34,7 @@ import Animated, {
   useAnimatedStyle,
   withRepeat,
   withTiming,
+  cancelAnimation,
   Easing,
 } from 'react-native-reanimated';
 import { isListenerEnabled, openListenerSettings } from './nativeModule';
@@ -95,6 +96,11 @@ export default function OnboardingPermissionStep({
       -1,
       true
     );
+
+    return () => {
+      cancelAnimation(floatAnim1);
+      cancelAnimation(floatAnim2);
+    };
   }, [checkStatus]);
 
   // Re-check automatically when user returns from Android Settings
