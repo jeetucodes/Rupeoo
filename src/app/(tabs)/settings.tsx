@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { APP_VERSION } from '@/constants/version';
 import {
   View,
   Text,
@@ -13,6 +14,7 @@ import {
   Modal,
   Switch,
   Share,
+  Clipboard,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,6 +22,7 @@ import { useRouter } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { getCategoryTotals, deleteAllTransactions, saveStartingBalance, saveUserSettings, UserSettings, getAllTransactions, normalizeDate } from '@/lib/database';
 import { syncWidgetWithTransactions } from '@/lib/widgetSync';
+import { updateWelcomeNotificationContentIfPending } from '@/lib/welcomeNotification';
 import { getSyncUdharToDashboardTx, setSyncUdharToDashboardTx, saveLastUsedUpiId } from '@/lib/udharStorage';
 import { validateUpiId } from '@/lib/splitPayment';
 import { getLocalMonthString } from '@/lib/dateUtils';
@@ -56,6 +59,7 @@ import { resetImportHistory } from '@/lib/smsDedupe';
 import { getPendingAlerts } from '@/lib/pendingInbox';
 import { SettingsSection } from '@/components/settings/SettingsSection';
 import { SettingsRow } from '@/components/settings/SettingsRow';
+import { getSyncStatusInfo, SyncStatusInfo, uploadLocalDataToCloud } from '@/lib/cloudSync';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -288,6 +292,57 @@ export default function SettingsScreen() {
   const [isRestoring, setIsRestoring] = useState(false);
   const [showSupportModal, setShowSupportModal] = useState(false);
   const [showReviewModal, setShowReviewModal] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<SyncStatusInfo | null>(null);
+  const [isSyncingNow, setIsSyncingNow] = useState(false);
+
+  const refreshSyncStatus = React.useCallback(async () => {
+    if (!user?.uid) return;
+    try {
+      const status = await getSyncStatusInfo(user.uid);
+      setSyncStatus(status);
+    } catch {}
+  }, [user?.uid]);
+
+  useEffect(() => {
+    refreshSyncStatus();
+  }, [refreshSyncStatus]);
+
+  const handleSyncNow = async () => {
+    if (!user?.uid) return;
+    setIsSyncingNow(true);
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {}
+    try {
+      const res = await uploadLocalDataToCloud(user.uid);
+      await refreshSyncStatus();
+      Toast.show({
+        type: 'success',
+        text1: 'All backed up',
+        text2: `${res.success} transactions synced successfully.`,
+      });
+    } catch (err: any) {
+      Toast.show({
+        type: 'error',
+        text1: 'Sync Failed',
+        text2: err?.message || 'Could not complete sync. Please try again.',
+      });
+    } finally {
+      setIsSyncingNow(false);
+    }
+  };
+
+  const handleVersionLongPress = () => {
+    Clipboard.setString(`Rupeo ${APP_VERSION_DISPLAY}`);
+    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+    Toast.show({
+      type: 'success',
+      text1: 'Copied',
+      text2: `Rupeo ${APP_VERSION_DISPLAY}`,
+      visibilityTime: 2000,
+    });
+  };
+
   const handleOpenPlayStoreReview = async () => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -509,6 +564,7 @@ export default function SettingsScreen() {
       setExportAvailableMonths(sortedMonths);
       setExportMonth(currentM);
       setExportPeriodMode('all');
+      setExportFormat('json');
       setShowExportModal(true);
     } catch (err) {
       console.error('Error preparing export:', err);
@@ -692,6 +748,9 @@ export default function SettingsScreen() {
     setSettings(newSettings);
     try {
       await saveUserSettings(user.uid, newSettings);
+      if (key === 'language') {
+        updateWelcomeNotificationContentIfPending(user.uid, value as string, user.displayName).catch(() => {});
+      }
       syncWidgetWithTransactions(user.uid).catch(() => { });
     } catch (e) {
       console.error(e);
@@ -766,16 +825,6 @@ export default function SettingsScreen() {
     const d = new Date(dateString);
     return d.toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' });
   };
-
-  if (!user) {
-    return (
-      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyStateText}>Please log in to view settings.</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
 
   const getPlanNameDisplay = (planKey?: string) => {
     if (planKey === 'monthly') return '1 Month Pro';
@@ -1029,7 +1078,7 @@ export default function SettingsScreen() {
         keywords: ['logout', 'log out', 'sign out', 'switch account', 'exit'],
       },
     ];
-  }, [t, selectedCurrencyObj, curr, user, settings, openStartingBalanceEditor, openStatementModal, openExportModal]);
+  }, [t, selectedCurrencyObj, curr, user, settings, openStartingBalanceEditor, openStatementModal, openExportModal, handleOpenPlayStoreReview, router]);
 
   const filteredSearchItems = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -1041,6 +1090,16 @@ export default function SettingsScreen() {
         item.keywords.some((k) => k.includes(q))
     );
   }, [searchQuery, searchableItems]);
+
+  if (!user) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyStateText}>Please log in to view settings.</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -1531,6 +1590,32 @@ export default function SettingsScreen() {
 
               {/* 6. SECURITY & PRIVACY */}
               <SettingsSection title="SECURITY & PRIVACY" badge="SAFE" badgeBg="#F0FDFA" badgeColor="#0D9488">
+                {/* BUG 5: Sync Status Row */}
+                <SettingsRow
+                  icon="cloud-upload-outline"
+                  iconBg="#EFF6FF"
+                  iconColor="#2563EB"
+                  label="Sync status"
+                  subtitle={
+                    syncStatus?.lastSyncedTime
+                      ? `Last synced: ${new Date(syncStatus.lastSyncedTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • ${syncStatus.pendingCount} pending`
+                      : `${syncStatus?.pendingCount ?? 0} pending changes`
+                  }
+                  rightElement={
+                    <TouchableOpacity
+                      style={styles.syncNowBtn}
+                      onPress={handleSyncNow}
+                      disabled={isSyncingNow}
+                      activeOpacity={0.7}
+                    >
+                      {isSyncingNow ? (
+                        <ActivityIndicator size="small" color="#2563EB" />
+                      ) : (
+                        <Text style={styles.syncNowBtnText}>Sync now</Text>
+                      )}
+                    </TouchableOpacity>
+                  }
+                />
                 <SettingsRow
                   icon="lock-closed-outline"
                   iconBg="#ECFDF5"
@@ -1650,16 +1735,17 @@ export default function SettingsScreen() {
                 />
               </View>
 
-              {/* Version Footer */}
+              {/* Version Footer (Change 8) */}
               <TouchableOpacity
                 onPress={handleVersionTap}
+                onLongPress={handleVersionLongPress}
                 activeOpacity={0.7}
                 style={styles.versionFooter}
                 accessibilityRole="button"
                 accessibilityLabel="App version diagnostics"
               >
-                <Text style={styles.versionText}>Rupeo Version {APP_VERSION_DISPLAY}</Text>
-                <Text style={styles.versionSubText}>Tap 7 times for diagnostics</Text>
+                <Text style={styles.versionText}>Rupeo {APP_VERSION_DISPLAY}</Text>
+                <Text style={styles.versionSubText}>Tap 7 times for diagnostics • Long press to copy</Text>
               </TouchableOpacity>
             </>
           )}
@@ -2241,7 +2327,7 @@ export default function SettingsScreen() {
             {legalDoc === 'privacy' ? (
               <View style={{ paddingBottom: 50 }}>
                 <Text style={styles.legalTextBold}>Rupeo Privacy Policy</Text>
-                <Text style={styles.legalDateText}>Effective Date: October 22, 2026 | Version 2.1.10</Text>
+                <Text style={styles.legalDateText}>Effective Date: October 22, 2026 | Version {APP_VERSION}</Text>
 
                 <Text style={styles.legalIntroText}>
                   Innovatex Labs ("we", "us", or "our") is committed to protecting your privacy. This Privacy Policy explains how our personal finance and bookkeeping application Rupeo ("App", package: com.innovatexlabs.paisewaise, portal: https://rupeoo.vercel.app/download) collects, uses, protects, and handles your personal and financial information.{'\n\n'}
@@ -2321,7 +2407,7 @@ export default function SettingsScreen() {
             ) : (
               <View style={{ paddingBottom: 50 }}>
                 <Text style={styles.legalTextBold}>Rupeo Terms & Conditions</Text>
-                <Text style={styles.legalDateText}>Effective Date: October 22, 2026 | Version 2.1.10</Text>
+                <Text style={styles.legalDateText}>Effective Date: October 22, 2026 | Version {APP_VERSION}</Text>
 
                 <Text style={styles.legalIntroText}>
                   Please read these Terms & Conditions ("Terms") carefully before using the Rupeo mobile application (package: com.innovatexlabs.paisewaise, portal: https://rupeoo.vercel.app/download) operated by Innovatex Labs ("we", "us", or "our"). By downloading, installing, or using Rupeo, you agree to these Terms.{'\n\n'}
@@ -2406,13 +2492,21 @@ export default function SettingsScreen() {
       <ConfirmDialogModal
         visible={logoutModalVisible}
         title={t('log_out')}
-        message={t('logout_msg')}
-        confirmText={t('log_out')}
+        message="Log out? Data on this phone stays unless you choose Delete local data."
+        confirmText="Keep data & Log out"
+        secondaryText="Delete local data & Log out"
         cancelText={t('cancel')}
         type="warning"
         icon="log-out-outline"
         onConfirm={() => {
           setLogoutModalVisible(false);
+          logout();
+        }}
+        onSecondary={async () => {
+          setLogoutModalVisible(false);
+          if (user?.uid) {
+            await deleteAllTransactions(user.uid);
+          }
           logout();
         }}
         onCancel={() => setLogoutModalVisible(false)}
@@ -4169,5 +4263,21 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#94A3B8',
     marginTop: 3,
+  },
+  syncNowBtn: {
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    minWidth: 72,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  syncNowBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#2563EB',
   },
 });
