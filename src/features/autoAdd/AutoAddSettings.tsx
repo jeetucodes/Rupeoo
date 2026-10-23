@@ -230,6 +230,16 @@ export default function AutoAddSettings() {
             onPress={() => router.push('/pending-inbox')}
           />
 
+          {/* Categorization Rules */}
+          <SettingsRow
+            icon="pricetags"
+            iconBg="#F5F3FF"
+            iconColor="#7C3AED"
+            label="Categorization"
+            subtitle="Manage merchant rules & AI fallback"
+            onPress={() => router.push('/settings/categorization')}
+          />
+
           {/* Notification Access Status */}
           <SettingsRow
             icon="notifications"

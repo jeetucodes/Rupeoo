@@ -14,38 +14,34 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import CategoryIcon from '@/components/CategoryIcon';
 import { defaultCategories } from '@/lib/database';
+import { saveUserRule, getTopCategorySuggestions, normalizeMerchant } from '@/lib/categorizer';
 
 interface CategorySheetProps {
   visible: boolean;
   onClose: () => void;
-  onSelectCategory: (categoryName: string) => void;
+  onSelectCategory: (categoryName: string, applyToAll?: boolean) => void;
   currentCategory?: string | null;
+  merchantName?: string | null;
+  suggestedCategories?: string[];
+  userId?: string;
 }
-
-const TOP_SUGGESTIONS = [
-  'Food',
-  'Groceries',
-  'Dining',
-  'Shopping',
-  'Travel',
-  'Fuel',
-  'Bills',
-  'Utilities',
-  'Health',
-  'Entertainment',
-  'Salary',
-  'Income',
-];
 
 export function CategorySheet({
   visible,
   onClose,
   onSelectCategory,
   currentCategory,
+  merchantName,
+  suggestedCategories,
+  userId,
 }: CategorySheetProps) {
-  const isDark = useColorScheme() === 'dark';
   const [search, setSearch] = useState('');
   const [showAll, setShowAll] = useState(false);
+  const [applyToAll, setApplyToAll] = useState(true);
+
+  const cleanMerchant = useMemo(() => {
+    return normalizeMerchant(merchantName) || merchantName || '';
+  }, [merchantName]);
 
   const filteredCategories = useMemo(() => {
     if (!search.trim()) return defaultCategories;
@@ -53,23 +49,37 @@ export function CategorySheet({
     return defaultCategories.filter((c) => c.name.toLowerCase().includes(q));
   }, [search]);
 
+  // Compute top 5 suggestions tailored to merchant
   const topCategories = useMemo(() => {
-    return defaultCategories.filter((c) => TOP_SUGGESTIONS.includes(c.name));
-  }, []);
+    const list = getTopCategorySuggestions(
+      currentCategory,
+      suggestedCategories && suggestedCategories.length > 0
+        ? suggestedCategories
+        : defaultCategories.map(c => c.name)
+    );
+    return defaultCategories.filter((c) => list.includes(c.name));
+  }, [currentCategory, suggestedCategories]);
 
-  const handleSelect = (name: string) => {
+  const handleSelect = async (name: string) => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } catch { }
-    onSelectCategory(name);
+    } catch {}
+
+    if (cleanMerchant && applyToAll) {
+      try {
+        await saveUserRule(cleanMerchant, name, userId);
+      } catch {}
+    }
+
+    onSelectCategory(name, applyToAll);
     onClose();
   };
 
-  const bgColor = isDark ? '#18191D' : '#FFFFFF';
-  const textColor = isDark ? '#FFFFFF' : '#0F172A';
-  const subtextColor = isDark ? '#94A3B8' : '#64748B';
-  const borderColor = isDark ? '#272A30' : '#E2E8F0';
-  const inputBg = isDark ? '#22252B' : '#F1F5F9';
+  const bgColor = '#FFFFFF';
+  const textColor = '#0F172A';
+  const subtextColor = '#64748B';
+  const borderColor = '#E2E8F0';
+  const inputBg = '#F1F5F9';
 
   return (
     <Modal
@@ -120,6 +130,30 @@ export function CategorySheet({
             )}
           </View>
 
+          {/* Apply to All Merchant Toggle */}
+          {cleanMerchant ? (
+            <TouchableOpacity
+              style={styles.applyToAllRow}
+              onPress={() => setApplyToAll(!applyToAll)}
+              activeOpacity={0.8}
+            >
+              <Ionicons
+                name={applyToAll ? 'checkbox' : 'square-outline'}
+                size={18}
+                color={applyToAll ? '#4F46E5' : '#94A3B8'}
+                style={{ marginRight: 8 }}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.applyToAllTitle}>
+                  Always categorize "{cleanMerchant}" as selected
+                </Text>
+                <Text style={styles.applyToAllSub}>
+                  Saves a learned rule and applies to future transactions
+                </Text>
+              </View>
+            </TouchableOpacity>
+          ) : null}
+
           <ScrollView style={styles.scrollArea} showsVerticalScrollIndicator={false}>
             {/* Top Suggestions (when not actively searching) */}
             {!search.trim() && !showAll && (
@@ -134,13 +168,7 @@ export function CategorySheet({
                         style={[
                           styles.categoryCard,
                           {
-                            backgroundColor: isSelected
-                              ? isDark
-                                ? '#312E81'
-                                : '#EEF2FF'
-                              : isDark
-                              ? '#22252B'
-                              : '#F8FAFC',
+                            backgroundColor: isSelected ? '#EEF2FF' : '#F8FAFC',
                             borderColor: isSelected ? '#6366F1' : borderColor,
                           },
                         ]}
@@ -199,13 +227,7 @@ export function CategorySheet({
                         style={[
                           styles.categoryCard,
                           {
-                            backgroundColor: isSelected
-                              ? isDark
-                                ? '#312E81'
-                                : '#EEF2FF'
-                              : isDark
-                              ? '#22252B'
-                              : '#F8FAFC',
+                            backgroundColor: isSelected ? '#EEF2FF' : '#F8FAFC',
                             borderColor: isSelected ? '#6366F1' : borderColor,
                           },
                         ]}
@@ -341,5 +363,27 @@ const styles = StyleSheet.create({
   moreBtnText: {
     fontSize: 13,
     fontWeight: '700',
+  },
+  applyToAllRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EEF2FF',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: 10,
+    marginBottom: 4,
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+  },
+  applyToAllTitle: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#312E81',
+  },
+  applyToAllSub: {
+    fontSize: 10.5,
+    color: '#6366F1',
+    marginTop: 1,
   },
 });

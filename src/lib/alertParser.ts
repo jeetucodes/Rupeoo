@@ -35,6 +35,8 @@ export interface ParsedAlert {
   sender: string;
 }
 
+import { classifyTransaction } from './categorizer.ts';
+
 // ---------------------------------------------------------------------------
 // Known Indian Financial Entities & Bank DLT Code Mapping
 // ---------------------------------------------------------------------------
@@ -710,7 +712,18 @@ export function categorizeTransaction(
     }
   }
 
-  // Check standard dictionary
+  // Use Layered Categorizer (Brand Dictionary, Keyword Rules, UPI MCC, etc.)
+  if (merchantNorm) {
+    const classified = classifyTransaction(merchantNorm, {
+      type,
+      channel,
+    });
+    if (classified.isAutoAssigned && classified.category !== 'Uncategorized') {
+      return classified.category;
+    }
+  }
+
+  // Check legacy dictionary as safety net
   if (merchantNorm) {
     const lowerM = merchantNorm.toLowerCase();
     for (const [key, cat] of Object.entries(MERCHANT_CATEGORY_MAP)) {
@@ -720,7 +733,7 @@ export function categorizeTransaction(
     }
   }
 
-  return 'Others';
+  return 'Uncategorized';
 }
 
 /**

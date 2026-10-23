@@ -235,6 +235,7 @@ export async function runSmsImport(
     // Decision: Auto-add vs Pending Inbox
     const shouldAutoAdd =
       parsed.confidence >= 0.9 &&
+      parsed.category !== 'Uncategorized' &&
       !settings.reviewBeforeAdding &&
       settings.autoAddEnabled;
 
@@ -250,7 +251,8 @@ export async function runSmsImport(
         category: parsed.category,
         merchant_name: parsed.merchantNormalized || parsed.merchant || null,
         description: formattedNote,
-        payment_mode: parsed.channel === 'card' ? 'Card' : parsed.channel === 'ATM' ? 'Cash' : 'UPI',
+        payment_mode: 'UPI',
+        paymentMode: 'UPI',
         ref_no: parsed.refNo,
         utr: parsed.refNo,
         date: dateStr,
@@ -277,7 +279,7 @@ export async function runSmsImport(
             bankName: parsed.sender || 'Bank Alert',
             accountLast4: parsed.accountLast4,
             date: timestamp,
-            channel: parsed.channel,
+            channel: 'UPI',
             status: 'added',
             rawText: parsed.rawText,
           });
@@ -285,8 +287,8 @@ export async function runSmsImport(
       } catch (err) {
         warn('Error auto-adding transaction:', err);
       }
-    } else if (parsed.confidence >= 0.6 || settings.reviewBeforeAdding) {
-      // Medium/Low confidence or user requested review: send to Pending Inbox
+    } else if (parsed.confidence >= 0.6 || settings.reviewBeforeAdding || parsed.category === 'Uncategorized') {
+      // Medium/Low confidence or user requested review or Uncategorized: send to Pending Inbox
       const addedToInbox = await addPendingAlert(userId, {
         id: `pending_${payKey}`,
         payKey,

@@ -628,9 +628,24 @@ export default function PendingInboxScreen() {
         visible={!!categoryDraft}
         onClose={() => setCategoryDraft(null)}
         currentCategory={categoryDraft?.category ?? undefined}
-        onSelectCategory={(newCat) => {
+        merchantName={categoryDraft?.merchant}
+        userId={user?.uid}
+        onSelectCategory={(newCat, applyToAll) => {
           if (categoryDraft) {
             handleSaveDraftEdit(categoryDraft.id, { category: newCat });
+            if (applyToAll && categoryDraft.merchant) {
+              const targetNorm = categoryDraft.merchant.trim().toLowerCase();
+              alerts.forEach((alertItem) => {
+                const mName = alertItem.alert.merchantNormalized || alertItem.alert.merchant;
+                if (
+                  alertItem.id !== categoryDraft.id &&
+                  mName &&
+                  mName.trim().toLowerCase() === targetNorm
+                ) {
+                  handleSaveDraftEdit(alertItem.id, { category: newCat });
+                }
+              });
+            }
           }
         }}
       />

@@ -310,7 +310,7 @@ export default function SmsImportScreen() {
 
   // Inline Draft Edit
   const handleSaveDraftEdit = (id: string, updated: Partial<DraftItemLike>) => {
-    updateDraft(id, updated);
+    updateDraft(id, updated as Partial<DraftTransactionItem>);
     setHasEdits(true);
   };
 
@@ -620,9 +620,23 @@ export default function SmsImportScreen() {
         visible={!!activeCategoryDraft}
         onClose={() => setActiveCategoryDraft(null)}
         currentCategory={activeCategoryDraft?.category}
-        onSelectCategory={(newCat) => {
+        merchantName={activeCategoryDraft?.merchant}
+        userId={user?.uid}
+        onSelectCategory={(newCat, applyToAll) => {
           if (activeCategoryDraft) {
             updateDraft(activeCategoryDraft.id, { category: newCat });
+            if (applyToAll && activeCategoryDraft.merchant) {
+              const targetNorm = activeCategoryDraft.merchant.trim().toLowerCase();
+              drafts.forEach((d) => {
+                if (
+                  d.id !== activeCategoryDraft.id &&
+                  d.merchant &&
+                  d.merchant.trim().toLowerCase() === targetNorm
+                ) {
+                  updateDraft(d.id, { category: newCat });
+                }
+              });
+            }
             setHasEdits(true);
           }
         }}

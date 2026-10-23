@@ -52,6 +52,8 @@ import Skeleton from '@/components/Skeleton';
 import ScannableBarcode from '@/components/ScannableBarcode';
 import ReceiptPaymentMethodBadge from '@/components/ReceiptPaymentMethodBadge';
 import { getDisplayTransactionNote } from '@/lib/smsSettings';
+import { formatPaymentModeDisplay } from '@/lib/dataMinimization';
+import { CategorySheet } from '@/features/import/components/CategorySheet';
 import { warn, error } from '@/lib/logger';
 
 function formatDisplayDate(rawDate?: string): string {
@@ -141,6 +143,7 @@ export default function TransactionDetailScreen() {
   const scrollViewRef = useRef<ScrollView>(null);
   const [categories, setCategories] = useState<CategoryItem[]>([]);
   const [linkedBillId, setLinkedBillId] = useState<string | null>(null);
+  const [showCategorySheet, setShowCategorySheet] = useState(false);
 
   const handleUnlinkBill = () => {
     if (!linkedBillId || !user?.uid || !id) return;
@@ -308,12 +311,14 @@ export default function TransactionDetailScreen() {
         if (tx) {
           setType(tx.type === 'credit' ? 'credit' : 'debit');
           setAmount(tx.amount?.toString() || '');
-          setMerchant(tx.merchant_name || '');
-          setDescription(tx.description || '');
+          setMerchant(tx.merchant_name || tx.payee || tx.merchant || '');
+          setDescription(tx.description || tx.userNote || tx.note || '');
           setDate(tx.date || getLocalDateString());
           setTime(tx.time || '');
           setCategory(tx.category || 'Food');
-          setPaymentMode(tx.payment_mode || 'Cash');
+          const rawPm = tx.payment_mode || tx.paymentMode;
+          const displayPm = formatPaymentModeDisplay(rawPm);
+          setPaymentMode(displayPm !== 'Not set' ? displayPm : 'Not set');
           setReceiptImage(tx.receipt_image || tx.receiptImage || null);
           setLinkedBillId((tx as any)?.billId || null);
 
@@ -414,10 +419,14 @@ export default function TransactionDetailScreen() {
         amount: parsedAmount,
         type,
         merchant_name: merchant.trim(),
+        payee: merchant.trim(),
         description: description.trim(),
+        userNote: description.trim(),
+        note: description.trim(),
         date,
         category,
         payment_mode: paymentMode,
+        paymentMode: paymentMode,
         receipt_image: receiptImage || null,
       });
 
@@ -861,7 +870,13 @@ export default function TransactionDetailScreen() {
                     </View>
 
                     {/* CATEGORY ROW */}
-                    <View style={styles.slipRow}>
+                    <TouchableOpacity
+                      style={styles.slipRow}
+                      onPress={() => setShowCategorySheet(true)}
+                      activeOpacity={0.7}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Change category from ${category}`}
+                    >
                       <Text style={styles.slipRowLabel}>CATEGORY</Text>
                       <View style={styles.slipRowValueContainer}>
                         <CategoryIcon
@@ -871,8 +886,9 @@ export default function TransactionDetailScreen() {
                           color={catObj?.color || '#3B82F6'}
                         />
                         <Text style={styles.slipRowValue}>{category}</Text>
+                        <Ionicons name="chevron-forward" size={13} color="#94A3B8" style={{ marginLeft: 3 }} />
                       </View>
-                    </View>
+                    </TouchableOpacity>
 
                     {/* PAYMENT MODE ROW */}
                     <View style={styles.slipRow}>
@@ -1161,24 +1177,29 @@ export default function TransactionDetailScreen() {
               <View style={styles.formGroup}>
                 <Text style={styles.inputLabel}>Payment Mode</Text>
                 <View style={styles.modeRow}>
-                  {PAYMENT_MODES.map(pm => (
-                    <TouchableOpacity
-                      key={pm.id}
-                      style={[styles.modeChip, paymentMode === pm.id && styles.modeChipActive]}
-                      onPress={() => setPaymentMode(pm.id)}
-                      activeOpacity={0.7}
-                    >
-                      <PaymentModeIcon
-                        mode={pm.id}
-                        size={14}
-                        color={paymentMode === pm.id ? '#1C1C1E' : pm.color}
-                        style={{ marginRight: 4 }}
-                      />
-                      <Text style={[styles.modeChipText, paymentMode === pm.id && styles.modeChipTextActive]}>
-                        {pm.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+                  {PAYMENT_MODES.map(pm => {
+                    const isSelected =
+                      (paymentMode && paymentMode.toLowerCase() === pm.id.toLowerCase()) ||
+                      (pm.id === 'Bank' && paymentMode && (paymentMode.toLowerCase() === 'net banking' || paymentMode.toLowerCase() === 'netbanking'));
+                    return (
+                      <TouchableOpacity
+                        key={pm.id}
+                        style={[styles.modeChip, isSelected && styles.modeChipActive]}
+                        onPress={() => setPaymentMode(pm.id)}
+                        activeOpacity={0.7}
+                      >
+                        <PaymentModeIcon
+                          mode={pm.id}
+                          size={14}
+                          color={isSelected ? '#1C1C1E' : pm.color}
+                          style={{ marginRight: 4 }}
+                        />
+                        <Text style={[styles.modeChipText, isSelected && styles.modeChipTextActive]}>
+                          {pm.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
               </View>
 
@@ -1335,6 +1356,31 @@ export default function TransactionDetailScreen() {
         loading={deleting}
         onConfirm={confirmDelete}
         onCancel={() => setDeleteConfirmVisible(false)}
+      />
+
+      {/* CATEGORY BOTTOM SHEET */}
+      <CategorySheet
+        visible={showCategorySheet}
+        onClose={() => setShowCategorySheet(false)}
+        currentCategory={category}
+        merchantName={merchant || description}
+        userId={user?.uid}
+        onSelectCategory={async (newCat, applyToAll) => {
+          setCategory(newCat);
+          if (!isEditing && user?.uid && id) {
+            try {
+              await updateTransaction(user.uid, id, { category: newCat });
+              Toast.show({
+                type: 'success',
+                text1: 'Category Updated',
+                text2: `Changed category to ${newCat}`,
+                visibilityTime: 2000,
+              });
+            } catch (err) {
+              warn('Failed to update category directly:', err);
+            }
+          }
+        }}
       />
     </SafeAreaView>
   );

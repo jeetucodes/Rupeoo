@@ -311,7 +311,7 @@ export async function handleNotificationTask(taskData: NotificationTaskPayload):
         amount: parsed.amount,
         date: dateStr,
         paidAt: Date.now(),
-        paymentMode: parsed.channel === 'card' ? 'Card' : parsed.channel === 'ATM' ? 'Cash' : 'UPI',
+        paymentMode: 'UPI',
       };
 
       // Update bill in SQLite immediately
@@ -320,6 +320,7 @@ export async function handleNotificationTask(taskData: NotificationTaskPayload):
       // Async sync to cloud in background
       recordMatchedBillPayment(activeUserId, billId, txId, parsed.amount, dateStr, nextDueDate, paymentRecord).catch(() => {});
 
+      const detectedMode = 'UPI';
       // Save transaction to local SQLite (expo-sqlite)
       saveTransactionToSQLite({
         id: txId,
@@ -331,8 +332,12 @@ export async function handleNotificationTask(taskData: NotificationTaskPayload):
         accountLast4: parsed.accountLast4,
         refNo: parsed.refNo,
         timestamp: postTime,
-        channel: parsed.channel,
+        channel: 'UPI',
         rawText: messageBody,
+        originalMessage: messageBody,
+        userNote: formattedNote,
+        payment_mode: 'UPI',
+        userId: activeUserId,
         status: 'auto_added',
         billId: matchedBill.id,
         created_at: Date.now(),
@@ -346,7 +351,8 @@ export async function handleNotificationTask(taskData: NotificationTaskPayload):
         category: finalCategory,
         merchant_name: matchedBill.title,
         description: formattedNote,
-        payment_mode: parsed.channel === 'card' ? 'Card' : parsed.channel === 'ATM' ? 'Cash' : 'UPI',
+        payment_mode: 'UPI',
+        paymentMode: 'UPI',
         ref_no: parsed.refNo,
         utr: parsed.refNo,
         date: dateStr,
@@ -409,8 +415,8 @@ export async function handleNotificationTask(taskData: NotificationTaskPayload):
       } catch (notifErr) {
         warn('[HeadlessTask] Failed to post bill notification:', notifErr);
       }
-    } else if (shouldRouteToInboxForBill || mustReview) {
-      // Route to Pending Alerts Inbox
+    } else if (shouldRouteToInboxForBill || mustReview || parsed.category === 'Uncategorized') {
+      // Route to Pending Alerts Inbox (including low-confidence / Uncategorized)
       const pendingId = `pending_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
       const payKey = `${parsed.amount}_${parsed.type}_${notifHash}`;
       const suggestedId = billMatch.suggestedBill?.id || null;
@@ -465,6 +471,7 @@ export async function handleNotificationTask(taskData: NotificationTaskPayload):
       });
       const txId = `auto_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
+      const directMode = 'UPI';
       // Save to local SQLite (single write)
       saveTransactionToSQLite({
         id: txId,
@@ -476,8 +483,12 @@ export async function handleNotificationTask(taskData: NotificationTaskPayload):
         accountLast4: parsed.accountLast4,
         refNo: parsed.refNo,
         timestamp: postTime,
-        channel: parsed.channel,
+        channel: 'UPI',
         rawText: messageBody,
+        originalMessage: messageBody,
+        userNote: formattedNote,
+        payment_mode: 'UPI',
+        userId: activeUserId,
         status: 'auto_added',
         created_at: Date.now(),
       });
@@ -490,7 +501,8 @@ export async function handleNotificationTask(taskData: NotificationTaskPayload):
         category: parsed.category,
         merchant_name: merchantDisplay,
         description: formattedNote,
-        payment_mode: parsed.channel === 'card' ? 'Card' : parsed.channel === 'ATM' ? 'Cash' : 'UPI',
+        payment_mode: 'UPI',
+        paymentMode: 'UPI',
         ref_no: parsed.refNo,
         utr: parsed.refNo,
         date: dateStr,
@@ -531,7 +543,7 @@ export async function handleNotificationTask(taskData: NotificationTaskPayload):
           userId: activeUserId,
         });
 
-        if (parsed.type === 'expense' || parsed.type === 'debit') {
+        if (parsed.type === 'expense') {
           triggerBudgetAlertIfNeeded(parsed.amount, activeUserId).catch(() => {});
         }
 
