@@ -1,0 +1,197 @@
+import { AppState, Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { warn, log } from './logger';
+import { getSyncQueue } from './offlineSync';
+import { syncUserOfflineData, checkIsOnline } from './database';
+import { pullFromCloud } from './cloudSync';
+
+export interface SyncEngineMetrics {
+  totalRuns: number;
+  totalSkipped: number;
+  totalFailures: number;
+  lastRunTimestamp: number | null;
+  lastDurationMs: number | null;
+}
+
+// Dev-only metrics container
+const metrics: SyncEngineMetrics = {
+  totalRuns: 0,
+  totalSkipped: 0,
+  totalFailures: 0,
+  lastRunTimestamp: null,
+  lastDurationMs: null,
+};
+
+export function getSyncEngineMetrics(): SyncEngineMetrics | null {
+  if (!__DEV__) return null;
+  return { ...metrics };
+}
+
+// Single-flight execution lock
+let isSyncInProgress = false;
+let currentUserId: string | null = null;
+let debouncedTimer: any = null;
+let slowFallbackInterval: any = null;
+let backoffDelayMs = 5000;
+const MAX_BACKOFF_MS = 60000;
+const SLOW_FALLBACK_INTERVAL_MS = 12 * 60 * 1000; // 12 minutes
+let lastSyncTimestamp = 0;
+
+/**
+ * Checks if the local database has pending changes that require remote sync.
+ */
+async function hasDirtyChanges(userId: string): Promise<boolean> {
+  try {
+    const queue = await getSyncQueue(userId);
+    if (queue && queue.length > 0) return true;
+
+    // Check if cloud sync timestamp is older than slow fallback interval
+    const now = Date.now();
+    if (now - lastSyncTimestamp >= SLOW_FALLBACK_INTERVAL_MS) {
+      return true;
+    }
+
+    return false;
+  } catch {
+    return true; // If check fails, run safely
+  }
+}
+
+/**
+ * Single-flight core sync function.
+ */
+export async function syncNow(userId: string, force = false): Promise<boolean> {
+  if (!userId) return false;
+
+  // Single-flight lock: never allow parallel overlapping syncs
+  if (isSyncInProgress) {
+    if (__DEV__) {
+      metrics.totalSkipped++;
+    }
+    return false;
+  }
+
+  // Never sync if app is in background
+  if (typeof AppState !== 'undefined' && AppState.currentState !== 'active') {
+    if (__DEV__) {
+      metrics.totalSkipped++;
+    }
+    return false;
+  }
+
+  // Dirty check: skip if nothing changed unless forced
+  if (!force) {
+    const isDirty = await hasDirtyChanges(userId);
+    if (!isDirty) {
+      if (__DEV__) {
+        metrics.totalSkipped++;
+      }
+      return false;
+    }
+  }
+
+  const isOnline = await checkIsOnline();
+  if (!isOnline) {
+    if (__DEV__) {
+      metrics.totalSkipped++;
+    }
+    return false;
+  }
+
+  isSyncInProgress = true;
+  const startTime = Date.now();
+
+  try {
+    // 1. Flush offline sync actions & pull remote data
+    await syncUserOfflineData(userId);
+    await pullFromCloud(userId);
+
+    lastSyncTimestamp = Date.now();
+    backoffDelayMs = 5000; // Reset backoff on success
+
+    if (__DEV__) {
+      metrics.totalRuns++;
+      metrics.lastRunTimestamp = lastSyncTimestamp;
+      metrics.lastDurationMs = Date.now() - startTime;
+    }
+
+    return true;
+  } catch (err) {
+    if (__DEV__) {
+      metrics.totalFailures++;
+    }
+    warn('[SyncEngine] Sync error caught:', err);
+
+    // Exponential backoff capped at 60 seconds
+    backoffDelayMs = Math.min(backoffDelayMs * 2, MAX_BACKOFF_MS);
+    return false;
+  } finally {
+    isSyncInProgress = false;
+  }
+}
+
+/**
+ * Debounced trigger after local writes (debounces rapid local edits ~5s).
+ */
+export function triggerDebouncedSync(userId: string, delayMs = 5000): void {
+  if (!userId) return;
+
+  if (debouncedTimer) {
+    clearTimeout(debouncedTimer);
+  }
+
+  debouncedTimer = setTimeout(() => {
+    debouncedTimer = null;
+    syncNow(userId, true).catch(() => {});
+  }, delayMs);
+}
+
+/**
+ * Initializes the event-driven sync engine for an authenticated user.
+ * Cleanly unbinds on logout or component unmount.
+ */
+export function initSyncEngine(userId: string): () => void {
+  if (!userId) return () => {};
+
+  currentUserId = userId;
+
+  // 1. Initial sync after slight startup delay
+  const initialTimer = setTimeout(() => {
+    syncNow(userId, false).catch(() => {});
+  }, 2500);
+
+  // 2. Slow fallback interval (every 12 minutes only when active)
+  slowFallbackInterval = setInterval(() => {
+    if (typeof AppState !== 'undefined' && AppState.currentState === 'active') {
+      syncNow(userId, false).catch(() => {});
+    }
+  }, SLOW_FALLBACK_INTERVAL_MS);
+
+  // 3. Foreground resume trigger
+  const appStateSub = AppState.addEventListener('change', (nextState) => {
+    if (nextState === 'active') {
+      // App foregrounded: trigger sync
+      syncNow(userId, false).catch(() => {});
+    } else {
+      // App backgrounded: cancel any pending debounced sync
+      if (debouncedTimer) {
+        clearTimeout(debouncedTimer);
+        debouncedTimer = null;
+      }
+    }
+  });
+
+  return () => {
+    clearTimeout(initialTimer);
+    if (slowFallbackInterval) {
+      clearInterval(slowFallbackInterval);
+      slowFallbackInterval = null;
+    }
+    if (debouncedTimer) {
+      clearTimeout(debouncedTimer);
+      debouncedTimer = null;
+    }
+    appStateSub.remove();
+    currentUserId = null;
+  };
+}

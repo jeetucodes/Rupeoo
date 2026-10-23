@@ -31,12 +31,14 @@ import {
   syncRemoteTransactions,
   checkIsOnline,
 } from './offlineSync';
-import { toRemote } from './dataMinimization';
-import { isCloudSyncEnabled } from './cloudSync';
+import { toRemote, fromRemote, normalizePaymentMode, formatPaymentModeDisplay } from './dataMinimization';
+import { isCloudSyncEnabled, pullFromCloud } from './cloudSync';
 import { syncWidgetWithTransactions } from './widgetSync';
 import { flushUdharSyncQueue } from './udharStorage';
 import { formatCurrency } from './formatCurrency';
 import { recordIgnoredPayKey } from './smsDedupe';
+import { safeJsonParse } from './safeStorage';
+import { triggerDebouncedSync } from './syncEngine';
 import {
   saveRecurringBillToSQLite,
   syncRecurringBillsToSQLite,
@@ -277,8 +279,25 @@ export async function insertTransaction(userId: string, tx: any, statementId?: n
   const newDocRef = doc(txsRef);
   const txId = (tx?.id && typeof tx.id === 'string' && tx.id.trim()) ? tx.id.trim() : newDocRef.id;
 
-  const now = new Date();
-  const currentTime12 = formatTime12Hour(now);
+  const rawPayee = tx.merchant_name || tx.payee || tx.merchant || tx.title || null;
+  const rawMode = tx.payment_mode || tx.paymentMode || tx.mode;
+  let payment_mode = rawMode ? normalizePaymentMode(rawMode) : 'unknown';
+
+  const isAutoTx =
+    tx.source === 'notification_listener' ||
+    tx.source === 'sms_inbox' ||
+    tx.source === 'auto' ||
+    tx.status === 'auto_added' ||
+    (typeof txId === 'string' && txId.startsWith('auto_'));
+
+  if (isAutoTx && (payment_mode === 'unknown' || !rawMode)) {
+    payment_mode = 'upi';
+  }
+
+  const userNote = tx.userNote || tx.user_note || tx.description || tx.note || null;
+  const originalMessage = tx.originalMessage || tx.rawText || null;
+  const nowMs = Date.now();
+  const currentTime12 = formatTime12Hour(new Date());
 
   const txPayload = {
     id: txId,
@@ -286,18 +305,28 @@ export async function insertTransaction(userId: string, tx: any, statementId?: n
     time: tx.time ? formatTime12Hour(tx.time) : currentTime12,
     amount: Number(tx.amount) || 0,
     type: (tx.type || 'debit').toLowerCase(),
-    merchant_name: tx.merchant_name || null,
+    merchant_name: rawPayee,
+    payee: rawPayee,
     category: tx.category || 'Others',
-    description: tx.description || null,
+    description: userNote,
+    note: userNote,
+    userNote,
+    originalMessage,
     utr: tx.utr || null,
     ref_no: tx.ref_no || null,
-    payment_mode: tx.payment_mode || 'Cash',
+    payment_mode,
+    paymentMode: payment_mode,
     receipt_image: tx.receipt_image || tx.receiptImage || null,
     balance_after: tx.balance_after ? Number(tx.balance_after) : null,
     source: tx.source || 'manual',
     source_statement_id: statementId || null,
     is_manually_edited: tx.is_manually_edited ? 1 : 0,
-    created_at: tx.created_at ? (getCreatedAtMillis(tx.created_at) || Date.now()) : Date.now(),
+    created_at: tx.created_at ? (getCreatedAtMillis(tx.created_at) || nowMs) : nowMs,
+    updatedAt: nowMs,
+    updated_at: nowMs,
+    syncedAt: null,
+    syncStatus: 'pending',
+    deleted: 0,
     sourceHash: tx.sourceHash || null,
     payKey: tx.payKey || null,
     batchId: tx.batchId || null,
@@ -328,7 +357,7 @@ export async function insertTransaction(userId: string, tx: any, statementId?: n
         snap = await getDocs(collection(db, `users/${userId}/transactions`));
       }
       for (const d of snap.docs) {
-        txMap.set(d.id, { id: d.id, ...d.data() });
+        txMap.set(d.id, fromRemote({ id: d.id, ...d.data() }));
       }
     } catch {
       // Intentional: offline fallback to local persistent cache
@@ -358,8 +387,8 @@ export async function insertTransaction(userId: string, tx: any, statementId?: n
     payload: txPayload,
   });
 
-  // 4. Background fire-and-forget sync to Firebase
-  flushSyncQueue(userId, db).catch(() => { });
+  // 4. Background fire-and-forget sync to Firebase (debounced to protect battery/network)
+  triggerDebouncedSync(userId, 5000);
 
   if ((tx.type || 'debit').toLowerCase() === 'debit') {
     checkAndTriggerBudgetAlert(userId).catch(() => { });
@@ -388,10 +417,24 @@ export async function updateTransaction(userId: string, txId: string, txData: an
   if (txData.time !== undefined) dataToUpdate.time = txData.time;
   if (txData.amount !== undefined) dataToUpdate.amount = Number(txData.amount) || 0;
   if (txData.type !== undefined) dataToUpdate.type = (txData.type || 'debit').toLowerCase();
-  if (txData.merchant_name !== undefined) dataToUpdate.merchant_name = txData.merchant_name;
+  if (txData.merchant_name !== undefined || txData.payee !== undefined) {
+    const val = txData.merchant_name !== undefined ? txData.merchant_name : txData.payee;
+    dataToUpdate.merchant_name = val;
+    dataToUpdate.payee = val;
+  }
   if (txData.category !== undefined) dataToUpdate.category = txData.category;
-  if (txData.description !== undefined) dataToUpdate.description = txData.description;
-  if (txData.payment_mode !== undefined) dataToUpdate.payment_mode = txData.payment_mode;
+  if (txData.description !== undefined || txData.userNote !== undefined || txData.note !== undefined) {
+    const noteVal = txData.description !== undefined ? txData.description : (txData.userNote !== undefined ? txData.userNote : txData.note);
+    dataToUpdate.description = noteVal;
+    dataToUpdate.userNote = noteVal;
+    dataToUpdate.note = noteVal;
+  }
+  if (txData.payment_mode !== undefined || txData.paymentMode !== undefined) {
+    const rawMode = txData.payment_mode !== undefined ? txData.payment_mode : txData.paymentMode;
+    const modeVal = normalizePaymentMode(rawMode);
+    dataToUpdate.payment_mode = modeVal;
+    dataToUpdate.paymentMode = modeVal;
+  }
   if (txData.receipt_image !== undefined) dataToUpdate.receipt_image = txData.receipt_image;
   if (txData.utr !== undefined) dataToUpdate.utr = txData.utr;
   if (txData.ref_no !== undefined) dataToUpdate.ref_no = txData.ref_no;
@@ -427,8 +470,8 @@ export async function updateTransaction(userId: string, txId: string, txData: an
     payload: dataToUpdate,
   });
 
-  // 3. Background sync
-  flushSyncQueue(userId, db).catch(() => { });
+  // 3. Background sync (debounced to protect battery/network)
+  triggerDebouncedSync(userId, 5000);
 
   import('@/features/notifications').then(({ scheduleNext48h }) => {
     scheduleNext48h(userId).catch(() => {});
@@ -455,7 +498,7 @@ export async function getTransactionById(userId: string, txId: string): Promise<
     const docRef = doc(db, `users/${userId}/transactions`, txId);
     const snap = await getDoc(docRef);
     if (snap.exists()) {
-      return { id: snap.id, ...snap.data() };
+      return fromRemote({ id: snap.id, ...snap.data() });
     }
   } catch (err) {
     warn('getTransactionById offline fallback caught:', err);
@@ -498,24 +541,52 @@ export async function insertTransactionsBatch(
     }
 
     const txsRef = doc(collection(db, `users/${userId}/transactions`));
+    const batchPayee = tx.merchant_name || tx.payee || tx.merchant || tx.title || null;
+    const rawModeBatch = tx.payment_mode || tx.paymentMode || tx.mode;
+    let batchPaymentMode = rawModeBatch ? normalizePaymentMode(rawModeBatch) : 'unknown';
+
+    const isAutoBatch =
+      tx.source === 'notification_listener' ||
+      tx.source === 'sms_inbox' ||
+      tx.source === 'auto' ||
+      tx.status === 'auto_added' ||
+      (typeof tx.id === 'string' && tx.id.startsWith('auto_'));
+
+    if (isAutoBatch && (batchPaymentMode === 'unknown' || !rawModeBatch)) {
+      batchPaymentMode = 'upi';
+    }
+
+    const batchUserNote = tx.userNote || tx.user_note || tx.description || tx.note || null;
+    const batchNow = Date.now();
+
     const txDocData = {
       id: txsRef.id,
       date: normDate,
       time: tx.time || null,
       amount,
       type: (tx.type || 'debit').toLowerCase(),
-      merchant_name: tx.merchant_name || null,
+      merchant_name: batchPayee,
+      payee: batchPayee,
       category: tx.category || 'Others',
-      description: tx.description || null,
+      description: batchUserNote,
+      note: batchUserNote,
+      userNote: batchUserNote,
+      originalMessage: tx.originalMessage || null,
       utr: tx.utr || null,
       ref_no: tx.ref_no || null,
-      payment_mode: tx.payment_mode || 'Cash',
+      payment_mode: batchPaymentMode,
+      paymentMode: batchPaymentMode,
       receipt_image: tx.receipt_image || null,
       balance_after: tx.balance_after ? Number(tx.balance_after) : null,
       source: tx.source || 'statement',
       source_statement_id: statementId || null,
       is_manually_edited: 0,
-      created_at: Date.now(),
+      created_at: batchNow,
+      updatedAt: batchNow,
+      updated_at: batchNow,
+      syncedAt: syncEnabled ? batchNow : null,
+      syncStatus: syncEnabled ? 'synced' : 'pending',
+      deleted: 0,
     };
 
     if (syncEnabled) {
@@ -634,18 +705,18 @@ export async function getAllTransactions(userId: string, forceRefresh = false): 
     return cached.data;
   }
 
-  // 2. If forceRefresh is requested, fetch and await fresh remote data from Firestore
+  // 2. If forceRefresh is requested, fetch fresh data via pullFromCloud
   if (forceRefresh) {
     try {
-      const remoteData = await syncRemoteTransactions(userId, db, true);
-      if (remoteData && remoteData.length > 0) {
-        const sortedRemote = sortTransactionsRecentFirst(remoteData);
+      const pullRes = await pullFromCloud(userId);
+      if (pullRes.transactions && pullRes.transactions.length > 0) {
+        const sortedRemote = sortTransactionsRecentFirst(pullRes.transactions);
         memoryCache.transactions.set(userId, { data: sortedRemote, timestamp: Date.now() });
         notifyTransactionsListeners(sortedRemote);
         return sortedRemote;
       }
     } catch (err) {
-      warn('forceRefresh remote sync error:', err);
+      warn('forceRefresh remote pull error:', err);
     }
   }
 
@@ -668,10 +739,10 @@ export async function getAllTransactions(userId: string, forceRefresh = false): 
     return sorted;
   }
 
-  // 4. If local storage is empty (first app launch), sync from remote Firestore
+  // 4. If local storage is empty (first app launch / re-login / reinstall), pull from remote Firestore
   try {
-    const remoteData = await syncRemoteTransactions(userId, db, true);
-    const sorted = sortTransactionsRecentFirst(remoteData);
+    const pullRes = await pullFromCloud(userId);
+    const sorted = sortTransactionsRecentFirst(pullRes.transactions);
     memoryCache.transactions.set(userId, { data: sorted, timestamp: now });
     notifyTransactionsListeners(sorted);
     return sorted;
@@ -727,8 +798,8 @@ export async function deleteTransaction(userId: string, txId: string) {
     targetId: txId,
   });
 
-  // 3. Background sync
-  flushSyncQueue(userId, db).catch(() => { });
+  // 3. Background sync (debounced to protect battery/network)
+  triggerDebouncedSync(userId, 5000);
 
   import('@/features/notifications').then(({ scheduleNext48h }) => {
     scheduleNext48h(userId).catch(() => {});
@@ -1051,9 +1122,10 @@ export async function getRecurringBills(userId: string, forceRefresh = false): P
 
   let offlineBills: RecurringBill[] = [];
   try {
-    const raw = await AsyncStorage.getItem(OFFLINE_BILLS_KEY(userId));
+    const billsKey = OFFLINE_BILLS_KEY(userId);
+    const raw = await AsyncStorage.getItem(billsKey);
     if (raw) {
-      offlineBills = JSON.parse(raw);
+      offlineBills = safeJsonParse<RecurringBill[]>(raw, [], billsKey, (v) => Array.isArray(v));
     }
   } catch {}
 
@@ -1249,10 +1321,11 @@ export async function getCustomBillProviders(userId: string, forceRefresh = fals
 
   // 1. Check local offline storage
   try {
-    const raw = await AsyncStorage.getItem(CUSTOM_PROVIDERS_KEY(userId));
+    const provKey = CUSTOM_PROVIDERS_KEY(userId);
+    const raw = await AsyncStorage.getItem(provKey);
     if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && !forceRefresh) {
+      const parsed = safeJsonParse<CustomBillProvider[]>(raw, [], provKey, (v) => Array.isArray(v));
+      if (parsed.length > 0 && !forceRefresh) {
         memoryCache.recurringBills.set(`custom_providers_${userId}`, { data: parsed, timestamp: now });
         return parsed;
       }
@@ -1279,8 +1352,9 @@ export async function getCustomBillProviders(userId: string, forceRefresh = fals
   } catch (err) {
     warn('Error fetching custom bill providers:', err);
     try {
-      const raw = await AsyncStorage.getItem(CUSTOM_PROVIDERS_KEY(userId));
-      return raw ? JSON.parse(raw) : [];
+      const provKey = CUSTOM_PROVIDERS_KEY(userId);
+      const raw = await AsyncStorage.getItem(provKey);
+      return raw ? safeJsonParse<CustomBillProvider[]>(raw, [], provKey, (v) => Array.isArray(v)) : [];
     } catch {
       return [];
     }
