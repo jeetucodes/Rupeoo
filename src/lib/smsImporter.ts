@@ -13,7 +13,14 @@ import {
 import { getSmsImportSettings, formatTransactionNote } from './smsSettings.ts';
 import { addPendingAlert } from './pendingInbox.ts';
 import { recordImportBatch, type SmsImportBatch } from './smsBatchUndo.ts';
-import { insertTransaction, normalizeDate, getAllTransactions } from './database.ts';
+import { insertTransaction, updateTransaction, normalizeDate, getAllTransactions } from './database.ts';
+import { updateTransactionInSQLite } from '../features/autoAdd/sqliteStorage.ts';
+import {
+  matchIncomingEvent,
+  registerUnmatchedTransaction,
+  type MatcherEvent,
+  type TransactionSourceRecord,
+} from './crossSourceMatcher.ts';
 import { RawSmsMessage } from './smsReader.ts';
 import { warn } from './logger.ts';
 
@@ -232,6 +239,58 @@ export async function runSmsImport(
       continue;
     }
 
+    // Cross-Source Matcher: Match with existing unmatched transactions from other sources
+    const incomingMatcherEvent: MatcherEvent = {
+      source: 'sms',
+      sender: parsed.sender,
+      amount: parsed.amount,
+      type: parsed.type === 'income' ? 'credit' : 'debit',
+      timestamp,
+      merchant: parsed.merchantNormalized || parsed.merchant,
+      accountLast4: parsed.accountLast4,
+      refNo: parsed.refNo,
+      balanceAfter: parsed.balance !== null ? parsed.balance : undefined,
+      category: parsed.category,
+    };
+
+    const matchResult = await matchIncomingEvent(incomingMatcherEvent);
+    if (
+      matchResult.matched &&
+      matchResult.action === 'enrich' &&
+      matchResult.matchedTxId &&
+      matchResult.enrichedFields
+    ) {
+      const targetTxId = matchResult.matchedTxId;
+      const enriched = matchResult.enrichedFields;
+      // Merged into existing transaction created earlier by bank/UPI notification!
+      try {
+        await updateTransaction(userId, targetTxId, {
+          ...enriched,
+          is_manually_edited: 0,
+        });
+        updateTransactionInSQLite(targetTxId, {
+          refNo: enriched.ref_no,
+          accountLast4: enriched.accountLast4,
+          merchant: enriched.merchant_name,
+          category: enriched.category,
+        });
+      } catch (enrichErr) {
+        warn('Error enriching matched transaction in SMS import:', enrichErr);
+      }
+      result.duplicatesSkipped++;
+      processedBatchHashes.push({ msgHash, nativeId: msg._id });
+      continue;
+    }
+
+    // Initial source record for cross-source provenance tracking
+    const initialSourceRecord: TransactionSourceRecord = {
+      source: 'sms',
+      name: parsed.sender ? `${parsed.sender} SMS` : 'SMS',
+      sender: parsed.sender,
+      timestamp,
+      refNo: parsed.refNo,
+    };
+
     // Decision: Auto-add vs Pending Inbox
     const shouldAutoAdd =
       parsed.confidence >= 0.9 &&
@@ -261,11 +320,14 @@ export async function runSmsImport(
         payKey,
         batchId,
         importedAt: Date.now(),
+        sources: [initialSourceRecord],
+        accountLast4: parsed.accountLast4,
       };
 
       try {
         const createdId = await insertTransaction(userId, txPayload);
         if (createdId) {
+          await registerUnmatchedTransaction(createdId, incomingMatcherEvent);
           result.addedCount++;
           result.createdTxIds.push(createdId);
           existingDocIds.add(createdId);

@@ -331,6 +331,8 @@ export async function insertTransaction(userId: string, tx: any, statementId?: n
     payKey: tx.payKey || null,
     batchId: tx.batchId || null,
     importedAt: tx.importedAt || null,
+    sources: tx.sources || null,
+    accountLast4: tx.accountLast4 || null,
   };
 
   // 2. Gather existing transactions from memory cache AND local persistent storage
@@ -409,7 +411,7 @@ export async function updateTransaction(userId: string, txId: string, txData: an
   if (!userId || !txId) return;
 
   const dataToUpdate: Record<string, any> = {
-    is_manually_edited: 1,
+    is_manually_edited: txData.is_manually_edited !== undefined ? txData.is_manually_edited : 1,
     updated_at: Date.now(),
   };
 
@@ -438,6 +440,9 @@ export async function updateTransaction(userId: string, txId: string, txData: an
   if (txData.receipt_image !== undefined) dataToUpdate.receipt_image = txData.receipt_image;
   if (txData.utr !== undefined) dataToUpdate.utr = txData.utr;
   if (txData.ref_no !== undefined) dataToUpdate.ref_no = txData.ref_no;
+  if (txData.sources !== undefined) dataToUpdate.sources = txData.sources;
+  if (txData.accountLast4 !== undefined) dataToUpdate.accountLast4 = txData.accountLast4;
+  if (txData.balance_after !== undefined) dataToUpdate.balance_after = txData.balance_after;
 
   // 1. Gather existing transactions from memory cache and offline storage
   const cachedList = memoryCache.transactions.get(userId)?.data || [];

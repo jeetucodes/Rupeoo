@@ -20,7 +20,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { safeJsonParse } from '@/lib/safeStorage';
 import { parseAlert, ParsedAlert } from '@/lib/alertParser';
-import { shouldProcessNotification, getFriendlySenderName } from './filter';
+import { shouldProcessNotification, getFriendlySenderName, isUpiOrBankPackage } from './filter';
 import {
   computeNotifHash,
   isNotifAlreadyProcessed,
@@ -35,8 +35,27 @@ import {
   getRecurringBillsFromSQLite,
   markBillPaidInSQLite,
   insertNotifLog,
+  updateTransactionInSQLite,
 } from './sqliteStorage';
-import { insertTransaction, normalizeDate, getOfflineTransactions, recordMatchedBillPayment } from '@/lib/database';
+import {
+  insertTransaction,
+  updateTransaction,
+  normalizeDate,
+  getOfflineTransactions,
+  recordMatchedBillPayment,
+} from '@/lib/database';
+import {
+  isPackageAllowedForAlerts,
+  isLikelyUnknownFinanceApp,
+  recordDetectedFinanceApp,
+} from '@/lib/financeApps';
+import {
+  matchIncomingEvent,
+  registerUnmatchedTransaction,
+  getSourceDisplayName,
+  type MatcherEvent,
+  type TransactionSourceRecord,
+} from '@/lib/crossSourceMatcher';
 import { matchBill, calculateAdvancedDueDate, BillMatchResult } from '@/features/bills/matchBill';
 import { addPendingAlert } from '@/lib/pendingInbox';
 import { getSmsImportSettings, formatTransactionNote, getAutoAddPausedUntil } from '@/lib/smsSettings';
@@ -136,7 +155,46 @@ export async function handleNotificationTask(taskData: NotificationTaskPayload):
 
     log(`[HeadlessTask] Received notification from: ${packageName}`);
 
-    // 2. Strict On-Device Filter Check (package allowlist + financial keywords)
+    // 2. Managed Finance Apps Check (user-editable allowlist & unknown app detection)
+    const isAllowed = await isPackageAllowedForAlerts(packageName);
+    if (!isAllowed) {
+      const friendlySender = getFriendlySenderName(packageName, title);
+      const preParsed = parseAlert(fullText, {
+        sender: friendlySender,
+        timestamp: postTime,
+      });
+      if (
+        !preParsed.isOtpOrPromo &&
+        preParsed.amount &&
+        preParsed.amount > 0 &&
+        isLikelyUnknownFinanceApp(packageName, title || friendlySender, preParsed.confidence)
+      ) {
+        await recordDetectedFinanceApp(packageName, title || friendlySender, fullText);
+        log(`[HeadlessTask] Unknown finance app detected with alert: ${packageName}. Recorded for user approval.`);
+        insertNotifLog({
+          timestamp: postTime,
+          packageName,
+          parsedStatus: 'dropped',
+          reasonSkipped: 'filteredOut',
+          summary: `Detected finance app: ${title || packageName} (pending approval in Settings)`,
+          rawSnippet: fullText,
+        });
+        return;
+      }
+
+      log(`[HeadlessTask] Notification dropped: package not allowed (${packageName})`);
+      insertNotifLog({
+        timestamp: postTime,
+        packageName,
+        parsedStatus: 'dropped',
+        reasonSkipped: 'filteredOut',
+        summary: 'Skipped: package not in Finance Apps allowlist',
+        rawSnippet: fullText,
+      });
+      return;
+    }
+
+    // Strict On-Device Filter Check (reject OTPs, promo, non-financial texts)
     if (!shouldProcessNotification(packageName, fullText)) {
       log(`[HeadlessTask] Notification dropped by on-device filter: ${packageName}`);
       insertNotifLog({
@@ -144,7 +202,7 @@ export async function handleNotificationTask(taskData: NotificationTaskPayload):
         packageName,
         parsedStatus: 'dropped',
         reasonSkipped: 'filteredOut',
-        summary: 'Skipped: not in allowlist or non-financial',
+        summary: 'Skipped: non-financial or OTP/promo',
         rawSnippet: fullText,
       });
       return;
@@ -189,6 +247,71 @@ export async function handleNotificationTask(taskData: NotificationTaskPayload):
       });
       return;
     }
+
+    // 5. Cross-Source Matcher: Match with existing unmatched transactions from other sources
+    const isUpi = isUpiOrBankPackage(packageName);
+    const matcherSource: 'app_notification' | 'upi_app' | 'sms' =
+      packageName.includes('mms') || packageName.includes('messaging')
+        ? 'sms'
+        : (isUpi ? 'upi_app' : 'app_notification');
+
+    const incomingMatcherEvent: MatcherEvent = {
+      source: matcherSource,
+      packageName,
+      sender: friendlySender,
+      amount: parsed.amount,
+      type: parsed.type === 'income' ? 'credit' : 'debit',
+      timestamp: postTime,
+      merchant: parsed.merchantNormalized || parsed.merchant,
+      accountLast4: parsed.accountLast4,
+      refNo: parsed.refNo,
+      balanceAfter: parsed.balance !== null ? parsed.balance : undefined,
+      category: parsed.category,
+    };
+
+    const matchResult = await matchIncomingEvent(incomingMatcherEvent);
+    if (
+      matchResult.matched &&
+      matchResult.action === 'enrich' &&
+      matchResult.matchedTxId &&
+      matchResult.enrichedFields
+    ) {
+      const targetTxId = matchResult.matchedTxId;
+      const enriched = matchResult.enrichedFields;
+      log(`[HeadlessTask] Cross-source match found! Enriching existing transaction: ${targetTxId}`);
+      try {
+        await updateTransaction(activeUserId, targetTxId, {
+          ...enriched,
+          is_manually_edited: 0,
+        });
+        updateTransactionInSQLite(targetTxId, {
+          refNo: enriched.ref_no,
+          accountLast4: enriched.accountLast4,
+          merchant: enriched.merchant_name,
+          category: enriched.category,
+        });
+      } catch (enrichErr) {
+        warn('[HeadlessTask] Error enriching matched transaction:', enrichErr);
+      }
+
+      insertNotifLog({
+        timestamp: postTime,
+        packageName,
+        parsedStatus: 'ok',
+        reasonSkipped: 'saved',
+        summary: `Enriched transaction (${formatCurrency(parsed.amount)}) with ${friendlySender}`,
+        rawSnippet: fullText,
+      });
+      return;
+    }
+
+    const initialSourceRecord: TransactionSourceRecord = {
+      source: matcherSource,
+      name: getSourceDisplayName(incomingMatcherEvent),
+      packageName,
+      timestamp: postTime,
+      refNo: parsed.refNo,
+    };
 
     // 5. Layer 2 Deduplication: Cross-channel matching (Bank app + SMS)
     const crossDedupe = await checkCrossChannelDuplicate(
@@ -362,6 +485,10 @@ export async function handleNotificationTask(taskData: NotificationTaskPayload):
         sourceHash: notifHash,
         billId: matchedBill.id,
         importedAt: Date.now(),
+        sources: [initialSourceRecord],
+        accountLast4: parsed.accountLast4,
+      }).then(() => {
+        registerUnmatchedTransaction(txId, incomingMatcherEvent).catch(() => {});
       }).catch((err) => {
         warn('[HeadlessTask] Error inserting bill transaction into Rupeo database:', err);
       });
@@ -453,6 +580,8 @@ export async function handleNotificationTask(taskData: NotificationTaskPayload):
         createdAt: Date.now(),
       });
 
+      registerUnmatchedTransaction(pendingId, incomingMatcherEvent).catch(() => {});
+
       await recordRecentPayment(parsed.amount, parsed.type, postTime, packageName, pendingId, parsed.refNo, parsed.accountLast4);
 
       insertNotifLog({
@@ -511,6 +640,10 @@ export async function handleNotificationTask(taskData: NotificationTaskPayload):
         source: 'notification_listener',
         sourceHash: notifHash,
         importedAt: Date.now(),
+        sources: [initialSourceRecord],
+        accountLast4: parsed.accountLast4,
+      }).then(() => {
+        registerUnmatchedTransaction(txId, incomingMatcherEvent).catch(() => {});
       }).catch((err) => {
         warn('[HeadlessTask] Error inserting transaction into Rupeo database:', err);
       });

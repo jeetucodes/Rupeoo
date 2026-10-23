@@ -44,6 +44,14 @@ function initDatabaseSchema(db: SQLite.SQLiteDatabase): void {
         rawText TEXT,
         status TEXT,
         billId TEXT,
+        originalMessage TEXT,
+        userNote TEXT,
+        payment_mode TEXT,
+        syncedAt INTEGER,
+        syncStatus TEXT DEFAULT 'pending',
+        updatedAt INTEGER,
+        deleted INTEGER DEFAULT 0,
+        userId TEXT,
         created_at INTEGER NOT NULL
       );
 
@@ -119,6 +127,8 @@ function initDatabaseSchema(db: SQLite.SQLiteDatabase): void {
 
 /**
  * Migration routine: adds columns if upgrading from an older DB version.
+ * Runs inside a transaction, backs up first, verifies counts before/after,
+ * and rolls back if after < before (never drops or destroys data).
  */
 function runSqliteMigrations(db: SQLite.SQLiteDatabase): void {
   try {
@@ -163,6 +173,75 @@ function runSqliteMigrations(db: SQLite.SQLiteDatabase): void {
     if (!txCols.has('billId')) {
       db.execSync('ALTER TABLE auto_added_transactions ADD COLUMN billId TEXT;');
     }
+    if (!txCols.has('originalMessage')) {
+      db.execSync('ALTER TABLE auto_added_transactions ADD COLUMN originalMessage TEXT;');
+    }
+    if (!txCols.has('userNote')) {
+      db.execSync('ALTER TABLE auto_added_transactions ADD COLUMN userNote TEXT;');
+    }
+    if (!txCols.has('payment_mode')) {
+      db.execSync('ALTER TABLE auto_added_transactions ADD COLUMN payment_mode TEXT;');
+    }
+    if (!txCols.has('syncedAt')) {
+      db.execSync('ALTER TABLE auto_added_transactions ADD COLUMN syncedAt INTEGER;');
+    }
+    if (!txCols.has('syncStatus')) {
+      db.execSync("ALTER TABLE auto_added_transactions ADD COLUMN syncStatus TEXT DEFAULT 'pending';");
+    }
+    if (!txCols.has('updatedAt')) {
+      db.execSync('ALTER TABLE auto_added_transactions ADD COLUMN updatedAt INTEGER;');
+    }
+    if (!txCols.has('deleted')) {
+      db.execSync('ALTER TABLE auto_added_transactions ADD COLUMN deleted INTEGER DEFAULT 0;');
+    }
+    if (!txCols.has('userId')) {
+      db.execSync('ALTER TABLE auto_added_transactions ADD COLUMN userId TEXT;');
+    }
+
+    // Bug 4 Safe Migration: separate userNote vs originalMessage inside transaction
+    const countBeforeRow = db.getFirstSync<{ c: number }>('SELECT COUNT(*) as c FROM auto_added_transactions;');
+    const countBefore = countBeforeRow?.c || 0;
+
+    if (countBefore > 0) {
+      db.execSync('BEGIN TRANSACTION;');
+      try {
+        // Backup table first
+        db.execSync(`
+          CREATE TABLE IF NOT EXISTS auto_added_transactions_backup_v2 AS SELECT * FROM auto_added_transactions;
+        `);
+
+        // Populate originalMessage from rawText if originalMessage is empty
+        db.execSync(`
+          UPDATE auto_added_transactions
+          SET originalMessage = rawText
+          WHERE (originalMessage IS NULL OR originalMessage = '') AND rawText IS NOT NULL;
+        `);
+
+        // Ensure auto-added transactions default to UPI payment mode & channel
+        db.execSync(`
+          UPDATE auto_added_transactions
+          SET payment_mode = 'UPI'
+          WHERE payment_mode IS NULL OR payment_mode = 'unknown' OR payment_mode = '';
+        `);
+        db.execSync(`
+          UPDATE auto_added_transactions
+          SET channel = 'UPI'
+          WHERE channel IS NULL OR channel = 'unknown' OR channel = '';
+        `);
+
+        // Verify count after
+        const countAfterRow = db.getFirstSync<{ c: number }>('SELECT COUNT(*) as c FROM auto_added_transactions;');
+        const countAfter = countAfterRow?.c || 0;
+
+        if (countAfter < countBefore) {
+          throw new Error(`Row count decreased in notes/upi migration: before=${countBefore}, after=${countAfter}`);
+        }
+        db.execSync('COMMIT;');
+      } catch (migErr) {
+        db.execSync('ROLLBACK;');
+        warn('[SQLite] Reversible notes migration rolled back safely:', migErr);
+      }
+    }
   } catch (err) {
     warn('[SQLite] Migration error for auto_added_transactions:', err);
   }
@@ -199,6 +278,14 @@ export interface SQLiteTransactionRecord {
   rawText: string;
   status: string;
   billId?: string | null;
+  originalMessage?: string | null;
+  userNote?: string | null;
+  payment_mode?: string | null;
+  syncedAt?: number | null;
+  syncStatus?: string | null;
+  updatedAt?: number | null;
+  deleted?: number | null;
+  userId?: string | null;
   created_at: number;
 }
 
@@ -212,8 +299,8 @@ export function saveTransactionToSQLite(tx: SQLiteTransactionRecord): void {
     if (!db) return;
     db.runSync(
       `INSERT OR REPLACE INTO auto_added_transactions 
-       (id, amount, type, merchant, category, bankName, accountLast4, refNo, timestamp, channel, rawText, status, billId, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+       (id, amount, type, merchant, category, bankName, accountLast4, refNo, timestamp, channel, rawText, status, billId, originalMessage, userNote, payment_mode, syncedAt, syncStatus, updatedAt, deleted, userId, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
       [
         tx.id,
         tx.amount,
@@ -224,16 +311,76 @@ export function saveTransactionToSQLite(tx: SQLiteTransactionRecord): void {
         tx.accountLast4,
         tx.refNo,
         tx.timestamp,
-        tx.channel,
+        tx.channel || 'UPI',
         tx.rawText,
         tx.status,
         tx.billId || null,
+        tx.originalMessage || tx.rawText || null,
+        tx.userNote || null,
+        tx.payment_mode || 'UPI',
+        tx.syncedAt || null,
+        tx.syncStatus || 'pending',
+        tx.updatedAt || Date.now(),
+        tx.deleted ? 1 : 0,
+        tx.userId || null,
         tx.created_at || Date.now(),
       ]
     );
     log('[SQLite] Successfully saved transaction:', tx.id);
   } catch (err) {
     warn('[SQLite] Error saving transaction:', err);
+  }
+}
+
+/**
+ * Updates an existing auto-added transaction in SQLite with enriched fields (refNo, accountLast4, merchant, etc.).
+ */
+export function updateTransactionInSQLite(
+  txId: string,
+  updates: Partial<{
+    refNo: string;
+    accountLast4: string;
+    merchant: string;
+    category: string;
+    userNote: string;
+  }>
+): void {
+  const db = getAutoAddDatabase();
+  if (!db || !txId) return;
+  try {
+    const setClauses: string[] = [];
+    const values: any[] = [];
+    if (updates.refNo !== undefined) {
+      setClauses.push('refNo = ?');
+      values.push(updates.refNo);
+    }
+    if (updates.accountLast4 !== undefined) {
+      setClauses.push('accountLast4 = ?');
+      values.push(updates.accountLast4);
+    }
+    if (updates.merchant !== undefined) {
+      setClauses.push('merchant = ?');
+      values.push(updates.merchant);
+    }
+    if (updates.category !== undefined) {
+      setClauses.push('category = ?');
+      values.push(updates.category);
+    }
+    if (updates.userNote !== undefined) {
+      setClauses.push('userNote = ?');
+      values.push(updates.userNote);
+    }
+    if (setClauses.length === 0) return;
+    setClauses.push('updatedAt = ?');
+    values.push(Date.now());
+    values.push(txId);
+    db.runSync(
+      `UPDATE auto_added_transactions SET ${setClauses.join(', ')} WHERE id = ?;`,
+      values
+    );
+    log('[SQLite] Successfully enriched transaction in SQLite:', txId);
+  } catch (err) {
+    warn('[SQLite] Error updating auto-added transaction in SQLite:', err);
   }
 }
 
