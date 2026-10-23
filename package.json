@@ -69,10 +69,11 @@
     "web": "expo start --web",
     "build": "expo export",
     "export": "expo export",
-    "test": "node --test src/lib/__tests__/voiceParser.test.ts src/lib/__tests__/alertParser.test.ts src/lib/__tests__/smsDedupe.test.ts src/lib/__tests__/bankImport.test.ts src/lib/__tests__/autoAddNotesAndDirectAdd.test.ts src/features/bills/__tests__/matchBill.test.ts src/utils/__tests__/formatCurrency.test.ts src/features/import/__tests__/importHelpers.test.ts src/features/autoAdd/__tests__/useAutoAdd.test.ts src/features/autoAdd/__tests__/dedupeRobustness.test.ts src/features/notifications/__tests__/notifications.test.ts src/lib/__tests__/dataMinimization.test.ts src/lib/__tests__/securityRules.test.ts src/utils/__tests__/appVersion.test.ts src/lib/__tests__/cloudSync.test.ts src/lib/__tests__/welcomeNotification.test.ts src/features/reports/__tests__/dailySpendChart.test.ts src/lib/__tests__/categorizer.test.ts",
+    "test": "node --test src/lib/__tests__/voiceParser.test.ts src/lib/__tests__/alertParser.test.ts src/lib/__tests__/smsDedupe.test.ts src/lib/__tests__/bankImport.test.ts src/lib/__tests__/autoAddNotesAndDirectAdd.test.ts src/features/bills/__tests__/matchBill.test.ts src/utils/__tests__/formatCurrency.test.ts src/features/import/__tests__/importHelpers.test.ts src/features/autoAdd/__tests__/useAutoAdd.test.ts src/features/autoAdd/__tests__/dedupeRobustness.test.ts src/features/notifications/__tests__/notifications.test.ts src/lib/__tests__/dataMinimization.test.ts src/lib/__tests__/securityRules.test.ts src/utils/__tests__/appVersion.test.ts src/lib/__tests__/cloudSync.test.ts src/lib/__tests__/welcomeNotification.test.ts src/features/reports/__tests__/dailySpendChart.test.ts src/lib/__tests__/categorizer.test.ts src/lib/__tests__/crossSourceMatcher.test.ts",
     "check:mojibake": "node scripts/check-mojibake.js",
     "eval:parser": "node scripts/evalParser.mjs",
     "eval:categorizer": "node scripts/evalCategorizer.mjs",
+    "eval:matcher": "node scripts/evalMatcher.mjs",
     "check:images": "python scripts/check-images.py",
     "generate:widgets": "node scripts/generate-widget-previews.js",
     "postinstall": "node scripts/fix-expo-go-modules.js"
