@@ -1,5 +1,5 @@
 import React, { useEffect, useState, Component } from 'react';
-import { Stack, useRouter, useSegments } from 'expo-router';
+import { Stack, useRouter, useSegments, router } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 
 SplashScreen.preventAutoHideAsync().catch(() => { });
@@ -33,7 +33,18 @@ import { isVerificationRequired } from '@/lib/authVerification';
 import { isListenerEnabled, requestRebind } from '@/features/autoAdd/nativeModule';
 import { setupAutoAddNotificationChannel } from '@/features/autoAdd/notifTask';
 import { runMojibakeMigration } from '@/utils/migrateMojibake';
-import { isOfflineModeActive } from '@/lib/cloudSync';
+import { pullFromCloud } from '@/lib/cloudSync';
+import { runBackgroundMigrations, subscribeMigrationStatus, MigrationStatus } from '@/lib/backgroundMigrations';
+import AppShellSkeleton from '@/components/AppShellSkeleton';
+import { warn, error as logError, log } from '@/lib/logger';
+import { initSyncEngine } from '@/lib/syncEngine';
+import { installGlobalErrorHandler, recordCrash } from '@/lib/crashReporting';
+import { StartupRecoveryScreen } from '@/components/StartupRecoveryScreen';
+
+const startupStartTime = Date.now();
+let dbOpenDuration = 0;
+let authDuration = 0;
+let firstRenderDuration = 0;
 
 interface ErrorBoundaryProps {
   children: React.ReactNode;
@@ -56,34 +67,32 @@ class RootErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     logError('RootErrorBoundary caught an unhandled error:', error, errorInfo);
+    recordCrash(error, true, 'root_error_boundary').catch(() => {});
   }
 
   resetError = () => {
     this.setState({ hasError: false, error: null });
+    try {
+      SplashScreen.hideAsync().catch(() => {});
+      const hasSession = Boolean(auth?.currentUser);
+      if (hasSession) {
+        router.replace('/(tabs)/dashboard');
+      } else {
+        router.replace('/login');
+      }
+    } catch (e) {
+      warn('ErrorBoundary recovery navigation warning:', e);
+    }
   };
 
   render() {
     if (this.state.hasError) {
       return (
-        <View style={errorStyles.container}>
-          <View style={errorStyles.card}>
-            <View style={errorStyles.iconContainer}>
-              <Ionicons name="alert-circle" size={44} color="#EF4444" />
-            </View>
-            <Text style={errorStyles.title}>Something went wrong</Text>
-            <Text style={errorStyles.subtitle}>
-              {this.state.error?.message || 'An unexpected runtime error occurred.'}
-            </Text>
-            <TouchableOpacity
-              style={errorStyles.retryButton}
-              onPress={this.resetError}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="refresh" size={18} color="#1C1C1E" style={{ marginRight: 8 }} />
-              <Text style={errorStyles.retryButtonText}>Try Again</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+        <StartupRecoveryScreen
+          onRetry={this.resetError}
+          errorMessage={this.state.error?.message}
+          isWatchdogTriggered={false}
+        />
       );
     }
     return this.props.children;
@@ -94,19 +103,38 @@ import * as Notifications from 'expo-notifications';
 import {
   requestNotificationPermissions,
   registerDeviceForPushNotifications,
-  sendWelcomeNotification,
+  cancelAndDismissWelcomeNotification,
   startRealtimeNotificationWatcher,
   runOneTimeOldNotificationMigration,
   setupNotificationChannels,
   scheduleNext48h,
 } from '@/lib/notifications';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { warn, error as logError } from '@/lib/logger';
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { user, loading, settings, appConfig } = useAuth();
   const segments = useSegments();
   const router = useRouter();
+
+  const [startupTimeout, setStartupTimeout] = useState(false);
+  const [migrationStatus, setMigrationStatus] = useState<MigrationStatus | null>(null);
+  const lastActivePullRef = React.useRef<number>(Date.now());
+  const hasLoggedTimingsRef = React.useRef<boolean>(false);
+
+  // 8-second startup timeout: show recovery fallback instead of blank screen
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setStartupTimeout(true);
+      SplashScreen.hideAsync().catch(() => {});
+      recordCrash(new Error('App startup exceeded 8 seconds watchdog timeout'), false, 'startup_watchdog').catch(() => {});
+    }, 8000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Subscribe to background migration status
+  useEffect(() => {
+    return subscribeMigrationStatus(setMigrationStatus);
+  }, []);
 
   useEffect(() => {
     // Safety timer to prevent splash screen hanging
@@ -117,9 +145,23 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     if (!loading) {
       SplashScreen.hideAsync().catch(() => { });
       clearTimeout(timer);
+      if (authDuration === 0) {
+        authDuration = Date.now() - startupStartTime;
+      }
     }
 
     return () => clearTimeout(timer);
+  }, [loading]);
+
+  // Dev startup timing logging
+  useEffect(() => {
+    if (!loading && !hasLoggedTimingsRef.current) {
+      hasLoggedTimingsRef.current = true;
+      firstRenderDuration = Date.now() - startupStartTime;
+      if (__DEV__) {
+        log(`[StartupTimings] dbOpen: ${dbOpenDuration}ms, auth: ${authDuration}ms, firstRender: ${firstRenderDuration}ms`);
+      }
+    }
   }, [loading]);
 
   useEffect(() => {
@@ -143,7 +185,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     };
   }, [user?.uid]);
 
-  // Automatic background offline data sync with Firebase
+  // Automatic background data sync via event-driven SyncEngine (single-flight, debounced, pauses when backgrounded)
   useEffect(() => {
     if (!user?.uid) return;
 
@@ -153,16 +195,13 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     // Preload friends and udhar into memory cache instantly (<1ms)
     preloadFriendsAndUdhar(user.uid).catch(() => {});
 
-    // 1. Initial sync on startup / login (deferred until interactions finish)
-    const task = InteractionManager.runAfterInteractions(() => {
-      syncUserOfflineData(user.uid).catch(() => { });
-    });
+    // Initialize single-flight, battery-friendly sync engine
+    const stopSyncEngine = initSyncEngine(user.uid);
 
-    // 2. Sync whenever app resumes / comes to foreground
+    // Lifecycle triggers for local non-sync notifications & widget
     const appStateSub = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') {
-        syncUserOfflineData(user.uid).catch(() => { });
-        scheduleNext48h(user.uid).catch(() => { });
+        scheduleNext48h(user.uid).catch(() => {});
         if (Platform.OS === 'android') {
           requestRebind().catch(() => {});
           isListenerEnabled().catch(() => {});
@@ -171,15 +210,14 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     });
 
     return () => {
-      task.cancel();
+      stopSyncEngine();
       appStateSub.remove();
     };
   }, [user?.uid]);
 
-  // Startup: run one-time old notification migration, setup channels & schedule lookahead
+  // Startup: run background migrations in chunks, setup channels & schedule lookahead
   useEffect(() => {
-    runMojibakeMigration().catch(() => {});
-    runOneTimeOldNotificationMigration().catch(() => {});
+    runBackgroundMigrations(user?.uid).catch((e) => warn('[Migration] Background migration error:', e));
     setupNotificationChannels().catch(() => {});
     scheduleNext48h(user?.uid).catch(() => {});
     if (Platform.OS === 'android') {
@@ -280,6 +318,8 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
           router.push('/(tabs)/dashboard');
         }
       } else if (
+        type === 'welcome_notification' ||
+        data?.route === '/add' ||
         type === 'morning' ||
         type === 'morning_with_budget' ||
         type === 'lunch' ||
@@ -322,16 +362,14 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       currentSegment === 'verify-email';
 
     if (!user && !isPublicRoute) {
-      isOfflineModeActive().then((isOffline) => {
-        if (!isOffline) {
-          if (currentSegment === 'quick-add' || currentSegment === 'quick-add-voice' || currentSegment === 'add') {
-            AsyncStorage.setItem('@rupeo_pending_redirect', `/${currentSegment}`).catch(() => {});
-          }
-          router.replace('/login');
-        }
-      }).catch(() => {
-        router.replace('/login');
-      });
+      cancelAndDismissWelcomeNotification().catch(() => {});
+      if (currentSegment === 'quick-add' || currentSegment === 'quick-add-voice' || currentSegment === 'add') {
+        AsyncStorage.setItem('@rupeo_pending_redirect', `/${currentSegment}`).catch(() => {});
+      }
+      router.replace('/login');
+    } else if (!user) {
+      // User is logged out on a public route - ensure pending welcome notification is cancelled & dismissed
+      cancelAndDismissWelcomeNotification().catch(() => {});
     } else if (user) {
       // A9. Gate unverified email/password accounts created after VERIFICATION_CUTOFF
       if (isVerificationRequired(auth?.currentUser)) {
@@ -419,13 +457,64 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     dismissSoftUpdate,
   } = useAppUpdate(appConfig, isNormalScreen);
 
-  if (loading) {
-    return null;
+  if (loading || (migrationStatus?.needsProgressOverlay && migrationStatus.inProgress)) {
+    if (startupTimeout) {
+      SplashScreen.hideAsync().catch(() => {});
+      return (
+        <StartupRecoveryScreen
+          onRetry={() => {
+            setStartupTimeout(false);
+            SplashScreen.hideAsync().catch(() => {});
+            if (user) {
+              router.replace('/(tabs)/dashboard');
+            } else {
+              router.replace('/login');
+            }
+          }}
+          isWatchdogTriggered={true}
+        />
+      );
+    }
+    return (
+      <AppShellSkeleton
+        startupTimeout={startupTimeout}
+        migrationStatus={migrationStatus}
+      />
+    );
   }
 
   // Real-time Maintenance Mode Block
   if (appConfig?.maintenanceMode) {
     return <MaintenanceScreen />;
+  }
+
+  // Auth Guard: If not logged in and on a protected screen, render skeleton while redirecting to /login
+  // This guarantees protected screens never mount or re-render with user = null and never flash a white screen
+  const isPublicRoute =
+    !currentSegment ||
+    currentSegment === 'index' ||
+    currentSegment === 'onboarding' ||
+    currentSegment === 'login' ||
+    currentSegment === 'forgot-password' ||
+    currentSegment === 'starting-balance' ||
+    currentSegment === 'setup' ||
+    currentSegment === 'verify-email';
+
+  if (!user && !isPublicRoute) {
+    if (startupTimeout) {
+      SplashScreen.hideAsync().catch(() => {});
+      return (
+        <StartupRecoveryScreen
+          onRetry={() => {
+            setStartupTimeout(false);
+            SplashScreen.hideAsync().catch(() => {});
+            router.replace('/login');
+          }}
+          isWatchdogTriggered={true}
+        />
+      );
+    }
+    return <AppShellSkeleton />;
   }
 
   return (
@@ -451,7 +540,15 @@ export default function RootLayout() {
   const isTransparentOverlay = currentSegment === 'quick-add-voice';
 
   useEffect(() => {
-    initDatabase().catch((e) => logError('Database init error:', e));
+    installGlobalErrorHandler((err) => {
+      SplashScreen.hideAsync().catch(() => {});
+    });
+
+    initDatabase()
+      .then(() => {
+        dbOpenDuration = Date.now() - startupStartTime;
+      })
+      .catch((e) => logError('Database init error:', e));
 
     // One-time migration: Cancel all previously scheduled routines, bills & quiet hours local notifications
     const CANCEL_MIGRATION_KEY = '@rupeo_cancelled_legacy_scheduled_notifs_v1';
@@ -467,12 +564,12 @@ export default function RootLayout() {
     }).catch(() => {});
 
     const task = InteractionManager.runAfterInteractions(() => {
+      // App start safety check: If no logged-in session, cancel and dismiss welcome notification
+      if (!auth?.currentUser) {
+        cancelAndDismissWelcomeNotification().catch(() => {});
+      }
       requestNotificationPermissions()
-        .then((granted) => {
-          if (granted) {
-            sendWelcomeNotification().catch(() => { });
-          }
-        })
+        .then(() => {})
         .catch((e) => logError('Notification permission error:', e));
     });
     return () => {
@@ -592,76 +689,6 @@ export default function RootLayout() {
     </SafeAreaProvider>
   );
 }
-
-const errorStyles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-    backgroundColor: '#F7F8FC',
-  },
-  card: {
-    width: '100%',
-    maxWidth: 400,
-    backgroundColor: '#ffffff',
-    borderRadius: 28,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    padding: 32,
-    alignItems: 'center',
-    shadowColor: '#000000',
-    shadowOpacity: 0.06,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  iconContainer: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: '#FEF2F2',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: '900',
-    color: '#1C1C1E',
-    marginBottom: 8,
-    textAlign: 'center',
-    letterSpacing: -0.5,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#6B7280',
-    textAlign: 'center',
-    marginBottom: 28,
-    lineHeight: 22,
-    fontWeight: '500',
-  },
-  retryButton: {
-    flexDirection: 'row',
-    backgroundColor: '#FFD740',
-    paddingHorizontal: 28,
-    paddingVertical: 15,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#F59E0B',
-    shadowOpacity: 0.35,
-    shadowOffset: { width: 0, height: 6 },
-    shadowRadius: 12,
-    elevation: 6,
-    width: '100%',
-  },
-  retryButtonText: {
-    fontSize: 16,
-    fontWeight: '900',
-    color: '#1C1C1E',
-  },
-});
 
 const styles = StyleSheet.create({
   appContainer: {
