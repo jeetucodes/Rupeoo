@@ -55,6 +55,7 @@ import ReceiptPaymentMethodBadge from '@/components/ReceiptPaymentMethodBadge';
 import { getDisplayTransactionNote } from '@/lib/smsSettings';
 import { formatPaymentModeDisplay } from '@/lib/dataMinimization';
 import { CategorySheet } from '@/features/import/components/CategorySheet';
+import { formatSourcesDisplay, type TransactionSourceRecord } from '@/lib/crossSourceMatcher';
 import { warn, error } from '@/lib/logger';
 
 function formatDisplayDate(rawDate?: string): string {
@@ -144,6 +145,7 @@ export default function TransactionDetailScreen() {
   const scrollViewRef = useRef<ScrollView>(null);
   const [categories, setCategories] = useState<CategoryItem[]>([]);
   const [linkedBillId, setLinkedBillId] = useState<string | null>(null);
+  const [sources, setSources] = useState<TransactionSourceRecord[]>([]);
   const [showCategorySheet, setShowCategorySheet] = useState(false);
 
   const handleUnlinkBill = () => {
@@ -336,6 +338,7 @@ export default function TransactionDetailScreen() {
           setPaymentMode(displayPm !== 'Not set' ? displayPm : 'Not set');
           setReceiptImage(tx.receipt_image || tx.receiptImage || null);
           setLinkedBillId((tx as any)?.billId || null);
+          setSources(Array.isArray((tx as any)?.sources) ? (tx as any).sources : []);
 
           // Start entrance animations
           setTimeout(() => {
@@ -931,6 +934,19 @@ export default function TransactionDetailScreen() {
                             <Text style={styles.unlinkBillBtnText}>Undo Match</Text>
                           </TouchableOpacity>
                         </View>
+                      </View>
+                    )}
+
+                    {/* CROSS-SOURCE PROVENANCE BADGE (MULTI-SOURCE) */}
+                    {sources && sources.length > 1 && (
+                      <View style={styles.sourcesBox}>
+                        <View style={styles.sourcesHeaderRow}>
+                          <Ionicons name="git-merge" size={13} color="#4F46E5" style={{ marginRight: 5 }} />
+                          <Text style={styles.sourcesHeaderTitle}>CROSS-SOURCE CONFIRMED</Text>
+                        </View>
+                        <Text style={styles.sourcesExplanationText}>
+                          {formatSourcesDisplay(sources)}
+                        </Text>
                       </View>
                     )}
 
@@ -1910,6 +1926,33 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#334155',
     textAlign: 'left',
+  },
+  sourcesBox: {
+    width: '100%',
+    backgroundColor: '#EEF2FF',
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    marginVertical: 8,
+  },
+  sourcesHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 3,
+  },
+  sourcesHeaderTitle: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: '#4F46E5',
+    letterSpacing: 0.5,
+  },
+  sourcesExplanationText: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: '#312E81',
+    lineHeight: 18,
   },
   slipInnerDash: {
     height: 1,

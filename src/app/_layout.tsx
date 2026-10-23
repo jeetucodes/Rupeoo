@@ -655,6 +655,14 @@ export default function RootLayout() {
                     }}
                   />
                   <Stack.Screen
+                    name="settings/finance-apps"
+                    options={{
+                      presentation: 'card',
+                      animation: 'slide_from_right',
+                      contentStyle: { backgroundColor: '#F8FAFC' },
+                    }}
+                  />
+                  <Stack.Screen
                     name="settings/notifications"
                     options={{
                       presentation: 'card',

@@ -39,6 +39,7 @@ import {
 } from './nativeModule';
 import { resetAutoAddDedupeHistory } from './dedupe';
 import { clearSQLiteAutoAddData, setSQLiteSetting } from './sqliteStorage';
+import { getDetectedFinanceApps } from '@/lib/financeApps';
 
 export default function AutoAddSettings() {
   const router = useRouter();
@@ -48,6 +49,7 @@ export default function AutoAddSettings() {
 
   const [settings, setSettings] = useState<SmsImportSettings>(DEFAULT_SMS_SETTINGS);
   const [pendingCount, setPendingCount] = useState<number>(0);
+  const [detectedPendingCount, setDetectedPendingCount] = useState<number>(0);
   const [listenerActive, setListenerActive] = useState<boolean>(false);
   const [batteryIgnored, setBatteryIgnored] = useState<boolean>(false);
   const [manufacturer, setManufacturer] = useState<string>('');
@@ -67,6 +69,11 @@ export default function AutoAddSettings() {
 
     const mfg = await getDeviceManufacturer();
     setManufacturer(mfg);
+
+    getDetectedFinanceApps().then((apps) => {
+      const pending = apps.filter((a) => a.status === 'pending').length;
+      setDetectedPendingCount(pending);
+    }).catch(() => {});
   }, []);
 
   // Initial load
@@ -81,6 +88,10 @@ export default function AutoAddSettings() {
     useCallback(() => {
       checkStatus();
       getPendingAlerts(uid).then((alerts) => setPendingCount(alerts.length)).catch(() => {});
+      getDetectedFinanceApps().then((apps) => {
+        const pending = apps.filter((a) => a.status === 'pending').length;
+        setDetectedPendingCount(pending);
+      }).catch(() => {});
     }, [uid, checkStatus])
   );
 
@@ -238,6 +249,19 @@ export default function AutoAddSettings() {
             label="Categorization"
             subtitle="Manage merchant rules & AI fallback"
             onPress={() => router.push('/settings/categorization')}
+          />
+
+          {/* Finance Apps Allowlist & Detected Apps */}
+          <SettingsRow
+            icon="apps"
+            iconBg="#EEF2FF"
+            iconColor="#4F46E5"
+            label="Finance apps"
+            subtitle="Manage allowed apps & approve detected finance apps"
+            badge={detectedPendingCount > 0 ? `${detectedPendingCount} PENDING` : undefined}
+            badgeBg="#FEF3C7"
+            badgeColor="#B45309"
+            onPress={() => router.push('/settings/finance-apps')}
           />
 
           {/* Notification Access Status */}
