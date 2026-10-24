@@ -349,14 +349,6 @@ export default function NotificationsScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* 10-notification notice badge */}
-      <View style={styles.autoPrunePill}>
-        <Ionicons name="information-circle-outline" size={13} color="#64748B" />
-        <Text style={styles.autoPrunePillText}>
-          {t('notifications_last_10_badge')}
-        </Text>
-      </View>
-
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -562,26 +554,6 @@ const styles = StyleSheet.create({
   tabChipTextActive: {
     color: '#FFD740',
     fontWeight: '900',
-  },
-  autoPrunePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: '#F8FAFC',
-    borderRadius: 8,
-    marginHorizontal: 20,
-    marginBottom: 6,
-    maxWidth: 480,
-    alignSelf: 'center',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  autoPrunePillText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#64748B',
   },
   scrollContent: {
     flexGrow: 1,
