@@ -416,12 +416,37 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     // Active foreground/background response listener
     const sub = Notifications.addNotificationResponseReceivedListener(handleNotificationResponse);
 
+    // Clean up any stray/stuck sample notifications from previous sessions
+    if (Platform.OS !== 'web') {
+      Notifications.dismissNotificationAsync('rupeo_sample_preview').catch(() => {});
+      Notifications.cancelScheduledNotificationAsync('rupeo_sample_preview').catch(() => {});
+    }
+
     // Active listener for when ANY notification is delivered/received on device
     // (captures morning/evening routines, daily reports, auto-add alerts into in-app inbox)
     const receivedSub = Notifications.addNotificationReceivedListener((notification) => {
       try {
+        const identifier = notification.request.identifier || '';
         const content = notification.request.content;
         const data = content.data || {};
+
+        // CRITICAL ANTI-LOOP GUARDS:
+        // 1. Ignore sample preview notifications completely
+        if (
+          data.type === 'sample' ||
+          data.isSample ||
+          data.silentInbox ||
+          data.source === 'sample_preview' ||
+          identifier === 'rupeo_sample_preview'
+        ) {
+          return;
+        }
+
+        // 2. Ignore push loopbacks from remote listener
+        if (identifier.startsWith('push_') || data.source === 'admin_push') {
+          return;
+        }
+
         const type = (data.type === 'budget' || data.type === 'budget_over' || data.type === 'budget_80')
           ? 'budget'
           : (data.type === 'reminder' || data.type === 'report' || data.slotId)
@@ -429,11 +454,12 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
             : 'system';
 
         createNotification(user?.uid, {
-          id: notification.request.identifier,
+          id: identifier || undefined,
           title: content.title || 'Rupeo Alert',
           message: content.body || '',
           type,
           source: data.source || data.type || data.typeKey || 'os_notification',
+          silentPush: true, // NEVER re-trigger a remote push
         }).catch(() => {});
       } catch (err) {
         warn('Error recording received notification into inbox:', err);

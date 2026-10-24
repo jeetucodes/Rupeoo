@@ -117,11 +117,27 @@ export function startRealtimeNotificationWatcher(userId?: string) {
     try {
       if (!isMounted || !notifId) return;
 
+      // Anti-loop guards: Never re-push sample alerts, internal pushes, or local app notifications
+      if (
+        notifId === 'rupeo_sample_preview' ||
+        notifId.startsWith('push_') ||
+        data?.type === 'sample' ||
+        data?.isSample ||
+        data?.silentInbox ||
+        data?.silentPush ||
+        data?.source === 'sample_preview' ||
+        data?.source === 'auto_add' ||
+        data?.source === 'os_notification' ||
+        data?.source === 'routine'
+      ) {
+        return;
+      }
+
       const rawDelivered = await AsyncStorage.getItem(DELIVERED_PUSH_KEY);
       const deliveredList = safeJsonParse<string[]>(rawDelivered, [], DELIVERED_PUSH_KEY, (v) => Array.isArray(v));
       const deliveredSet = new Set(deliveredList);
 
-      if (deliveredSet.has(notifId)) {
+      if (deliveredSet.has(notifId) || deliveredSet.has(`push_${notifId}`)) {
         return; // Already pushed to system tray
       }
 
@@ -132,6 +148,14 @@ export function startRealtimeNotificationWatcher(userId?: string) {
 
       const masterEnabled = await isMasterNotificationsEnabled();
       if (!masterEnabled) return;
+
+      // Save to delivered list immediately before async dispatch to prevent race conditions
+      deliveredList.push(notifId);
+      deliveredList.push(`push_${notifId}`);
+      if (deliveredList.length > 200) {
+        deliveredList.splice(0, deliveredList.length - 200);
+      }
+      await AsyncStorage.setItem(DELIVERED_PUSH_KEY, JSON.stringify(deliveredList));
 
       // Trigger native OS push notification
       await Notifications.scheduleNotificationAsync({
@@ -144,19 +168,12 @@ export function startRealtimeNotificationWatcher(userId?: string) {
           data: {
             notificationId: notifId,
             type: data.type || 'admin_notification',
-            source: 'admin',
+            source: 'admin_push',
           },
           ...(Platform.OS === 'android' ? { channelId: 'rupeo_daily_reminders' } : {}),
         },
         trigger: null,
       });
-
-      // Save to delivered list (keep last 200 IDs)
-      deliveredList.push(notifId);
-      if (deliveredList.length > 200) {
-        deliveredList.splice(0, deliveredList.length - 200);
-      }
-      await AsyncStorage.setItem(DELIVERED_PUSH_KEY, JSON.stringify(deliveredList));
     } catch (e) {
       warn('Error handling incoming push notification:', e);
     }
@@ -194,6 +211,8 @@ export function startRealtimeNotificationWatcher(userId?: string) {
     }
 
     // 2. Watch personal user notifications collection if logged in
+    // CRITICAL: ONLY listen for genuine server-side remote pushes (isRemotePush === true)
+    // Never re-broadcast locally generated in-app alerts (auto-add, daily routines, budget, sample)
     if (userId) {
       try {
         const userNotifQuery = query(
@@ -203,7 +222,7 @@ export function startRealtimeNotificationWatcher(userId?: string) {
           snapshot.docChanges().forEach((change) => {
             if (change.type === 'added') {
               const d = change.doc.data();
-              if (!d.isRead && !d.silentPush) {
+              if (d.isRemotePush === true && !d.isRead && !d.silentPush && d.source === 'admin_push') {
                 handleIncomingNotification(change.doc.id, d);
               }
             }

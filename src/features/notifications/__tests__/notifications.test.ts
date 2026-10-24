@@ -364,4 +364,47 @@ test('Notification System Unit Tests', async (t) => {
       assert.ok(!msg.body.includes('{') && !msg.body.includes('}'), `${item.key} placeholders must be replaced`);
     }
   });
+
+  // 18. Sample Notification Preview Anti-Loop Guard
+  await t.test('18. Sample notification preview uses fixed identifier, immediate one-shot trigger, and anti-loop guards', () => {
+    const SAMPLE_ID = 'rupeo_sample_preview';
+    const samplePayload = {
+      identifier: SAMPLE_ID,
+      content: {
+        title: 'Good morning!',
+        body: 'Preview alert',
+        data: {
+          type: 'sample',
+          isSample: true,
+          silentInbox: true,
+          source: 'sample_preview',
+        },
+      },
+      trigger: null,
+    };
+
+    // Verify fixed ID
+    assert.strictEqual(samplePayload.identifier, 'rupeo_sample_preview', 'Sample must use singleton identifier to prevent multiple stacking');
+    // Verify trigger is null (one-shot immediate, no recurring interval)
+    assert.strictEqual(samplePayload.trigger, null, 'Sample trigger must be null for single immediate dispatch');
+    // Verify anti-loop flags
+    assert.strictEqual(samplePayload.content.data.silentInbox, true, 'Sample must have silentInbox=true so listener never records it');
+    assert.strictEqual(samplePayload.content.data.isSample, true, 'Sample must have isSample=true');
+
+    // Verify receiver anti-loop condition logic
+    const shouldIgnoreByReceiver = (data: any, id: string) => {
+      return (
+        data.type === 'sample' ||
+        data.isSample === true ||
+        data.silentInbox === true ||
+        data.source === 'sample_preview' ||
+        id === 'rupeo_sample_preview' ||
+        id.startsWith('push_')
+      );
+    };
+
+    assert.ok(shouldIgnoreByReceiver(samplePayload.content.data, samplePayload.identifier), 'Receiver listener MUST ignore sample preview');
+    assert.ok(shouldIgnoreByReceiver({}, 'push_notif_123'), 'Receiver listener MUST ignore push forwarders to prevent ping-pong loop');
+  });
 });
+

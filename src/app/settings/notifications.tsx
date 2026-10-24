@@ -113,6 +113,10 @@ export default function NotificationsSettingsScreen() {
 
   useEffect(() => {
     loadSettings();
+    if (Platform.OS !== 'web') {
+      Notifications.dismissNotificationAsync('rupeo_sample_preview').catch(() => {});
+      Notifications.cancelScheduledNotificationAsync('rupeo_sample_preview').catch(() => {});
+    }
   }, [loadSettings]);
 
   // Re-check system permissions on foreground resume
@@ -243,20 +247,27 @@ export default function NotificationsSettingsScreen() {
 
   // Trigger preview sample
   const handlePreviewSample = async () => {
+    if (sendingPreview) return; // Prevent spamming / multiple triggers
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch {}
 
     setSendingPreview(true);
-    await sendSampleNotification(language);
-    setSendingPreview(false);
-
-    Toast.show({
-      type: 'info',
-      text1: 'Sample Notification Dispatched 🔔',
-      text2: 'Look in your notification bar to see the live preview!',
-      visibilityTime: 3000,
-    });
+    try {
+      await sendSampleNotification(language);
+      Toast.show({
+        type: 'info',
+        text1: 'Sample Notification Dispatched 🔔',
+        text2: 'Look in your notification bar to see the live preview!',
+        visibilityTime: 3000,
+      });
+    } catch (e) {
+      // ignore
+    } finally {
+      setTimeout(() => {
+        setSendingPreview(false);
+      }, 1500);
+    }
   };
 
   // Open system settings for notification permission

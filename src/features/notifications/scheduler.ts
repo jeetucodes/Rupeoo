@@ -516,22 +516,33 @@ export async function sendSampleNotification(chosenLanguage?: NotificationLangua
 
     const resolved = resolveNotificationMessage('morning_with_budget', lang, placeholders);
 
+    // Cancel and dismiss any existing sample notification first so they never stack
+    try {
+      await Notifications.dismissNotificationAsync('rupeo_sample_preview');
+      await Notifications.cancelScheduledNotificationAsync('rupeo_sample_preview');
+    } catch {}
+
+    // Dispatch exactly ONE immediate notification with fixed ID (trigger: null, no timer interval)
     await Notifications.scheduleNotificationAsync({
+      identifier: 'rupeo_sample_preview',
       content: {
         title: resolved.title,
         body: resolved.body,
         sound: 'default',
         categoryIdentifier: CATEGORY_REMINDER,
-        data: { type: 'sample' },
+        data: {
+          type: 'sample',
+          isSample: true,
+          silentInbox: true,
+          source: 'sample_preview',
+        },
         ...(Platform.OS === 'android' ? { channelId: CHANNEL_DAILY_REMINDERS } : {}),
       },
-      trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-        seconds: 1,
-      },
+      trigger: null,
     });
     log('[Notifications] Dispatched sample notification preview.');
   } catch (err) {
     warn('[Notifications] Error sending sample notification:', err);
   }
 }
+

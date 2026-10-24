@@ -1831,7 +1831,8 @@ export async function createNotification(
           message: notification.message || '',
           type: notification.type || 'system',
           isRead: false,
-          silentPush: notification.silentPush || false,
+          silentPush: notification.silentPush !== false,
+          isRemotePush: false,
           source: notification.source || 'app',
           created_at: serverTimestamp(),
         }, { merge: true });
@@ -1841,7 +1842,8 @@ export async function createNotification(
           message: notification.message || '',
           type: notification.type || 'system',
           isRead: false,
-          silentPush: notification.silentPush || false,
+          silentPush: notification.silentPush !== false,
+          isRemotePush: false,
           source: notification.source || 'app',
           created_at: serverTimestamp(),
         });
