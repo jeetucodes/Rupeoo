@@ -3,13 +3,13 @@
   "main": "index.js",
   "version": "2.2.1",
   "dependencies": {
-    "expo-application": "~57.0.2",
     "@expo/vector-icons": "^15.1.1",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/datetimepicker": "9.1.0",
     "@react-native-google-signin/google-signin": "^16.1.4",
     "@react-navigation/bottom-tabs": "^7.18.17",
     "expo": "~57.0.19",
+    "expo-application": "~57.0.2",
     "expo-blur": "~57.0.2",
     "expo-build-properties": "~57.0.16",
     "expo-constants": "~57.0.9",
@@ -56,6 +56,7 @@
     "react-native-worklets": "0.10.1"
   },
   "devDependencies": {
+    "@types/jest": "^30.0.0",
     "@types/node": "^26.3.0",
     "@types/react": "~19.2.2",
     "eslint": "^9.0.0",

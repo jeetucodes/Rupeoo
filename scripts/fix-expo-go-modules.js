@@ -159,4 +159,62 @@ const patchFontFaceObserver = (filePath) => {
 patchFontFaceObserver(path.join(__dirname, '..', 'node_modules', 'fontfaceobserver', 'fontfaceobserver.standalone.js'));
 patchFontFaceObserver(path.join(__dirname, '..', 'node_modules', 'fontfaceobserver', 'fontfaceobserver.js'));
 
+// 5. Ensure expo-module-scripts base tsconfig exists so IDE / language servers can resolve `extends: "expo-module-scripts/tsconfig.base"`
+const expoModuleScriptsDir = path.join(__dirname, '..', 'node_modules', 'expo-module-scripts');
+if (!fs.existsSync(expoModuleScriptsDir)) {
+  fs.mkdirSync(expoModuleScriptsDir, { recursive: true });
+}
+
+const baseTsConfigContent = JSON.stringify({
+  compilerOptions: {
+    target: "esnext",
+    module: "esnext",
+    moduleResolution: "bundler",
+    jsx: "react-native",
+    strict: false,
+    skipLibCheck: true,
+    noEmit: true,
+    allowSyntheticDefaultImports: true,
+    esModuleInterop: true
+  }
+}, null, 2) + '\n';
+
+const pluginTsConfigContent = JSON.stringify({
+  compilerOptions: {
+    target: "esnext",
+    module: "esnext",
+    moduleResolution: "bundler",
+    strict: false,
+    skipLibCheck: true,
+    noEmit: true
+  }
+}, null, 2) + '\n';
+
+fs.writeFileSync(path.join(expoModuleScriptsDir, 'tsconfig.base.json'), baseTsConfigContent, 'utf8');
+fs.writeFileSync(path.join(expoModuleScriptsDir, 'tsconfig.plugin.json'), pluginTsConfigContent, 'utf8');
+fs.writeFileSync(
+  path.join(expoModuleScriptsDir, 'package.json'),
+  JSON.stringify({ name: 'expo-module-scripts', version: '56.0.3' }, null, 2) + '\n',
+  'utf8'
+);
+console.log('[fix-expo-go-modules] ✅ Created expo-module-scripts tsconfig stubs for IDE compatibility');
+
+// 6. Ensure expo-font/tsconfig.json excludes src to prevent unneeded module rebuild and @ts-expect-error diagnostics
+const fontTsConfigPath = path.join(__dirname, '..', 'node_modules', 'expo-font', 'tsconfig.json');
+if (fs.existsSync(fontTsConfigPath)) {
+  const cleanFontTsConfig = {
+    extends: "expo-module-scripts/tsconfig.base",
+    compilerOptions: {
+      rootDir: "./src",
+      outDir: "./build",
+      skipLibCheck: true,
+      noEmit: true
+    },
+    include: ["./build"],
+    exclude: ["./src/**", "**/__mocks__/*", "**/__tests__/*", "**/__rsc_tests__/*"]
+  };
+  fs.writeFileSync(fontTsConfigPath, JSON.stringify(cleanFontTsConfig, null, 2) + '\n', 'utf8');
+  console.log('[fix-expo-go-modules] ✅ Patched expo-font (tsconfig.json)');
+}
+
 console.log('[fix-expo-go-modules] All Expo Go patches applied successfully!');
