@@ -21,12 +21,15 @@ export interface NotificationPlaceholders {
   budget?: string;
   left?: string;
   over?: string;
+  category?: string;
+  percent?: string;
   top_category?: string;
   top_amount?: string;
   count?: number | string;
   biggest?: string;
   amount?: string;
   merchant?: string;
+  [key: string]: string | number | undefined;
 }
 
 export interface NotificationMessageVariant {

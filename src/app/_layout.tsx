@@ -428,7 +428,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       try {
         const identifier = notification.request.identifier || '';
         const content = notification.request.content;
-        const data = content.data || {};
+        const data: Record<string, any> = (content.data || {}) as Record<string, any>;
 
         // CRITICAL ANTI-LOOP GUARDS:
         // 1. Ignore sample preview notifications completely

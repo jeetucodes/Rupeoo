@@ -49,7 +49,7 @@ import {
   markBillPaidInSQLite,
   undoBillPaymentInSQLite,
 } from '@/features/autoAdd/sqliteStorage';
-import { warn, error } from '@/lib/logger';
+import { log, warn, error } from '@/lib/logger';
 import { SelfHealingWatchdog } from './selfHealing/SelfHealingWatchdog';
 
 export {
