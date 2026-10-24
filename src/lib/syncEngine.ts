@@ -1,4 +1,4 @@
-import { AppState, Platform } from 'react-native';
+import { AppState, Platform, InteractionManager } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { warn, log } from './logger';
 import { getSyncQueue, getOfflineTransactions } from './offlineSync';
@@ -108,6 +108,15 @@ export async function syncNow(userId: string, force = false): Promise<boolean> {
     return false;
   }
 
+  // Cooldown check: skip if last sync finished less than 60s ago unless forced
+  const MIN_SYNC_INTERVAL_MS = 60000;
+  if (!force && Date.now() - lastSyncTimestamp < MIN_SYNC_INTERVAL_MS) {
+    if (__DEV__) {
+      metrics.totalSkipped++;
+    }
+    return false;
+  }
+
   // Dirty check: skip if nothing changed unless forced
   if (!force) {
     const isDirty = await hasDirtyChanges(userId);
@@ -210,13 +219,24 @@ export function initSyncEngine(userId: string): () => void {
     }
   }, SLOW_FALLBACK_INTERVAL_MS);
 
-  // 3. Foreground resume trigger
+  // 3. Foreground resume trigger: debounce 2s, run AFTER interactions so UI is responsive first
+  let resumeTimer: any = null;
   const appStateSub = AppState.addEventListener('change', (nextState) => {
     if (nextState === 'active') {
-      // App foregrounded: trigger sync
-      syncNow(userId, false).catch(() => {});
+      if (resumeTimer) clearTimeout(resumeTimer);
+      resumeTimer = setTimeout(() => {
+        resumeTimer = null;
+        InteractionManager.runAfterInteractions(() => {
+          if (typeof AppState !== 'undefined' && AppState.currentState === 'active') {
+            syncNow(userId, false).catch(() => {});
+          }
+        });
+      }, 2000);
     } else {
-      // App backgrounded: cancel any pending debounced sync
+      if (resumeTimer) {
+        clearTimeout(resumeTimer);
+        resumeTimer = null;
+      }
       if (debouncedTimer) {
         clearTimeout(debouncedTimer);
         debouncedTimer = null;
@@ -234,6 +254,10 @@ export function initSyncEngine(userId: string): () => void {
 
   return () => {
     clearTimeout(initialTimer);
+    if (resumeTimer) {
+      clearTimeout(resumeTimer);
+      resumeTimer = null;
+    }
     if (slowFallbackInterval) {
       clearInterval(slowFallbackInterval);
       slowFallbackInterval = null;

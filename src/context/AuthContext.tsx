@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { User, onAuthStateChanged, signOut } from 'firebase/auth';
 import { auth, db } from '@/lib/firebase';
@@ -309,23 +310,51 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .catch(() => {});
   }, []);
 
-  // Listen to Admin Toggles from Firestore (Live Real-time)
+  // Listen to Admin Toggles from Firestore (Live Real-time, paused when backgrounded)
   useEffect(() => {
     if (!db) return;
-    const unsubConfig = onSnapshot(
-      doc(db, 'app_config', 'global'),
-      (snap) => {
-        if (snap.exists()) {
-          const parsed = parseAppConfig(snap.data());
-          setAppConfig(parsed);
-          AsyncStorage.setItem('@rupeo_app_config', JSON.stringify(parsed)).catch(() => {});
+    let unsubConfig: (() => void) | null = null;
+
+    const attach = () => {
+      if (unsubConfig || !db) return;
+      unsubConfig = onSnapshot(
+        doc(db, 'app_config', 'global'),
+        (snap) => {
+          if (snap.exists()) {
+            const parsed = parseAppConfig(snap.data());
+            setAppConfig(parsed);
+            AsyncStorage.setItem('@rupeo_app_config', JSON.stringify(parsed)).catch(() => {});
+          }
+        },
+        (err) => {
+          warn('App config real-time listener error:', err);
         }
-      },
-      (err) => {
-        warn('App config real-time listener error:', err);
+      );
+    };
+
+    const detach = () => {
+      if (unsubConfig) {
+        unsubConfig();
+        unsubConfig = null;
       }
-    );
-    return () => unsubConfig();
+    };
+
+    if (typeof AppState === 'undefined' || AppState.currentState === 'active') {
+      attach();
+    }
+
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        attach();
+      } else {
+        detach();
+      }
+    });
+
+    return () => {
+      detach();
+      sub.remove();
+    };
   }, []);
 
   const refreshConfig = async () => {
@@ -431,15 +460,64 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             warn('Token claim refresh error:', tokenErr);
           });
 
-          // Fetch user profile and settings concurrently in parallel
-          const [profileUser, userSettings] = await Promise.all([
-            fetchUserProfile(currentUser),
-            fetchSettings(currentUser),
-          ]);
+          const cacheKey = `@rupeo_profile_${currentUser.uid}`;
+          const settingsCacheKey = `@rupeo_settings_${currentUser.uid}`;
 
-          setUser(profileUser);
-          if (userSettings) {
-            setSettings(userSettings);
+          // 1. Cache-first fast hydration: If local cache exists, set user and unblock UI immediately (<50ms)!
+          let cachedProfile: any = null;
+          let cachedSettings: any = null;
+          try {
+            const [rawProfile, rawSettings] = await Promise.all([
+              AsyncStorage.getItem(cacheKey).catch(() => null),
+              AsyncStorage.getItem(settingsCacheKey).catch(() => null),
+            ]);
+            if (rawProfile) {
+              cachedProfile = safeJsonParse(rawProfile, null, cacheKey);
+            }
+            if (rawSettings) {
+              cachedSettings = safeJsonParse(rawSettings, null, settingsCacheKey);
+            }
+          } catch {}
+
+          let profileUser: RupeoUser | null = null;
+          let userSettings: UserSettings | null = null;
+
+          if (cachedProfile) {
+            // Instant offline/cached render without waiting for network!
+            profileUser = {
+              ...currentUser,
+              ...cachedProfile,
+            };
+            userSettings = cachedSettings;
+            setUser(profileUser);
+            if (userSettings) {
+              setSettings(userSettings);
+            }
+            setLoading(false);
+
+            // 2. Background refresh: Fetch latest from Firestore silently without holding loading screen
+            Promise.all([
+              fetchUserProfile(currentUser),
+              fetchSettings(currentUser),
+            ])
+              .then(([freshUser, freshSettings]) => {
+                if (freshUser) setUser(freshUser);
+                if (freshSettings) setSettings(freshSettings);
+              })
+              .catch((bgErr) => warn('Background profile refresh error:', bgErr));
+          } else {
+            // First time login / cold start without cache: wait with strict timeout
+            const [fetchedUser, fetchedSettings] = await Promise.all([
+              fetchUserProfile(currentUser),
+              fetchSettings(currentUser),
+            ]);
+
+            profileUser = fetchedUser;
+            userSettings = fetchedSettings;
+            setUser(profileUser);
+            if (userSettings) {
+              setSettings(userSettings);
+            }
           }
 
           // Schedule welcome notification in EXACTLY ONE PLACE:
@@ -452,7 +530,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (isFreshLoginOrSignup) {
             scheduleWelcomeNotification({
               userId: currentUser.uid,
-              displayName: profileUser.displayName,
+              displayName: profileUser?.displayName || currentUser.displayName || undefined,
               language: userSettings?.language,
             }).catch((err) => warn('Welcome notification scheduling failed:', err));
           }

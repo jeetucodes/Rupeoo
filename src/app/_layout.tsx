@@ -1,5 +1,6 @@
 import React, { useEffect, useState, Component } from 'react';
 import { Stack, useRouter, useSegments, router } from 'expo-router';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as SplashScreen from 'expo-splash-screen';
 
 SplashScreen.preventAutoHideAsync().catch(() => { });
@@ -41,6 +42,7 @@ import { warn, error as logError, log } from '@/lib/logger';
 import { initSyncEngine } from '@/lib/syncEngine';
 import { installGlobalErrorHandler, recordCrash } from '@/lib/crashReporting';
 import { StartupRecoveryScreen } from '@/components/StartupRecoveryScreen';
+import { withTimeout } from '@/lib/safeStorage';
 
 const startupStartTime = Date.now();
 let dbOpenDuration = 0;
@@ -91,6 +93,11 @@ class RootErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState
       return (
         <StartupRecoveryScreen
           onRetry={this.resetError}
+          onOpenOffline={() => {
+            this.setState({ hasError: false, error: null });
+            SplashScreen.hideAsync().catch(() => {});
+            router.replace('/(tabs)/dashboard');
+          }}
           errorMessage={this.state.error?.message}
           isWatchdogTriggered={false}
         />
@@ -122,7 +129,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const lastActivePullRef = React.useRef<number>(Date.now());
   const hasLoggedTimingsRef = React.useRef<boolean>(false);
 
-  // 15-second startup watchdog: clears immediately when loading finishes
+  // 8-second startup watchdog: clears immediately when loading finishes
   useEffect(() => {
     if (!loading) {
       setStartupTimeout(false);
@@ -134,7 +141,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
         SplashScreen.hideAsync().catch(() => {});
         recordCrash(new Error('App startup exceeded watchdog timeout'), false, 'startup_watchdog').catch(() => {});
       }
-    }, 15000);
+    }, 8000);
     return () => clearTimeout(timer);
   }, [loading]);
 
@@ -489,10 +496,13 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     return () => sub.remove();
   }, [user]);
 
-  // Initialize Ads respecting Real-time Remote Admin Config
+  // Initialize Ads respecting Real-time Remote Admin Config (deferred after interactions with timeout)
   useEffect(() => {
-    if (appConfig) {
-      initializeAds(appConfig).catch((e) => warn('Ads init warning:', e));
+    if (appConfig && !loading) {
+      const task = InteractionManager.runAfterInteractions(() => {
+        withTimeout(initializeAds(appConfig), 4000, undefined).catch((e) => warn('Ads init warning:', e));
+      });
+      return () => task.cancel();
     }
   }, [loading, appConfig?.networkAdsEnabled, appConfig?.showAds, appConfig?.adMobTestMode]);
 
@@ -522,6 +532,11 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
             } else {
               router.replace('/login');
             }
+          }}
+          onOpenOffline={() => {
+            setStartupTimeout(false);
+            SplashScreen.hideAsync().catch(() => {});
+            router.replace('/(tabs)/dashboard');
           }}
           isWatchdogTriggered={true}
         />
@@ -561,6 +576,11 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
             setStartupTimeout(false);
             SplashScreen.hideAsync().catch(() => {});
             router.replace('/login');
+          }}
+          onOpenOffline={() => {
+            setStartupTimeout(false);
+            SplashScreen.hideAsync().catch(() => {});
+            router.replace('/(tabs)/dashboard');
           }}
           isWatchdogTriggered={true}
         />
@@ -633,123 +653,125 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <SafeAreaProvider>
-      <RootErrorBoundary>
-        <AuthProvider>
-          <AuthGuard>
-            <View style={[styles.appContainer, isTransparentOverlay && { backgroundColor: 'transparent' }]}>
-              <View style={[styles.appContent, isTransparentOverlay && { backgroundColor: 'transparent' }]}>
-                <Stack
-                  screenOptions={{
-                    headerShown: false,
-                    animation: 'none',
-                    contentStyle: { backgroundColor: isTransparentOverlay ? 'transparent' : '#F1F5F9' }
-                  }}
-                >
-                  <Stack.Screen name="index" />
-                  <Stack.Screen name="login" />
-                  <Stack.Screen name="forgot-password" />
-                  <Stack.Screen name="starting-balance" />
-                  <Stack.Screen name="setup" />
-                  <Stack.Screen name="onboarding" />
-                  <Stack.Screen name="edit-profile" />
-                  <Stack.Screen name="notifications" />
-                  <Stack.Screen name="budget" />
-                  <Stack.Screen name="categories" />
-                  <Stack.Screen name="premium" />
-                  <Stack.Screen name="reminders" />
-                  <Stack.Screen name="split-qr" />
-                  <Stack.Screen name="udhar" />
-                  <Stack.Screen name="transaction/[id]" />
-                  <Stack.Screen name="(tabs)" />
-                  <Stack.Screen
-                    name="add"
-                    options={{
-                      presentation: 'modal',
-                      animation: 'slide_from_bottom'
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <RootErrorBoundary>
+          <AuthProvider>
+            <AuthGuard>
+              <View style={[styles.appContainer, isTransparentOverlay && { backgroundColor: 'transparent' }]}>
+                <View style={[styles.appContent, isTransparentOverlay && { backgroundColor: 'transparent' }]}>
+                  <Stack
+                    screenOptions={{
+                      headerShown: false,
+                      animation: 'none',
+                      contentStyle: { backgroundColor: isTransparentOverlay ? 'transparent' : '#F1F5F9' }
                     }}
-                  />
-                  <Stack.Screen
-                    name="quick-add"
-                    options={{
-                      presentation: 'card',
-                      animation: 'slide_from_bottom',
-                      contentStyle: { backgroundColor: '#FFFFFF' },
-                    }}
-                  />
-                  <Stack.Screen
-                    name="quick-add-voice"
-                    options={{
-                      presentation: 'transparentModal',
-                      animation: 'fade',
-                      contentStyle: { backgroundColor: 'transparent' }
-                    }}
-                  />
-                  <Stack.Screen
-                    name="sms-import"
-                    options={{
-                      presentation: 'card',
-                      animation: 'slide_from_right',
-                      contentStyle: { backgroundColor: '#F8FAFC' },
-                    }}
-                  />
-                  <Stack.Screen
-                    name="pending-inbox"
-                    options={{
-                      presentation: 'card',
-                      animation: 'slide_from_right',
-                      contentStyle: { backgroundColor: '#F8FAFC' },
-                    }}
-                  />
-                  <Stack.Screen
-                    name="settings/bank-alerts"
-                    options={{
-                      presentation: 'card',
-                      animation: 'slide_from_right',
-                      contentStyle: { backgroundColor: '#F8FAFC' },
-                    }}
-                  />
-                  <Stack.Screen
-                    name="settings/finance-apps"
-                    options={{
-                      presentation: 'card',
-                      animation: 'slide_from_right',
-                      contentStyle: { backgroundColor: '#F8FAFC' },
-                    }}
-                  />
-                  <Stack.Screen
-                    name="settings/notifications"
-                    options={{
-                      presentation: 'card',
-                      animation: 'slide_from_right',
-                      contentStyle: { backgroundColor: '#F8FAFC' },
-                    }}
-                  />
-                  <Stack.Screen
-                    name="daily-report"
-                    options={{
-                      presentation: 'card',
-                      animation: 'slide_from_right',
-                      contentStyle: { backgroundColor: '#F8FAFC' },
-                    }}
-                  />
-                  <Stack.Screen
-                    name="settings/advanced"
-                    options={{
-                      presentation: 'card',
-                      animation: 'slide_from_right',
-                      contentStyle: { backgroundColor: '#F8FAFC' },
-                    }}
-                  />
-                </Stack>
+                  >
+                    <Stack.Screen name="index" />
+                    <Stack.Screen name="login" />
+                    <Stack.Screen name="forgot-password" />
+                    <Stack.Screen name="starting-balance" />
+                    <Stack.Screen name="setup" />
+                    <Stack.Screen name="onboarding" />
+                    <Stack.Screen name="edit-profile" />
+                    <Stack.Screen name="notifications" />
+                    <Stack.Screen name="budget" />
+                    <Stack.Screen name="categories" />
+                    <Stack.Screen name="premium" />
+                    <Stack.Screen name="reminders" />
+                    <Stack.Screen name="split-qr" />
+                    <Stack.Screen name="udhar" />
+                    <Stack.Screen name="transaction/[id]" />
+                    <Stack.Screen name="(tabs)" />
+                    <Stack.Screen
+                      name="add"
+                      options={{
+                        presentation: 'modal',
+                        animation: 'slide_from_bottom'
+                      }}
+                    />
+                    <Stack.Screen
+                      name="quick-add"
+                      options={{
+                        presentation: 'card',
+                        animation: 'slide_from_bottom',
+                        contentStyle: { backgroundColor: '#FFFFFF' },
+                      }}
+                    />
+                    <Stack.Screen
+                      name="quick-add-voice"
+                      options={{
+                        presentation: 'transparentModal',
+                        animation: 'fade',
+                        contentStyle: { backgroundColor: 'transparent' }
+                      }}
+                    />
+                    <Stack.Screen
+                      name="sms-import"
+                      options={{
+                        presentation: 'card',
+                        animation: 'slide_from_right',
+                        contentStyle: { backgroundColor: '#F8FAFC' },
+                      }}
+                    />
+                    <Stack.Screen
+                      name="pending-inbox"
+                      options={{
+                        presentation: 'card',
+                        animation: 'slide_from_right',
+                        contentStyle: { backgroundColor: '#F8FAFC' },
+                      }}
+                    />
+                    <Stack.Screen
+                      name="settings/bank-alerts"
+                      options={{
+                        presentation: 'card',
+                        animation: 'slide_from_right',
+                        contentStyle: { backgroundColor: '#F8FAFC' },
+                      }}
+                    />
+                    <Stack.Screen
+                      name="settings/finance-apps"
+                      options={{
+                        presentation: 'card',
+                        animation: 'slide_from_right',
+                        contentStyle: { backgroundColor: '#F8FAFC' },
+                      }}
+                    />
+                    <Stack.Screen
+                      name="settings/notifications"
+                      options={{
+                        presentation: 'card',
+                        animation: 'slide_from_right',
+                        contentStyle: { backgroundColor: '#F8FAFC' },
+                      }}
+                    />
+                    <Stack.Screen
+                      name="daily-report"
+                      options={{
+                        presentation: 'card',
+                        animation: 'slide_from_right',
+                        contentStyle: { backgroundColor: '#F8FAFC' },
+                      }}
+                    />
+                    <Stack.Screen
+                      name="settings/advanced"
+                      options={{
+                        presentation: 'card',
+                        animation: 'slide_from_right',
+                        contentStyle: { backgroundColor: '#F8FAFC' },
+                      }}
+                    />
+                  </Stack>
+                </View>
               </View>
-            </View>
-          </AuthGuard>
-        </AuthProvider>
-        <StatusBar style="dark" />
-        <Toast config={customToastConfig} topOffset={Platform.OS === 'ios' ? 55 : 45} />
-      </RootErrorBoundary>
-    </SafeAreaProvider>
+            </AuthGuard>
+          </AuthProvider>
+          <StatusBar style="dark" />
+          <Toast config={customToastConfig} topOffset={Platform.OS === 'ios' ? 55 : 45} />
+        </RootErrorBoundary>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 

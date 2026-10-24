@@ -14,12 +14,14 @@ import { recordCrash } from '@/lib/crashReporting';
 
 interface Props {
   onRetry: () => void;
+  onOpenOffline?: () => void;
   errorMessage?: string;
   isWatchdogTriggered?: boolean;
 }
 
 export function StartupRecoveryScreen({
   onRetry,
+  onOpenOffline,
   errorMessage,
   isWatchdogTriggered = true,
 }: Props) {
@@ -99,6 +101,18 @@ export function StartupRecoveryScreen({
               </>
             )}
           </TouchableOpacity>
+
+          {onOpenOffline && (
+            <TouchableOpacity
+              style={styles.offlineButton}
+              onPress={onOpenOffline}
+              activeOpacity={0.8}
+              disabled={repairing}
+            >
+              <Ionicons name="cloud-offline-outline" size={18} color="#059669" style={{ marginRight: 8 }} />
+              <Text style={styles.offlineButtonText}>Open in Offline Mode</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         <Text style={styles.privacyNote}>
@@ -236,6 +250,21 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: '#0F172A',
+  },
+  offlineButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EEF2FF',
+    borderColor: '#C7D2FE',
+    borderWidth: 1,
+    paddingVertical: 14,
+    borderRadius: 14,
+  },
+  offlineButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#4338CA',
   },
   privacyNote: {
     fontSize: 12,
