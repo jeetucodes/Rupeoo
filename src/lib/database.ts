@@ -33,7 +33,8 @@ import {
   checkIsOnline,
 } from './offlineSync';
 import { toRemote, fromRemote, normalizePaymentMode, formatPaymentModeDisplay } from './dataMinimization';
-import { isCloudSyncEnabled, pullFromCloud, uploadLocalDataToCloud } from './cloudSync';
+import { isCloudSyncEnabled, pullFromCloud, pullRemainingHistoryFromCloud, uploadLocalDataToCloud } from './cloudSync';
+export { pullRemainingHistoryFromCloud };
 import { syncWidgetWithTransactions } from './widgetSync';
 import { flushUdharSyncQueue } from './udharStorage';
 import { formatCurrency } from './formatCurrency';

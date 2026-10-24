@@ -36,7 +36,7 @@ import Svg, {
   Stop,
 } from 'react-native-svg';
 import { useAuth } from '@/context/AuthContext';
-import { getAllTransactions, getUserCategories, CategoryItem, defaultCategories, subscribeTransactions, normalizeDate } from '@/lib/database';
+import { getAllTransactions, pullRemainingHistoryFromCloud, getUserCategories, CategoryItem, defaultCategories, subscribeTransactions, normalizeDate } from '@/lib/database';
 import { parseLocalDate } from '@/lib/dateUtils';
 import CategoryIcon from '@/components/CategoryIcon';
 import PaymentModeIcon from '@/components/PaymentModeIcon';
@@ -205,6 +205,7 @@ export default function ReportsScreen() {
         getAllTransactions(user.uid, forceRefresh),
         getUserCategories(user.uid, forceRefresh),
       ]);
+      pullRemainingHistoryFromCloud(user.uid).catch(() => {});
       const normalizedTx: TransactionItem[] = (txList || []).map((t: any) => ({
         id: t.id,
         date: t.date,
@@ -1803,6 +1804,11 @@ export default function ReportsScreen() {
             <SpendingCalendarCard
               transactions={transactions}
               currency={curr}
+              onMonthChange={(year, month) => {
+                if (user?.uid) {
+                  pullRemainingHistoryFromCloud(user.uid).catch(() => {});
+                }
+              }}
               style={{ marginBottom: 14 }}
             />
           )}

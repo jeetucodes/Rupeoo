@@ -48,6 +48,7 @@ interface Props {
   transactions: CalendarTxItem[];
   currency?: string;
   onSelectTransactionDate?: (dateStr: string) => void;
+  onMonthChange?: (year: number, month: number) => void;
   style?: object;
 }
 
@@ -82,6 +83,8 @@ const DAY_NAMES_HI = ['रवि', 'सोम', 'मंगल', 'बुध', '�
 export default function SpendingCalendarCard({
   transactions,
   currency = '₹',
+  onSelectTransactionDate,
+  onMonthChange,
   style,
 }: Props) {
   const { t, lang } = useTranslation();
@@ -107,6 +110,7 @@ export default function SpendingCalendarCard({
     const newMonth = currentMonth === 0 ? 11 : currentMonth - 1;
     setCurrentYear(newYear);
     setCurrentMonth(newMonth);
+    onMonthChange?.(newYear, newMonth);
     if (newYear === today.getFullYear() && newMonth === today.getMonth()) {
       setSelectedDateStr(todayStr);
     } else {
@@ -120,6 +124,7 @@ export default function SpendingCalendarCard({
     const newMonth = currentMonth === 11 ? 0 : currentMonth + 1;
     setCurrentYear(newYear);
     setCurrentMonth(newMonth);
+    onMonthChange?.(newYear, newMonth);
     if (newYear === today.getFullYear() && newMonth === today.getMonth()) {
       setSelectedDateStr(todayStr);
     } else {

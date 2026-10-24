@@ -146,7 +146,6 @@ export default function TransactionDetailScreen() {
   const [linkedBillId, setLinkedBillId] = useState<string | null>(null);
   const [sources, setSources] = useState<TransactionSourceRecord[]>([]);
   const [showCategorySheet, setShowCategorySheet] = useState(false);
-  const [showDetails, setShowDetails] = useState(false);
 
   useEffect(() => {
     if (openCategory === 'true' && !loading) {
@@ -206,39 +205,6 @@ export default function TransactionDetailScreen() {
     const code = raw.slice(0, 8).padEnd(6, '0');
     return `RP-${code}`;
   }, [id]);
-
-  const shortDisplayId = React.useMemo(() => {
-    if (!id) return 'ID : 67354';
-    const clean = id.replace(/[^a-zA-Z0-9]/g, '');
-    const suffix = clean.length > 5 ? clean.slice(-5).toUpperCase() : clean.toUpperCase().padStart(5, '0');
-    return `ID : ${suffix || '67354'}`;
-  }, [id]);
-
-  const formattedDateTimeHeader = React.useMemo(() => {
-    const dStr = formatDisplayDate(date).replace(/\s\d{4}$/, '');
-    const tStr = formatDisplayTime(time);
-    return `${dStr}, ${tStr}`;
-  }, [date, time]);
-
-  const handleGetHelp = () => {
-    Alert.alert(
-      'Transaction Support',
-      'Need assistance with this transaction or payment receipt?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Share Receipt', onPress: handleShareReceipt },
-        { text: 'Edit Record', onPress: () => setIsEditing(true) },
-        {
-          text: 'Contact Support',
-          onPress: () => {
-            Linking.openURL(`mailto:support@rupeo.app?subject=Support%20Request%20for%20Transaction%20${barcodeValue}`).catch(() => {
-              Toast.show({ type: 'info', text1: 'Support', text2: 'Reach us at support@rupeo.app' });
-            });
-          },
-        },
-      ]
-    );
-  };
 
   useEffect(() => {
     if (receiptImage) {
@@ -596,55 +562,34 @@ export default function TransactionDetailScreen() {
   }
 
   return (
-    <SafeAreaView
-      style={[
-        styles.container,
-        !isEditing && {
-          backgroundColor: type === 'credit' ? '#11221C' : '#1C1832',
-        },
-      ]}
-      edges={['top', 'bottom']}
-    >
-      <StatusBar
-        barStyle={!isEditing ? 'light-content' : 'dark-content'}
-        backgroundColor={!isEditing ? (type === 'credit' ? '#11221C' : '#1C1832') : '#F1F5F9'}
-      />
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+      <StatusBar barStyle="dark-content" backgroundColor="#F1F5F9" />
 
       {/* HEADER */}
-      <View style={[styles.header, !isEditing && styles.headerDark]}>
-        <TouchableOpacity
-          onPress={() => {
-            if (isEditing) setIsEditing(false);
-            else safeGoBack(router);
-          }}
-          style={[styles.backBtn, !isEditing && styles.backBtnDark]}
-          activeOpacity={0.7}
-        >
-          <Ionicons
-            name={isEditing ? 'close' : 'chevron-back'}
-            size={24}
-            color={!isEditing ? '#FFFFFF' : '#1C1C1E'}
-          />
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => {
+          if (isEditing) setIsEditing(false);
+          else safeGoBack(router);
+        }} style={styles.backBtn} activeOpacity={0.7}>
+          <Ionicons name={isEditing ? "close" : "chevron-back"} size={24} color="#1C1C1E" />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, !isEditing && styles.headerTitleDark]} numberOfLines={1}>
-          {isEditing ? t('edit_transaction') : 'Transaction Receipt'}
-        </Text>
+        <Text style={styles.headerTitle} numberOfLines={1}>{isEditing ? t('edit_transaction') : 'Transaction Receipt'}</Text>
         <View style={styles.headerActions}>
           {!isEditing && (
             <TouchableOpacity
               onPress={() => setIsEditing(true)}
-              style={styles.boldEditButtonDark}
+              style={styles.boldEditButton}
               activeOpacity={0.7}
               accessibilityRole="button"
               accessibilityLabel="Edit transaction"
             >
-              <Ionicons name="pencil" size={14} color="#FFFFFF" style={{ marginRight: 5 }} />
-              <Text style={styles.boldEditTextDark}>Edit</Text>
+              <Ionicons name="pencil" size={14} color="#0F172A" style={{ marginRight: 5 }} />
+              <Text style={styles.boldEditText}>Edit</Text>
             </TouchableOpacity>
           )}
           <TouchableOpacity
             onPress={handleDelete}
-            style={[styles.headerIconButton, !isEditing ? styles.deleteIconButtonDark : styles.deleteIconButton]}
+            style={[styles.headerIconButton, styles.deleteIconButton]}
             activeOpacity={0.7}
             disabled={deleting}
             accessibilityRole="button"
@@ -747,282 +692,380 @@ export default function TransactionDetailScreen() {
 
           <ScrollView contentContainerStyle={styles.receiptContent} showsVerticalScrollIndicator={false}>
 
-          {/* ANIMATED MODERN FLOATING TICKET RECEIPT CARD */}
+          {/* ANIMATED VOUCHER SLIP RECEIPT CARD */}
           {(() => {
             const isCredit = type === 'credit';
             const catObj = categories.find((c) => c.name.toLowerCase() === category.toLowerCase());
 
             return (
               <Animated.View
-                ref={receiptCardRef}
-                collapsable={false}
-                style={[
-                  styles.slipCard,
-                  {
-                    opacity: cardOpacityAnim,
-                    transform: [
-                      { translateY: cardSlideAnim },
-                      {
-                        scale: cardOpacityAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [0.95, 1],
-                        }),
-                      },
-                    ],
-                  },
-                ]}
-              >
-                {/* TOP VIOLET / EMERALD GRADIENT HEADER */}
-                <LinearGradient
-                  colors={
-                    type === 'credit'
-                      ? ['#064E3B', '#047857', '#059669', '#10B981']
-                      : ['#3E1E78', '#532598', '#6A2FB8', '#7E3DD4']
-                  }
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.slipCardTop}
+                  ref={receiptCardRef}
+                  collapsable={false}
+                  style={[
+                    styles.slipCard,
+                    {
+                      opacity: cardOpacityAnim,
+                      transform: [
+                        { translateY: cardSlideAnim },
+                        {
+                          scale: cardOpacityAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [0.95, 1],
+                          }),
+                        },
+                      ],
+                    },
+                  ]}
                 >
-                  {/* Subtle Tech Constellation Nodes & Connecting Lines Pattern */}
-                  <Svg height="100%" width="100%" style={StyleSheet.absoluteFill} pointerEvents="none">
-                    <Line x1="40" y1="35" x2="110" y2="55" stroke="rgba(255,255,255,0.18)" strokeWidth="1" strokeDasharray="3,3" />
-                    <Line x1="110" y1="55" x2="165" y2="40" stroke="rgba(255,255,255,0.15)" strokeWidth="1" />
-                    <Line x1="165" y1="40" x2="230" y2="60" stroke="rgba(255,255,255,0.18)" strokeWidth="1" />
-                    <Line x1="230" y1="60" x2="310" y2="45" stroke="rgba(255,255,255,0.15)" strokeWidth="1" strokeDasharray="3,3" />
-                    <Line x1="110" y1="55" x2="90" y2="105" stroke="rgba(255,255,255,0.12)" strokeWidth="1" />
-                    <Line x1="230" y1="60" x2="250" y2="115" stroke="rgba(255,255,255,0.14)" strokeWidth="1" />
-                    <Line x1="90" y1="105" x2="140" y2="135" stroke="rgba(255,255,255,0.16)" strokeWidth="1" />
-                    <Line x1="250" y1="115" x2="315" y2="100" stroke="rgba(255,255,255,0.16)" strokeWidth="1" />
+                  {/* TOP GRADIENT BANNER */}
+                  <LinearGradient
+                    colors={
+                      type === 'credit'
+                        ? ['#022C22', '#064E3B', '#047857', '#059669']
+                        : ['#0A0F1D', '#111827', '#1E293B', '#334155']
+                    }
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.slipCardTop}
+                  >
+                    {/* Decorative blobs */}
+                    <View
+                      style={[
+                        styles.slipBlob1,
+                        {
+                          backgroundColor:
+                            type === 'credit'
+                              ? 'rgba(16, 185, 129, 0.22)'
+                              : 'rgba(255, 215, 64, 0.12)',
+                        },
+                      ]}
+                    />
+                    <View
+                      style={[
+                        styles.slipBlob2,
+                        {
+                          backgroundColor:
+                            type === 'credit'
+                              ? 'rgba(52, 211, 153, 0.15)'
+                              : 'rgba(148, 163, 184, 0.12)',
+                        },
+                      ]}
+                    />
 
-                    <Circle cx="40" cy="35" r="3" fill="rgba(255,255,255,0.35)" />
-                    <Circle cx="110" cy="55" r="3.5" fill="rgba(255,255,255,0.5)" />
-                    <Circle cx="165" cy="40" r="2.5" fill="rgba(255,255,255,0.3)" />
-                    <Circle cx="230" cy="60" r="3.5" fill="rgba(255,255,255,0.45)" />
-                    <Circle cx="310" cy="45" r="3" fill="rgba(255,255,255,0.35)" />
-                    <Circle cx="90" cy="105" r="3" fill="rgba(255,255,255,0.35)" />
-                    <Circle cx="140" cy="135" r="2.5" fill="rgba(255,255,255,0.25)" />
-                    <Circle cx="250" cy="115" r="3" fill="rgba(255,255,255,0.4)" />
-                    <Circle cx="315" cy="100" r="3" fill="rgba(255,255,255,0.3)" />
-                  </Svg>
+                    {/* Rupeo watermark */}
+                    <View style={styles.slipWatermark}>
+                      <Text style={styles.slipWatermarkText}>RUPEO</Text>
+                    </View>
 
-                  {/* TOP METADATA ROW: [ID : 67354] ---------- [7 Feb, 11:15 AM] */}
-                  <View style={styles.ticketMetaRow}>
-                    <Text style={styles.ticketMetaId}>{shortDisplayId}</Text>
-                    <Text style={styles.ticketMetaDate}>{formattedDateTimeHeader}</Text>
-                  </View>
-
-                  {/* CENTER HERO: CHECKMARK + AMOUNT + COUNTERPARTY */}
-                  <View style={styles.ticketCenterHero}>
+                    {/* HERO ARROW ICON BADGE */}
                     <Animated.View
                       style={[
-                        styles.ticketCheckCircle,
-                        { transform: [{ scale: logoScaleAnim }] },
+                        styles.slipCardIcon,
+                        {
+                          backgroundColor:
+                            type === 'credit'
+                              ? 'rgba(16, 185, 129, 0.35)'
+                              : 'rgba(255, 255, 255, 0.22)',
+                          borderColor:
+                            type === 'credit' ? '#34D399' : 'rgba(255, 255, 255, 0.45)',
+                          borderWidth: 2,
+                          transform: [{ scale: logoScaleAnim }],
+                        },
                       ]}
                     >
-                      <Ionicons name="checkmark" size={24} color="#00C48C" />
+                      <Ionicons
+                        name={type === 'credit' ? 'arrow-down' : 'arrow-up'}
+                        size={28}
+                        color="#FFFFFF"
+                      />
                     </Animated.View>
 
+                    {/* BIG FORMATTED AMOUNT */}
                     <Animated.Text
                       style={[
-                        styles.ticketAmountText,
-                        { transform: [{ scale: amountBounceAnim }] },
+                        styles.slipCardAmount,
+                        {
+                          color: type === 'credit' ? '#6EE7B7' : '#FFFFFF',
+                          transform: [{ scale: amountBounceAnim }],
+                        },
                       ]}
                     >
+                      {type === 'debit' ? '−' : '+'}
                       {currency}
                       {parseFloat(amount || '0').toLocaleString('en-IN', {
-                        minimumFractionDigits: 0,
+                        minimumFractionDigits: 2,
                         maximumFractionDigits: 2,
                       })}
                     </Animated.Text>
 
-                    <Text style={styles.ticketCounterpartyText} numberOfLines={1}>
-                      {type === 'credit' ? 'Received from ' : 'Paid to '}
-                      {merchant || (type === 'credit' ? 'Sender' : category)}
+                    <Text style={styles.slipCardMerchant} numberOfLines={1}>
+                      {merchant || (isCredit ? 'Sender' : 'Transaction')}
                     </Text>
-                  </View>
 
-                  {/* DUAL LAYERED FLOWING ORGANIC WAVE TRANSITION */}
-                  <View style={styles.waveContainer}>
-                    <Svg height={44} width="100%" viewBox="0 0 375 44" preserveAspectRatio="none">
-                      <Path
-                        d="M0,20 C90,38 180,8 270,24 C320,32 350,22 375,16 L375,44 L0,44 Z"
-                        fill="rgba(255,255,255,0.24)"
+                    <View style={styles.slipCardStatusChip}>
+                      <View
+                        style={[
+                          styles.slipCardStatusDot,
+                          {
+                            backgroundColor:
+                              type === 'credit' ? '#34D399' : '#10B981',
+                          },
+                        ]}
                       />
-                      <Path
-                        d="M0,30 C85,14 175,38 275,18 C320,8 350,22 375,25 L375,44 L0,44 Z"
-                        fill="#FFFFFF"
-                      />
-                    </Svg>
-                  </View>
-                </LinearGradient>
-
-                {/* TICKET PUNCH NOTCHES ON LEFT AND RIGHT EDGES */}
-                <View
-                  style={[
-                    styles.ticketNotch,
-                    styles.ticketNotchLeft,
-                    { backgroundColor: type === 'credit' ? '#11221C' : '#1C1832' },
-                  ]}
-                />
-                <View
-                  style={[
-                    styles.ticketNotch,
-                    styles.ticketNotchRight,
-                    { backgroundColor: type === 'credit' ? '#11221C' : '#1C1832' },
-                  ]}
-                />
-
-                {/* SLIP WHITE BODY */}
-                <View style={styles.slipCardBody}>
-                  {/* ITEM 1: CATEGORY / VOUCHERS */}
-                  <View style={styles.ticketItemRow}>
-                    <View style={[styles.itemSquircle, { backgroundColor: catObj?.color || '#FF7A1A' }]}>
-                      <CategoryIcon
-                        categoryName={catObj?.name || category}
-                        iconName={catObj?.icon || 'restaurant'}
-                        size={20}
-                        color="#FFFFFF"
-                      />
-                    </View>
-                    <View style={styles.itemTextCol}>
-                      <Text style={styles.itemTitle}>{category}</Text>
-                      <Text style={styles.itemSubtitle} numberOfLines={showDetails ? undefined : 2}>
-                        {description?.trim()
-                          ? getDisplayTransactionNote(description)
-                          : `Logged for ${category.toLowerCase()}`}
+                      <Text style={styles.slipCardStatusText}>
+                        TRANSACTION SUCCESSFUL
                       </Text>
-                      <TouchableOpacity
-                        onPress={() => setShowDetails(!showDetails)}
-                        style={styles.detailsToggleBtn}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={styles.detailsToggleText}>
-                          {showDetails ? 'LESS ⌃' : 'DETAILS ⌵'}
-                        </Text>
-                      </TouchableOpacity>
                     </View>
-                    <Text style={styles.itemAmountText}>
-                      {currency}
-                      {parseFloat(amount || '0').toLocaleString('en-IN', {
-                        minimumFractionDigits: 0,
-                        maximumFractionDigits: 2,
-                      })}
-                    </Text>
+                  </LinearGradient>
+
+                  {/* NOTCH DIVIDER */}
+                  <View style={styles.slipNotchRow}>
+                    <View style={styles.slipNotchLeft} />
+                    <View style={styles.slipNotchDash} />
+                    <View style={styles.slipNotchRight} />
                   </View>
 
-                  {/* ITEM 2: PAYMENT METHOD / CASH CARD */}
-                  <View style={styles.ticketItemRow}>
-                    <View style={[styles.itemSquircle, { backgroundColor: '#43B064' }]}>
-                      <Ionicons
-                        name={
-                          paymentMode === 'Cash'
-                            ? 'cash-outline'
-                            : paymentMode === 'Card'
-                            ? 'card-outline'
-                            : 'flash-outline'
-                        }
-                        size={20}
-                        color="#FFFFFF"
-                      />
-                    </View>
-                    <View style={styles.itemTextCol}>
-                      <Text style={styles.itemTitle}>
-                        {paymentMode === 'Cash'
-                          ? 'Cash Payment'
-                          : paymentMode === 'Card'
-                          ? 'Debit / Credit Card'
-                          : paymentMode
-                          ? `${paymentMode} Payment`
-                          : 'UPI Payment'}
+                  {/* SLIP BODY */}
+                  <View style={styles.slipCardBody}>
+                    <View style={styles.slipRefLineRow}>
+                      <Text style={styles.slipRefLine}>
+                        RUPEO TXN · {barcodeValue}
                       </Text>
-                      <Text style={styles.itemSubtitle}>Verified Payment Mode</Text>
+                      <View style={styles.slipSecureTag}>
+                        <Ionicons
+                          name="shield-checkmark"
+                          size={11}
+                          color="#059669"
+                          style={{ marginRight: 3 }}
+                        />
+                        <Text style={styles.slipSecureTagText}>VERIFIED</Text>
+                      </View>
                     </View>
-                    <Text style={styles.itemAmountText}>
-                      {currency}
-                      {parseFloat(amount || '0').toLocaleString('en-IN', {
-                        minimumFractionDigits: 0,
-                        maximumFractionDigits: 2,
-                      })}
-                    </Text>
-                  </View>
 
-                  {/* EXPANDABLE EXTENDED DETAILS */}
-                  {showDetails && (
-                    <View style={styles.expandedDetailsBox}>
-                      <View style={styles.detailRow}>
-                        <Text style={styles.detailLabel}>Reference ID</Text>
-                        <Text style={styles.detailValue}>{barcodeValue}</Text>
-                      </View>
-                      <View style={styles.detailRow}>
-                        <Text style={styles.detailLabel}>Transaction Date</Text>
-                        <Text style={styles.detailValue}>{formatDisplayDate(date)}</Text>
-                      </View>
-                      <View style={styles.detailRow}>
-                        <Text style={styles.detailLabel}>Recorded Time</Text>
-                        <Text style={styles.detailValue}>{formatDisplayTime(time)}</Text>
-                      </View>
-                      {merchant && (
-                        <View style={styles.detailRow}>
-                          <Text style={styles.detailLabel}>Payee / Merchant</Text>
-                          <Text style={styles.detailValue}>{merchant}</Text>
+                    {/* DATE & TIME SUMMARY */}
+                    <View style={styles.slipSummaryGrid}>
+                      <View style={styles.slipSummaryItem}>
+                        <View
+                          style={[
+                            styles.slipSummaryIcon,
+                            { backgroundColor: '#EFF6FF' },
+                          ]}
+                        >
+                          <ExpoImage cachePolicy="memory-disk"
+                            source={{
+                              uri: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Objects/Calendar.png',
+                            }}
+                            style={{ width: 18, height: 18 }}
+                            contentFit="contain"
+                          />
                         </View>
-                      )}
-                      {linkedBillId && (
-                        <View style={styles.detailRow}>
-                          <Text style={styles.detailLabel}>Linked Bill</Text>
-                          <TouchableOpacity onPress={handleUnlinkBill}>
-                            <Text style={[styles.detailValue, { color: '#EF4444' }]}>Undo Match</Text>
+                        <View>
+                          <Text style={styles.slipSummaryLabel}>DATE</Text>
+                          <Text style={styles.slipSummaryValue}>
+                            {date || 'Not set'}
+                          </Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.slipSummaryItem}>
+                        <View
+                          style={[
+                            styles.slipSummaryIcon,
+                            { backgroundColor: '#ECFDF5' },
+                          ]}
+                        >
+                          <ExpoImage cachePolicy="memory-disk"
+                            source={{
+                              uri: 'https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Travel%20and%20places/Sun.png',
+                            }}
+                            style={{ width: 18, height: 18 }}
+                            contentFit="contain"
+                          />
+                        </View>
+                        <View>
+                          <Text style={styles.slipSummaryLabel}>TIME</Text>
+                          <Text style={styles.slipSummaryValue}>
+                            {time ? formatTime12Hour(time) : 'Recorded'}
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+
+                    {/* CATEGORY ROW */}
+                    <TouchableOpacity
+                      style={styles.slipRow}
+                      onPress={() => setShowCategorySheet(true)}
+                      activeOpacity={0.7}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Change category from ${category}`}
+                    >
+                      <Text style={styles.slipRowLabel}>CATEGORY</Text>
+                      <View style={styles.slipRowValueContainer}>
+                        <CategoryIcon
+                          categoryName={catObj?.name || category}
+                          iconName={catObj?.icon || 'receipt-outline'}
+                          size={18}
+                          color={catObj?.color || '#3B82F6'}
+                        />
+                        <Text style={styles.slipRowValue}>{category}</Text>
+                        <Ionicons name="chevron-forward" size={13} color="#94A3B8" style={{ marginLeft: 3 }} />
+                      </View>
+                    </TouchableOpacity>
+
+                    {/* PAYMENT MODE ROW */}
+                    <View style={styles.slipRow}>
+                      <Text style={styles.slipRowLabel}>PAYMENT MODE</Text>
+                      <View style={styles.slipRowValueContainer}>
+                        <ReceiptPaymentMethodBadge mode={paymentMode} isDark={false} />
+                      </View>
+                    </View>
+
+                    {/* LINKED BILL ROW */}
+                    {linkedBillId && (
+                      <View style={styles.slipRow}>
+                        <Text style={styles.slipRowLabel}>LINKED BILL</Text>
+                        <View style={styles.slipRowValueContainer}>
+                          <View style={styles.linkedBillBadge}>
+                            <Ionicons name="receipt" size={13} color="#4F46E5" style={{ marginRight: 4 }} />
+                            <Text style={styles.linkedBillBadgeText}>Bill Payment</Text>
+                          </View>
+                          <TouchableOpacity
+                            onPress={handleUnlinkBill}
+                            style={styles.unlinkBillBtn}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={styles.unlinkBillBtnText}>Undo Match</Text>
                           </TouchableOpacity>
                         </View>
-                      )}
-                      {sources && sources.length > 1 && (
-                        <View style={styles.detailRow}>
-                          <Text style={styles.detailLabel}>Source Verified</Text>
-                          <Text style={styles.detailValue}>{formatSourcesDisplay(sources)}</Text>
-                        </View>
-                      )}
-                    </View>
-                  )}
+                      </View>
+                    )}
 
-                  {/* ATTACHED RECEIPT PHOTO PROOF IF PRESENT */}
-                  {receiptImage ? (
-                    <View style={styles.proofSection}>
-                      <Text style={styles.proofHeading}>Attached Payment Proof</Text>
-                      <TouchableOpacity
-                        onPress={() => setPreviewModalOpen(true)}
-                        activeOpacity={0.92}
-                        style={styles.proofWrap}
-                      >
-                        <Image
-                          source={{ uri: receiptImage }}
-                          style={[
-                            styles.slipPhoto,
-                            imageAspectRatio
-                              ? { aspectRatio: imageAspectRatio }
-                              : { height: 180 },
-                          ]}
-                          resizeMode="contain"
+                    {/* CROSS-SOURCE PROVENANCE BADGE (MULTI-SOURCE) */}
+                    {sources && sources.length > 1 && (
+                      <View style={styles.sourcesBox}>
+                        <View style={styles.sourcesHeaderRow}>
+                          <Ionicons name="git-merge" size={13} color="#4F46E5" style={{ marginRight: 5 }} />
+                          <Text style={styles.sourcesHeaderTitle}>CROSS-SOURCE CONFIRMED</Text>
+                        </View>
+                        <Text style={styles.sourcesExplanationText}>
+                          {formatSourcesDisplay(sources)}
+                        </Text>
+                      </View>
+                    )}
+
+                    {/* NOTE ROW (IF PRESENT) */}
+                    {(() => {
+                      const noteToShow = getDisplayTransactionNote(description);
+                      if (!noteToShow) return null;
+                      const isOriginalMsg = noteToShow.startsWith('Original Message:');
+                      const messageBody = isOriginalMsg
+                        ? noteToShow.replace(/^Original Message:\s*/i, '').trim()
+                        : noteToShow;
+
+                      if (isOriginalMsg) {
+                        return (
+                          <View style={[styles.slipRow, { flexDirection: 'column', alignItems: 'flex-start', paddingVertical: 12 }]}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, width: '100%' }}>
+                              <Text style={styles.slipRowLabel}>NOTE</Text>
+                              <View style={styles.originalMsgBadge}>
+                                <Ionicons
+                                  name="chatbox-ellipses-outline"
+                                  size={11}
+                                  color="#2563EB"
+                                  style={{ marginRight: 4 }}
+                                />
+                                <Text style={styles.originalMsgBadgeText}>Original Message</Text>
+                              </View>
+                            </View>
+                            <View style={styles.originalMsgBox}>
+                              <Text style={styles.originalMsgText} selectable>
+                                {messageBody}
+                              </Text>
+                            </View>
+                          </View>
+                        );
+                      }
+
+                      return (
+                        <View style={[styles.slipRow, { alignItems: 'flex-start' }]}>
+                          <Text style={styles.slipRowLabel}>NOTE</Text>
+                          <View style={{ flex: 1, alignItems: 'flex-start', marginLeft: 16 }}>
+                            <Text
+                              style={[
+                                styles.slipRowValue,
+                                { textAlign: 'left', lineHeight: 20, fontSize: 13.5, color: '#334155' },
+                              ]}
+                              selectable
+                            >
+                              {noteToShow}
+                            </Text>
+                          </View>
+                        </View>
+                      );
+                    })()}
+
+                    {/* PHOTO ONLY IF ATTACHED */}
+                    {receiptImage ? (
+                      <>
+                        <View style={styles.slipInnerDash} />
+                        <View style={styles.slipPhotoLabelRow}>
+                          <Ionicons
+                            name="image"
+                            size={14}
+                            color="#2563EB"
+                            style={{ marginRight: 4 }}
+                          />
+                          <Text style={styles.slipPhotoLabel}>
+                            Payment Screenshot / Bill Proof
+                          </Text>
+                        </View>
+                        <TouchableOpacity
+                          onPress={() => setPreviewModalOpen(true)}
+                          activeOpacity={0.92}
+                          style={styles.slipPhotoWrap}
+                        >
+                          <Image
+                            source={{ uri: receiptImage }}
+                            style={[
+                              styles.slipPhoto,
+                              imageAspectRatio
+                                ? { aspectRatio: imageAspectRatio }
+                                : { height: 200 },
+                            ]}
+                            resizeMode="contain"
+                          />
+                          <View style={styles.slipPhotoExpandPill}>
+                            <Ionicons name="expand" size={14} color="#FFFFFF" />
+                          </View>
+                        </TouchableOpacity>
+                      </>
+                    ) : null}
+                  </View>
+
+                  {/* FOOTER */}
+                  <View style={styles.slipCardFooter}>
+                    <View style={styles.slipLogoSection}>
+                      <View style={styles.slipLogoIcon}>
+                        <Text style={styles.slipLogoText}>₹</Text>
+                      </View>
+                      <Text style={styles.slipAppName}>Rupeo</Text>
+                      <View style={styles.slipVerifiedBadge}>
+                        <Ionicons
+                          name="checkmark-circle"
+                          size={13}
+                          color="#10B981"
+                          style={{ marginRight: 3 }}
                         />
-                        <View style={styles.slipPhotoExpandPill}>
-                          <Ionicons name="expand" size={14} color="#FFFFFF" />
-                        </View>
-                      </TouchableOpacity>
+                        <Text style={styles.slipVerifiedText}>VERIFIED RECEIPT</Text>
+                      </View>
                     </View>
-                  ) : null}
-
-                  {/* DIVIDER & GET HELP FOOTER */}
-                  <View style={styles.helpDivider} />
-                  <TouchableOpacity
-                    onPress={handleGetHelp}
-                    style={styles.helpBtn}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.helpBtnText}>Something went wrong? Get Help</Text>
-                  </TouchableOpacity>
-                </View>
-              </Animated.View>
-            );
-          })()}
+                    <Text style={styles.slipFooterSubtext}>
+                      TRACKED WITH RUPEO • SMART EXPENSE TRACKER
+                    </Text>
+                  </View>
+                </Animated.View>
+              );
+            })()}
 
           {/* ACTION: SHARE RECEIPT */}
           <View style={styles.bottomActionsContainer}>
@@ -1042,19 +1085,6 @@ export default function TransactionDetailScreen() {
               <Text style={styles.bottomShareText}>
                 {sharingImage ? 'Preparing Receipt...' : 'Share Receipt'}
               </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* FLOATING CIRCULAR CLOSE BUTTON (X) */}
-          <View style={styles.closeBtnWrapper}>
-            <TouchableOpacity
-              style={styles.floatingCloseBtn}
-              onPress={() => safeGoBack(router)}
-              activeOpacity={0.75}
-              accessibilityRole="button"
-              accessibilityLabel="Close receipt"
-            >
-              <Ionicons name="close" size={26} color="rgba(255, 255, 255, 0.7)" />
             </TouchableOpacity>
           </View>
 
@@ -1606,261 +1636,227 @@ const styles = StyleSheet.create({
   },
 
 
-  headerDark: {
-    backgroundColor: 'transparent',
-    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  headerTitleDark: {
-    color: '#FFFFFF',
-    fontWeight: '800',
-  },
-  backBtnDark: {
-    backgroundColor: 'rgba(255, 255, 255, 0.12)',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.18)',
-    padding: 6,
-  },
-  boldEditButtonDark: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.22)',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 20,
-  },
-  boldEditTextDark: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#FFFFFF',
-  },
-  deleteIconButtonDark: {
-    backgroundColor: 'rgba(239, 68, 68, 0.15)',
-    borderColor: 'rgba(239, 68, 68, 0.3)',
-    borderWidth: 1,
-  },
-
-  /* NEW SLIP RECEIPT CARD STYLES */
+  /* GRADIENT SLIP RECEIPT CARD STYLES */
   slipCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 22,
+    borderRadius: 24,
     overflow: 'hidden',
-    shadowColor: '#000000',
-    shadowOpacity: 0.28,
-    shadowOffset: { width: 0, height: 12 },
-    shadowRadius: 28,
-    elevation: 8,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.12,
+    shadowOffset: { width: 0, height: 8 },
+    shadowRadius: 20,
+    elevation: 4,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    position: 'relative',
-    marginHorizontal: 4,
-    marginBottom: 8,
+    borderColor: '#E2E8F0',
   },
   slipCardTop: {
-    paddingTop: 18,
+    paddingTop: 32,
+    paddingBottom: 28,
     paddingHorizontal: 20,
-    paddingBottom: 0,
+    alignItems: 'center',
     position: 'relative',
     overflow: 'hidden',
   },
-  ticketMetaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 16,
+  slipBlob1: {
+    position: 'absolute',
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    top: -30,
+    right: -30,
   },
-  ticketMetaId: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: 'rgba(255, 255, 255, 0.75)',
-    letterSpacing: 0.5,
+  slipBlob2: {
+    position: 'absolute',
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    bottom: -30,
+    left: -30,
   },
-  ticketMetaDate: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.75)',
+  slipWatermark: {
+    position: 'absolute',
+    top: 14,
+    right: 18,
+    opacity: 0.22,
   },
-  ticketCenterHero: {
-    alignItems: 'center',
-    paddingBottom: 10,
-  },
-  ticketCheckCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000000',
-    shadowOpacity: 0.15,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 8,
-    elevation: 4,
-    marginBottom: 10,
-  },
-  ticketAmountText: {
-    fontSize: 36,
+  slipWatermarkText: {
+    fontSize: 13,
     fontWeight: '900',
     color: '#FFFFFF',
-    letterSpacing: -0.5,
-    marginBottom: 4,
+    letterSpacing: 2.2,
   },
-  ticketCounterpartyText: {
-    fontSize: 14.5,
-    fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.9)',
-    textAlign: 'center',
-  },
-  waveContainer: {
-    width: '100%',
-    height: 44,
-    marginTop: 4,
-    alignSelf: 'center',
-  },
-  ticketNotch: {
-    position: 'absolute',
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    zIndex: 10,
-    top: 172,
-  },
-  ticketNotchLeft: {
-    left: -11,
-  },
-  ticketNotchRight: {
-    right: -11,
-  },
-  slipCardBody: {
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 18,
-  },
-  ticketItemRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F8FAFC',
-  },
-  itemSquircle: {
-    width: 42,
-    height: 42,
-    borderRadius: 10,
-    alignItems: 'center',
+  slipCardIcon: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
     justifyContent: 'center',
-    marginRight: 12,
-  },
-  itemTextCol: {
-    flex: 1,
-    paddingRight: 10,
-  },
-  itemTitle: {
-    fontSize: 14.5,
-    fontWeight: '800',
-    color: '#0F172A',
-    marginBottom: 2,
-  },
-  itemSubtitle: {
-    fontSize: 11.5,
-    color: '#64748B',
-    lineHeight: 16,
-    fontWeight: '500',
-  },
-  detailsToggleBtn: {
-    alignSelf: 'flex-start',
-    marginTop: 4,
-  },
-  detailsToggleText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#6366F1',
-    letterSpacing: 0.4,
-  },
-  itemAmountText: {
-    fontSize: 15,
-    fontWeight: '900',
-    color: '#0F172A',
-  },
-  expandedDetailsBox: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 14,
-    padding: 12,
-    marginTop: 6,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  detailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 4,
-  },
-  detailLabel: {
-    fontSize: 12,
-    color: '#64748B',
-    fontWeight: '600',
-  },
-  detailValue: {
-    fontSize: 12.5,
-    color: '#0F172A',
-    fontWeight: '800',
-  },
-  proofSection: {
-    marginTop: 10,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#F1F5F9',
-  },
-  proofHeading: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#64748B',
-    marginBottom: 8,
-    textTransform: 'uppercase',
-  },
-  proofWrap: {
-    borderRadius: 14,
-    overflow: 'hidden',
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    position: 'relative',
-  },
-  helpDivider: {
-    height: 1,
-    backgroundColor: '#F1F5F9',
-    marginTop: 12,
+    alignItems: 'center',
     marginBottom: 14,
   },
-  helpBtn: {
+  slipCardAmount: {
+    fontSize: 40,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    marginBottom: 6,
+    letterSpacing: -1,
+  },
+  slipCardMerchant: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: 'rgba(255,255,255,0.92)',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  slipCardStatusChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(16,185,129,0.18)',
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: 'rgba(16,185,129,0.35)',
+  },
+  slipCardStatusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: 6,
+  },
+  slipCardStatusText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#10B981',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  slipNotchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    marginTop: -10,
+    marginBottom: 4,
+    zIndex: 2,
+  },
+  slipNotchLeft: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#F1F5F9',
+    marginLeft: -10,
+  },
+  slipNotchDash: {
+    flex: 1,
+    height: 1,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderStyle: 'dashed',
+    marginHorizontal: 8,
+  },
+  slipNotchRight: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#F1F5F9',
+    marginRight: -10,
+  },
+  slipCardBody: {
+    paddingHorizontal: 22,
+    paddingTop: 8,
+    paddingBottom: 20,
+    backgroundColor: '#FFFFFF',
+  },
+  slipRefLineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  slipRefLine: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#94A3B8',
+    letterSpacing: 1.2,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+  },
+  slipSecureTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+  },
+  slipSecureTagText: {
+    fontSize: 9.5,
+    fontWeight: '900',
+    color: '#059669',
+    letterSpacing: 0.5,
+  },
+  slipSummaryGrid: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 8,
+  },
+  slipSummaryItem: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  slipSummaryIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 4,
+    marginRight: 8,
   },
-  helpBtnText: {
+  slipSummaryLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#94A3B8',
+    letterSpacing: 0.6,
+    marginBottom: 2,
+  },
+  slipSummaryValue: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: '#1E293B',
+  },
+  slipRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 11,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  slipRowLabel: {
     fontSize: 13,
+    color: '#64748B',
     fontWeight: '700',
-    color: '#6D28D9',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
-  closeBtnWrapper: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 14,
-    marginBottom: 18,
+  slipRowValue: {
+    fontSize: 14.5,
+    color: '#1C1C1E',
+    fontWeight: '800',
   },
-  floatingCloseBtn: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: 'rgba(255, 255, 255, 0.12)',
-    borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+  slipRowValueContainer: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 6,
   },
   originalMsgBadge: {
     flexDirection: 'row',

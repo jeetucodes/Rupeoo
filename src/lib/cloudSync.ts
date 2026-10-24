@@ -176,11 +176,24 @@ export interface PullProgressCallback {
 export interface PullFromCloudOptions {
   silent?: boolean;
   forceRestoreBanner?: boolean;
+  limitCount?: number;
+  fetchAll?: boolean;
+}
+
+// In-memory pagination trackers for on-demand & progressive loading
+const userLastVisibleDoc = new Map<string, DocumentSnapshot | null>();
+const userHasMoreRemoteTxs = new Map<string, boolean>();
+const userRemainingPullPromise = new Map<string, Promise<any[]>>();
+
+export function hasMoreRemoteTransactions(userId: string): boolean {
+  return userHasMoreRemoteTxs.get(userId) === true;
 }
 
 /**
  * Initial pull: fetches user's transactions, bills, friends/udhar, category rules,
- * and settings from remote Firestore in paginated batches (300 per page, retry with backoff).
+ * and settings from remote Firestore.
+ * By default, loads recent ~50 transactions (current month) so startup is instantaneous (<500ms).
+ * Older transactions are loaded progressively on demand (e.g. Reports, History, or background idle).
  * Upserts into local SQLite & persistent storage by id using updatedAt (latest wins).
  * Never deletes local rows.
  */
@@ -215,12 +228,13 @@ export async function pullFromCloud(
     }
     if (onProgress) onProgress('Connecting...', 0, 0);
 
-    // 1. Fetch remote transactions in paginated batches of 300
+    // 1. Fetch remote transactions: fast initial batch (recent ~50 transactions) or full fetch if requested
     const remoteTxDocs: any[] = [];
     const txsRef = collection(db, `users/${userId}/transactions`);
     let lastDoc: DocumentSnapshot | null = null;
     let hasMore = true;
-    const PAGE_SIZE = 300;
+    const INITIAL_BATCH_SIZE = options.limitCount || 50;
+    const PAGE_SIZE = options.fetchAll ? 300 : INITIAL_BATCH_SIZE;
 
     while (hasMore) {
       const q: any = lastDoc
@@ -240,12 +254,16 @@ export async function pullFromCloud(
 
       if (snap.empty) {
         hasMore = false;
+        userHasMoreRemoteTxs.set(userId, false);
+        userLastVisibleDoc.set(userId, null);
         break;
       }
 
       snap.docs.forEach((d: any) => {
         remoteTxDocs.push({ id: d.id, ...d.data() });
       });
+
+      lastDoc = snap.docs[snap.docs.length - 1];
 
       if (shouldShowRestoreBanner) {
         emitPullState(true, 'Restoring your data...', remoteTxDocs.length);
@@ -254,10 +272,19 @@ export async function pullFromCloud(
         onProgress('Restoring transactions...', remoteTxDocs.length, remoteTxDocs.length);
       }
 
+      if (!options.fetchAll) {
+        // Stop after first batch of recent transactions to guarantee instant dashboard load!
+        hasMore = false;
+        const hasMoreAvailable = snap.size >= PAGE_SIZE;
+        userHasMoreRemoteTxs.set(userId, hasMoreAvailable);
+        userLastVisibleDoc.set(userId, hasMoreAvailable ? lastDoc : null);
+        break;
+      }
+
       if (snap.size < PAGE_SIZE) {
         hasMore = false;
-      } else {
-        lastDoc = snap.docs[snap.docs.length - 1];
+        userHasMoreRemoteTxs.set(userId, false);
+        userLastVisibleDoc.set(userId, null);
       }
     }
 
@@ -475,6 +502,166 @@ export async function pullFromCloud(
     }
     return { success: false, count: fallback.length, transactions: fallback };
   }
+}
+
+/**
+ * On-demand / background incremental pull for older transactions.
+ * Loads remaining pages from Firestore in non-blocking batches.
+ * Triggered on demand (e.g. Reports tab, Transactions history tab, or deferred background idle).
+ */
+export async function pullRemainingHistoryFromCloud(
+  userId: string,
+  onProgress?: PullProgressCallback
+): Promise<any[]> {
+  if (!userId || userId === GUEST_USER_ID || !db) return [];
+
+  const inFlight = userRemainingPullPromise.get(userId);
+  if (inFlight) return inFlight;
+
+  const hasMore = userHasMoreRemoteTxs.get(userId);
+  if (hasMore === false) {
+    return await getOfflineTransactions(userId);
+  }
+
+  const p = (async () => {
+    try {
+      const syncEnabled = await isCloudSyncEnabled(userId);
+      if (!syncEnabled) return await getOfflineTransactions(userId);
+
+      const isOnline = await checkIsOnline();
+      if (!isOnline) return await getOfflineTransactions(userId);
+
+      const txsRef = collection(db, `users/${userId}/transactions`);
+      let lastDoc = userLastVisibleDoc.get(userId) || null;
+      let moreToFetch = true;
+      const PAGE_SIZE = 150;
+      const newlyFetchedDocs: any[] = [];
+
+      while (moreToFetch) {
+        const q: any = lastDoc
+          ? query(txsRef, orderBy('date', 'desc'), startAfter(lastDoc), limit(PAGE_SIZE))
+          : query(txsRef, orderBy('date', 'desc'), limit(PAGE_SIZE));
+
+        let snap: any;
+        try {
+          snap = await getDocs(q);
+        } catch {
+          snap = lastDoc
+            ? await getDocs(query(txsRef, startAfter(lastDoc), limit(PAGE_SIZE)))
+            : await getDocs(query(txsRef, limit(PAGE_SIZE)));
+        }
+
+        if (snap.empty) {
+          userHasMoreRemoteTxs.set(userId, false);
+          userLastVisibleDoc.set(userId, null);
+          break;
+        }
+
+        snap.docs.forEach((d: any) => {
+          newlyFetchedDocs.push({ id: d.id, ...d.data() });
+        });
+
+        if (onProgress) {
+          onProgress('Loading older history...', newlyFetchedDocs.length, newlyFetchedDocs.length);
+        }
+
+        if (snap.size < PAGE_SIZE) {
+          moreToFetch = false;
+          userHasMoreRemoteTxs.set(userId, false);
+          userLastVisibleDoc.set(userId, null);
+        } else {
+          lastDoc = snap.docs[snap.docs.length - 1];
+          userLastVisibleDoc.set(userId, lastDoc);
+        }
+
+        // Non-blocking yield to keep 60fps responsiveness on Android
+        await sleep(10);
+      }
+
+      if (newlyFetchedDocs.length > 0) {
+        const localTxs = await getOfflineTransactions(userId);
+        const localMap = new Map<string, any>();
+        for (const t of localTxs) {
+          if (t?.id) localMap.set(t.id, t);
+        }
+
+        for (const remoteDoc of newlyFetchedDocs) {
+          const localExisting = localMap.get(remoteDoc.id);
+          const mapped = fromRemote(remoteDoc, localExisting);
+          mapped.syncStatus = 'synced';
+          mapped.syncedAt = Date.now();
+          localMap.set(remoteDoc.id, mapped);
+        }
+
+        const mergedTxs = sortTransactionsRecentFirst(Array.from(localMap.values()));
+        await saveOfflineTransactions(userId, mergedTxs, true);
+
+        // Batch save to SQLite in background
+        let writeCount = 0;
+        for (const tx of newlyFetchedDocs) {
+          const isAutoTx =
+            tx.source === 'auto' ||
+            tx.source === 'notification_listener' ||
+            tx.source === 'sms_inbox' ||
+            tx.status === 'auto_added' ||
+            (typeof tx.id === 'string' && tx.id.startsWith('auto_'));
+          const txPaymentMode =
+            tx.payment_mode && tx.payment_mode !== 'unknown'
+              ? tx.payment_mode
+              : tx.paymentMode && tx.paymentMode !== 'unknown'
+              ? tx.paymentMode
+              : isAutoTx
+              ? 'UPI'
+              : 'unknown';
+
+          saveTransactionToSQLite({
+            id: tx.id,
+            amount: Number(tx.amount) || 0,
+            type: tx.type || 'debit',
+            merchant: tx.merchant_name || tx.payee || null,
+            category: tx.category || 'Others',
+            bankName: tx.bankName || null,
+            accountLast4: tx.accountLast4 || null,
+            refNo: tx.ref_no || tx.utr || null,
+            timestamp: tx.created_at || tx.updatedAt || Date.now(),
+            channel: txPaymentMode,
+            rawText: tx.originalMessage || null,
+            status: 'synced',
+            billId: tx.billId || null,
+            originalMessage: tx.originalMessage || null,
+            userNote: tx.userNote || tx.description || tx.note || null,
+            payment_mode: txPaymentMode,
+            syncedAt: tx.syncedAt || Date.now(),
+            syncStatus: 'synced',
+            updatedAt: tx.updatedAt || Date.now(),
+            deleted: 0,
+            userId,
+            created_at: tx.created_at || Date.now(),
+          });
+
+          writeCount++;
+          if (writeCount % 30 === 0) {
+            await sleep(5);
+          }
+        }
+
+        invalidateAllUserCache(userId);
+        invalidateTransactionsCache(userId);
+        notifyTransactionsListeners(mergedTxs);
+        return mergedTxs;
+      }
+
+      return await getOfflineTransactions(userId);
+    } catch (err) {
+      warn('pullRemainingHistoryFromCloud error:', err);
+      return await getOfflineTransactions(userId);
+    } finally {
+      userRemainingPullPromise.delete(userId);
+    }
+  })();
+
+  userRemainingPullPromise.set(userId, p);
+  return p;
 }
 
 // ---------------------------------------------------------------------------

@@ -31,6 +31,7 @@ import Svg, { Circle, Path, Rect, Line, Defs, RadialGradient, Stop, LinearGradie
 import { useRouter, useFocusEffect } from 'expo-router';
 import {
   getAllTransactions,
+  pullRemainingHistoryFromCloud,
   getCachedTransactionsSync,
   sortTransactionsRecentFirst,
   insertTransaction,
@@ -645,6 +646,11 @@ export default function DashboardScreen() {
             }).catch(() => { });
           }
         }).catch(() => { });
+
+        // Progressively pull older history in background without blocking initial launch
+        setTimeout(() => {
+          pullRemainingHistoryFromCloud(user.uid).catch(() => {});
+        }, 3500);
       });
     } catch (err) {
       error('Failed to load dashboard data', err);
@@ -1421,15 +1427,6 @@ export default function DashboardScreen() {
         </View>
 
 
-        {/* RESTORING PROGRESS BANNER */}
-        {pullState.isPulling && transactions.length === 0 && (
-          <View style={styles.restoringBanner}>
-            <ActivityIndicator size="small" color="#D97706" style={{ marginRight: 8 }} />
-            <Text style={styles.restoringBannerText}>
-              Restoring your data... {pullState.count > 0 ? `(${pullState.count} transactions)` : ''}
-            </Text>
-          </View>
-        )}
 
         {/* RECENT TRANSACTIONS LIST */}
         {recentTransactions.length > 0 ? (

@@ -20,6 +20,7 @@ import { Image as ExpoImage } from 'expo-image';
 import { useFocusEffect, useRouter } from 'expo-router';
 import {
   getAllTransactions,
+  pullRemainingHistoryFromCloud,
   getCachedTransactionsSync,
   sortTransactionsRecentFirst,
   getUserCategories,
@@ -608,6 +609,7 @@ export default function TransactionsScreen() {
       ]);
       setAllTransactions(sortTransactionsRecentFirst(txs));
       setCategories(cats);
+      pullRemainingHistoryFromCloud(user.uid).catch(() => {});
     } catch (e) {
       error('Error loading transactions:', e);
     } finally {
