@@ -17,6 +17,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { initDatabase, syncUserOfflineData, deleteTransaction, undoBillPayment } from '@/lib/database';
+import { confirmPendingAlert, dismissPendingAlert } from '@/lib/pendingInbox';
 import { initializeAds } from '@/lib/ads';
 import Toast from 'react-native-toast-message';
 import { customToastConfig } from '@/components/custom-toast';
@@ -121,15 +122,21 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const lastActivePullRef = React.useRef<number>(Date.now());
   const hasLoggedTimingsRef = React.useRef<boolean>(false);
 
-  // 8-second startup timeout: show recovery fallback instead of blank screen
+  // 15-second startup watchdog: clears immediately when loading finishes
   useEffect(() => {
+    if (!loading) {
+      setStartupTimeout(false);
+      return;
+    }
     const timer = setTimeout(() => {
-      setStartupTimeout(true);
-      SplashScreen.hideAsync().catch(() => {});
-      recordCrash(new Error('App startup exceeded 8 seconds watchdog timeout'), false, 'startup_watchdog').catch(() => {});
-    }, 8000);
+      if (loading) {
+        setStartupTimeout(true);
+        SplashScreen.hideAsync().catch(() => {});
+        recordCrash(new Error('App startup exceeded watchdog timeout'), false, 'startup_watchdog').catch(() => {});
+      }
+    }, 15000);
     return () => clearTimeout(timer);
-  }, []);
+  }, [loading]);
 
   // Subscribe to background migration status
   useEffect(() => {
@@ -234,6 +241,42 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       const action = response.actionIdentifier;
 
       // 1. Interactive Button Actions
+      if (action === 'ADD_INBOX_ACTION') {
+        if (data?.pendingId) {
+          const targetUid = (data.userId as string) || user?.uid || 'local';
+          confirmPendingAlert(targetUid, data.pendingId)
+            .then((txId) => {
+              if (txId) {
+                Toast.show({
+                  type: 'success',
+                  text1: 'Transaction Added ✅',
+                  text2: 'Alert confirmed and added to transactions.',
+                  visibilityTime: 3500,
+                });
+                import('@/features/notifications').then(({ scheduleNext48h }) => {
+                  scheduleNext48h(targetUid).catch(() => {});
+                }).catch(() => {});
+              }
+            })
+            .catch(() => {});
+        }
+        return;
+      }
+
+      if (action === 'DISMISS_INBOX_ACTION') {
+        if (data?.pendingId) {
+          const targetUid = (data.userId as string) || user?.uid || 'local';
+          dismissPendingAlert(targetUid, data.pendingId).catch(() => {});
+          Toast.show({
+            type: 'info',
+            text1: 'Alert Dismissed',
+            text2: 'Alert removed from pending inbox.',
+            visibilityTime: 2500,
+          });
+        }
+        return;
+      }
+
       if (action === 'UNDO_ACTION') {
         if (data?.transactionId) {
           const targetUid = (data.userId as string) || user?.uid || 'local';
@@ -246,7 +289,9 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
                   text2: 'Bill marked unpaid and transaction removed.',
                   visibilityTime: 3500,
                 });
-                scheduleNext48h(targetUid).catch(() => {});
+                import('@/features/notifications').then(({ scheduleNext48h }) => {
+                  scheduleNext48h(targetUid).catch(() => {});
+                }).catch(() => {});
               })
               .catch(() => {});
           } else {
@@ -258,7 +303,9 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
                   text2: 'The auto-added transaction was removed.',
                   visibilityTime: 3500,
                 });
-                scheduleNext48h(targetUid).catch(() => {});
+                import('@/features/notifications').then(({ scheduleNext48h }) => {
+                  scheduleNext48h(targetUid).catch(() => {});
+                }).catch(() => {});
               })
               .catch(() => {});
           }
@@ -268,7 +315,9 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
       if (action === 'CHANGE_CATEGORY_ACTION') {
         if (data?.transactionId) {
-          router.push(`/transaction/${data.transactionId}` as any);
+          router.push(`/transaction/${data.transactionId}?openCategory=true` as any);
+        } else if (data?.pendingId) {
+          router.push('/pending-inbox');
         } else {
           router.push('/(tabs)/dashboard');
         }
@@ -302,7 +351,9 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
       // 2. Notification Body Tap Navigation
       const type = data?.type || data?.typeKey;
-      if (type === 'daily_report' || type === 'report' || data?.typeKey === 'daily_report') {
+      if (type === 'PENDING_INBOX_ALERT') {
+        router.push('/pending-inbox');
+      } else if (type === 'daily_report' || type === 'report' || data?.typeKey === 'daily_report') {
         router.push('/daily-report');
       } else if (
         type === 'budget_over' ||
@@ -313,7 +364,8 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
         router.push('/budget');
       } else if (type === 'AUTO_ADD_TRANSACTION' || type === 'transaction_added') {
         if (data?.transactionId) {
-          router.push(`/transaction/${data.transactionId}` as any);
+          const shouldOpenCat = data?.category === 'Uncategorized';
+          router.push(`/transaction/${data.transactionId}${shouldOpenCat ? '?openCategory=true' : ''}` as any);
         } else {
           router.push('/(tabs)/dashboard');
         }
@@ -549,6 +601,9 @@ export default function RootLayout() {
         dbOpenDuration = Date.now() - startupStartTime;
       })
       .catch((e) => logError('Database init error:', e));
+
+    // Clear any stale migration lock left behind if app was previously killed
+    AsyncStorage.removeItem('@rupeo_migration_in_progress').catch(() => {});
 
     // One-time migration: Cancel all previously scheduled routines, bills & quiet hours local notifications
     const CANCEL_MIGRATION_KEY = '@rupeo_cancelled_legacy_scheduled_notifs_v1';

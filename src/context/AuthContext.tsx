@@ -262,6 +262,8 @@ export interface RupeoUser extends User {
   hasSetStartingBalance: boolean;
   isPremium?: boolean;
   premiumPlan?: string;
+  phone?: string;
+  defaultPaymentMode?: string;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -340,40 +342,60 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const fetchUserProfile = async (currentUser: User) => {
+  const fetchUserProfile = async (currentUser: User): Promise<RupeoUser> => {
+    const cacheKey = `@rupeo_profile_${currentUser.uid}`;
+    let cachedProfile: any = null;
+    try {
+      const raw = await AsyncStorage.getItem(cacheKey).catch(() => null);
+      if (raw) {
+        cachedProfile = safeJsonParse(raw, null, cacheKey);
+      }
+    } catch {}
+
     try {
       if (db && currentUser?.uid) {
         const userDocPromise = getDoc(doc(db, 'users', currentUser.uid));
-        const userDoc = await withTimeout(userDocPromise, 3500, null as any);
-
-        const balancePromise = getStartingBalanceProfile(currentUser.uid);
-        const balanceProfile = await withTimeout(balancePromise, 3500, { startingBalance: 0, hasSetStartingBalance: true });
+        const userDoc = await withTimeout(userDocPromise, 2500, null as any);
 
         if (userDoc && userDoc.exists()) {
           const data = userDoc.data();
-          return {
+          const startingBalance = Number(data.starting_balance) || 0;
+          const hasSetStartingBalance = data.has_set_starting_balance !== false;
+          const profile: RupeoUser = {
             ...currentUser,
             displayName: data.name || data.displayName || currentUser.displayName,
             photoURL: data.photoURL || currentUser.photoURL,
             email: currentUser.email,
             phone: data.phone || '',
             defaultPaymentMode: data.defaultPaymentMode || 'UPI',
-            startingBalance: balanceProfile.startingBalance,
-            hasSetStartingBalance: balanceProfile.hasSetStartingBalance,
+            startingBalance,
+            hasSetStartingBalance,
             isPremium: Boolean(data.is_premium),
             premiumPlan: data.premium_plan,
-          } as any;
+          };
+          AsyncStorage.setItem(cacheKey, JSON.stringify(profile)).catch(() => {});
+          return profile;
         }
+
+        if (cachedProfile) {
+          return { ...currentUser, ...cachedProfile };
+        }
+
         return {
           ...currentUser,
-          startingBalance: balanceProfile.startingBalance,
-          hasSetStartingBalance: balanceProfile.hasSetStartingBalance,
+          startingBalance: 0,
+          hasSetStartingBalance: true,
           isPremium: false,
         } as RupeoUser;
       }
     } catch (err) {
       warn('Error fetching Firestore user profile:', err);
     }
+
+    if (cachedProfile) {
+      return { ...currentUser, ...cachedProfile };
+    }
+
     return {
       ...currentUser,
       startingBalance: 0,
@@ -385,14 +407,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const fetchSettings = async (currentUser: User): Promise<UserSettings | null> => {
     try {
       const settingsPromise = getUserSettings(currentUser.uid);
-      const userSettings = await withTimeout(settingsPromise, 3500, null);
-      setSettings(userSettings);
-      return userSettings;
+      const userSettings = await withTimeout(settingsPromise, 2500, null);
+      if (userSettings) {
+        setSettings(userSettings);
+        return userSettings;
+      }
     } catch (error) {
-      setSettings(null);
       warn('Could not load settings; using defaults.', error);
-      return null;
     }
+    return null;
   };
 
   useEffect(() => {
@@ -403,15 +426,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       try {
         if (currentUser) {
-          // B4: Refresh token once on auth change so new claims (e.g. grandfathered, email_verified) are picked up
-          try {
-            await withTimeout(currentUser.getIdToken(true), 3000, null);
-          } catch (tokenErr) {
+          // B4: Refresh token claims in background non-blockingly so app startup is never stalled
+          currentUser.getIdToken(true).catch((tokenErr) => {
             warn('Token claim refresh error:', tokenErr);
-          }
-          const profileUser = await fetchUserProfile(currentUser);
+          });
+
+          // Fetch user profile and settings concurrently in parallel
+          const [profileUser, userSettings] = await Promise.all([
+            fetchUserProfile(currentUser),
+            fetchSettings(currentUser),
+          ]);
+
           setUser(profileUser);
-          const userSettings = await fetchSettings(currentUser);
+          if (userSettings) {
+            setSettings(userSettings);
+          }
 
           // Schedule welcome notification in EXACTLY ONE PLACE:
           // Right after a successful login/signup (auth session confirmed),

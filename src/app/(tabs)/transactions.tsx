@@ -30,7 +30,9 @@ import {
 import VoiceTransactionModal from '@/components/VoiceTransactionModal';
 import { useAuth } from '@/context/AuthContext';
 import { useTranslation } from '@/lib/i18n';
-import { formatTime12Hour, getLocalDateString, getRelativeDateString } from '@/lib/dateUtils';
+import { formatTime12Hour, getLocalDateString, getLocalMonthString, getRelativeDateString, shiftMonthString } from '@/lib/dateUtils';
+import { formatMonthDisplay } from '@/lib/statementPdf';
+import * as Haptics from 'expo-haptics';
 import Svg, { Circle, G, Path, Text as SvgText, Polyline } from 'react-native-svg';
 import PaymentModeIcon from '@/components/PaymentModeIcon';
 import CategoryIcon from '@/components/CategoryIcon';
@@ -455,7 +457,9 @@ export default function TransactionsScreen() {
   const cachedInitial = user?.uid ? getCachedTransactionsSync(user.uid) : null;
   const hasCache = Boolean(cachedInitial && cachedInitial.length > 0);
 
-  const [period, setPeriod] = useState<'This Month' | 'Last 3 Months' | 'Last 6 Months' | 'All' | 'Custom'>('This Month');
+  const currentMonthStr = useMemo(() => getLocalMonthString(), []);
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => getLocalMonthString());
+  const [period, setPeriod] = useState<'Month' | 'This Month' | 'Last 3 Months' | 'Last 6 Months' | 'All' | 'Custom'>('Month');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [showStartPicker, setShowStartPicker] = useState(false);
@@ -467,6 +471,103 @@ export default function TransactionsScreen() {
   const [loading, setLoading] = useState<boolean>(() => !hasCache);
   const [refreshing, setRefreshing] = useState(false);
   const [breakdownMode, setBreakdownMode] = useState<'bar' | 'line'>('bar');
+
+  // Month navigation: check if currently viewing current or future month
+  const isCurrentOrFutureMonth = useMemo(() => {
+    if (period !== 'Month' && period !== 'This Month') return false;
+    return selectedMonth >= currentMonthStr;
+  }, [period, selectedMonth, currentMonthStr]);
+
+  const handlePrevMonth = useCallback(() => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {}
+    const baseMonth = (period === 'Month' || period === 'This Month') ? selectedMonth : currentMonthStr;
+    const prev = shiftMonthString(baseMonth, -1);
+    setSelectedMonth(prev);
+    setPeriod('Month');
+  }, [period, selectedMonth, currentMonthStr]);
+
+  const handleNextMonth = useCallback(() => {
+    if (isCurrentOrFutureMonth) return;
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {}
+    const baseMonth = (period === 'Month' || period === 'This Month') ? selectedMonth : currentMonthStr;
+    const next = shiftMonthString(baseMonth, 1);
+    if (next <= currentMonthStr) {
+      setSelectedMonth(next);
+      setPeriod('Month');
+    }
+  }, [isCurrentOrFutureMonth, period, selectedMonth, currentMonthStr]);
+
+  const displayPeriodLabel = useMemo(() => {
+    if (period === 'Custom') {
+      if (startDate && endDate) return `${startDate}  →  ${endDate}`;
+      if (startDate) return `${t('from_date')} ${startDate}`;
+      if (endDate) return `${t('to_date')} ${endDate}`;
+      return t('custom_date_range') || 'Custom Range';
+    }
+    if (period === 'All') {
+      return t('all') || 'All Time';
+    }
+    if (period === 'Last 3 Months') {
+      return t('last_3_months') || 'Last 3 Months';
+    }
+    if (period === 'Last 6 Months') {
+      return t('last_6_months') || 'Last 6 Months';
+    }
+    return formatMonthDisplay(selectedMonth);
+  }, [period, selectedMonth, startDate, endDate, t]);
+
+  // Dynamically extract all available months from transactions + current year months
+  const availableMonths = useMemo(() => {
+    const currentM = getLocalMonthString();
+    const monthSet = new Set<string>();
+    monthSet.add(currentM);
+
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonthNum = now.getMonth() + 1;
+    for (let m = 1; m <= currentMonthNum; m++) {
+      monthSet.add(`${currentYear}-${String(m).padStart(2, '0')}`);
+    }
+    for (let i = 1; i <= 12; i++) {
+      monthSet.add(shiftMonthString(currentM, -i));
+    }
+
+    allTransactions.forEach((tx: any) => {
+      const norm = normalizeDate(tx.date || '');
+      if (norm && norm.length >= 7) {
+        const mStr = norm.slice(0, 7);
+        if (/^\d{4}-\d{2}$/.test(mStr)) {
+          monthSet.add(mStr);
+        }
+      }
+    });
+
+    return Array.from(monthSet).sort((a, b) => b.localeCompare(a));
+  }, [allTransactions]);
+
+  // Aggregate count & total spend for each available month
+  const monthStatsMap = useMemo(() => {
+    const map = new Map<string, { count: number; spend: number }>();
+    allTransactions.forEach((tx: any) => {
+      const norm = normalizeDate(tx.date || '');
+      if (norm && norm.length >= 7) {
+        const mStr = norm.slice(0, 7);
+        if (/^\d{4}-\d{2}$/.test(mStr)) {
+          const entry = map.get(mStr) || { count: 0, spend: 0 };
+          entry.count += 1;
+          if ((tx.type || 'debit').toLowerCase() === 'debit') {
+            entry.spend += Number(tx.amount) || 0;
+          }
+          map.set(mStr, entry);
+        }
+      }
+    });
+    return map;
+  }, [allTransactions]);
 
   // Search & Filter States
   const [searchQuery, setSearchQuery] = useState('');
@@ -489,7 +590,7 @@ export default function TransactionsScreen() {
 
   useEffect(() => {
     setDisplayLimit(20);
-  }, [period, startDate, endDate, debouncedSearchQuery, filterType, selectedCategory, minAmount, maxAmount, filterPaymentMode]);
+  }, [period, selectedMonth, startDate, endDate, debouncedSearchQuery, filterType, selectedCategory, minAmount, maxAmount, filterPaymentMode]);
 
   const lastLoadTimeRef = useRef<number>(0);
 
@@ -545,9 +646,9 @@ export default function TransactionsScreen() {
       // 1. Period filter: ONLY apply if user is NOT searching!
       // When searching, we search across ALL transactions throughout history so everything is found!
       if (!isSearching) {
-        if (period === 'This Month') {
-          const d = new Date(tx.date);
-          if (d.getMonth() !== now.getMonth() || d.getFullYear() !== now.getFullYear()) return false;
+        if (period === 'This Month' || period === 'Month') {
+          const norm = normalizeDate(tx.date || '');
+          if (!norm.startsWith(selectedMonth)) return false;
         } else if (period === 'Last 3 Months') {
           const d = new Date(tx.date);
           const threeMonthsAgo = new Date();
@@ -631,6 +732,7 @@ export default function TransactionsScreen() {
   }, [
     allTransactions,
     period,
+    selectedMonth,
     startDate,
     endDate,
     debouncedSearchQuery,
@@ -655,21 +757,25 @@ export default function TransactionsScreen() {
 
   // Category pie data (calculated across period debits so pie stays intact during selection)
   const { categoryData, totalSpend } = useMemo(() => {
-    const now = new Date();
     const periodDebits = allTransactions.filter(tx => {
       if (tx.type !== 'debit') return false;
-      const d = new Date(tx.date);
-      if (period === 'This Month') {
-        if (d.getMonth() !== now.getMonth() || d.getFullYear() !== now.getFullYear()) return false;
+      if (period === 'This Month' || period === 'Month') {
+        const norm = normalizeDate(tx.date || '');
+        if (!norm.startsWith(selectedMonth)) return false;
       } else if (period === 'Last 3 Months') {
+        const d = new Date(tx.date);
         const threeMonthsAgo = new Date();
+        const now = new Date();
         threeMonthsAgo.setMonth(now.getMonth() - 3);
         if (d < threeMonthsAgo) return false;
       } else if (period === 'Last 6 Months') {
+        const d = new Date(tx.date);
         const sixMonthsAgo = new Date();
+        const now = new Date();
         sixMonthsAgo.setMonth(now.getMonth() - 6);
         if (d < sixMonthsAgo) return false;
       } else if (period === 'Custom') {
+        const d = new Date(tx.date);
         if (startDate) {
           const start = new Date(startDate);
           if (!isNaN(start.getTime()) && d < start) return false;
@@ -720,7 +826,7 @@ export default function TransactionsScreen() {
 
     cats.sort((a, b) => b.amount - a.amount);
     return { categoryData: cats, totalSpend: total };
-  }, [allTransactions, period, startDate, endDate, categories]);
+  }, [allTransactions, period, selectedMonth, startDate, endDate, categories]);
 
   // Date-grouped transactions (Sorted recent-first by Date, Time, and Timestamp)
   const groupedTransactions = useMemo(() => {
@@ -1089,36 +1195,86 @@ export default function TransactionsScreen() {
           ))}
         </View>
 
-        {/* Period Dropdown Button */}
+        {/* Period Navigation Bar with Previous (<) / Next (>) Month Arrows and Dropdown (v) */}
         <View style={{ marginHorizontal: 20, marginBottom: period === 'Custom' ? 8 : 12 }}>
-          <TouchableOpacity
-            style={[
-              styles.dropdownButton,
-              period === 'Custom' && { borderColor: '#BFDBFE', backgroundColor: '#F0F7FF' }
-            ]}
-            onPress={() => setShowPeriodModal(true)}
-            activeOpacity={0.7}
-          >
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
-              <Ionicons 
-                name={period === 'Custom' ? "calendar" : "calendar-outline"} 
-                size={16} 
-                color={period === 'Custom' ? '#2563EB' : '#4B5563'} 
+          <View style={[
+            styles.periodNavigator,
+            period === 'Custom' && { borderColor: '#BFDBFE', backgroundColor: '#F0F7FF' }
+          ]}>
+            {/* Left Arrow: Previous Month (<) */}
+            <TouchableOpacity
+              style={styles.navArrowBtn}
+              onPress={handlePrevMonth}
+              activeOpacity={0.7}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityLabel="Previous month"
+            >
+              <Ionicons name="chevron-back" size={20} color="#0F172A" />
+            </TouchableOpacity>
+
+            {/* Center: Selected Month / Range display (Opens Dropdown Sheet) */}
+            <TouchableOpacity
+              style={styles.navCenterBtn}
+              onPress={() => {
+                try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+                setShowPeriodModal(true);
+              }}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name={period === 'Custom' ? "calendar" : "calendar-outline"}
+                size={16}
+                color={period === 'Custom' ? '#2563EB' : '#475569'}
+                style={{ marginRight: 6 }}
               />
-              <Text style={[styles.dropdownButtonText, period === 'Custom' && { color: '#1D4ED8', fontWeight: '800' }]} numberOfLines={1}>
-                {period === 'Custom'
-                  ? (startDate && endDate
-                      ? `${startDate}  →  ${endDate}`
-                      : startDate
-                      ? `${t('from_date')} ${startDate}`
-                      : endDate
-                      ? `${t('to_date')} ${endDate}`
-                      : t('custom_date_range'))
-                  : (period === 'This Month' ? t('this_month') : period === 'Last 3 Months' ? t('last_3_months') : period === 'Last 6 Months' ? t('last_6_months') : period === 'All' ? t('all') : period)}
+              <Text
+                style={[
+                  styles.navCenterText,
+                  period === 'Custom' && { color: '#1D4ED8', fontWeight: '800' }
+                ]}
+                numberOfLines={1}
+              >
+                {displayPeriodLabel}
               </Text>
-            </View>
-            <Ionicons name="chevron-down" size={16} color={period === 'Custom' ? '#2563EB' : '#4B5563'} />
-          </TouchableOpacity>
+            </TouchableOpacity>
+
+            {/* Right Arrow: Next Month (>) */}
+            <TouchableOpacity
+              style={[styles.navArrowBtn, isCurrentOrFutureMonth && styles.navArrowBtnDisabled]}
+              onPress={handleNextMonth}
+              disabled={isCurrentOrFutureMonth}
+              activeOpacity={0.7}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityLabel="Next month"
+            >
+              <Ionicons
+                name="chevron-forward"
+                size={20}
+                color={isCurrentOrFutureMonth ? "#CBD5E1" : "#0F172A"}
+              />
+            </TouchableOpacity>
+
+            {/* Subtle Divider */}
+            <View style={styles.navDivider} />
+
+            {/* Right Dropdown Chevron: Opens All Months & Custom Sheet (v) */}
+            <TouchableOpacity
+              style={styles.navDropdownTrigger}
+              onPress={() => {
+                try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+                setShowPeriodModal(true);
+              }}
+              activeOpacity={0.7}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityLabel="Select Month or Custom Period"
+            >
+              <Ionicons
+                name="chevron-down"
+                size={18}
+                color={period === 'Custom' ? '#2563EB' : '#475569'}
+              />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Custom Date Range Picker when Period is Custom Range */}
@@ -1277,7 +1433,7 @@ export default function TransactionsScreen() {
           </View>
         )}
 
-        {/* Period Selection Modal */}
+        {/* Period & Month Selection Modal */}
         <Modal
           visible={showPeriodModal}
           transparent={true}
@@ -1289,27 +1445,121 @@ export default function TransactionsScreen() {
             activeOpacity={1}
             onPress={() => setShowPeriodModal(false)}
           >
-            <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>{t('select_period')}</Text>
-              {(['All', 'This Month', 'Last 3 Months', 'Last 6 Months', 'Custom'] as const).map(p => (
+            <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
+              <View style={styles.modalHandleBar} />
+              
+              <View style={styles.modalHeaderRow}>
+                <View style={{ flex: 1, marginRight: 8 }}>
+                  <Text style={styles.modalTitle}>Select Month or Period</Text>
+                  <Text style={styles.modalSubtitle}>Filter your records by specific month or custom range</Text>
+                </View>
                 <TouchableOpacity
-                  key={p}
-                  style={[styles.modalOption, period === p && styles.modalOptionActive]}
+                  onPress={() => setShowPeriodModal(false)}
+                  style={styles.modalCloseBtn}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Ionicons name="close" size={18} color="#64748B" />
+                </TouchableOpacity>
+              </View>
+
+              {/* Quick Preset Options: All Time & Custom Range */}
+              <View style={styles.quickOptionsRow}>
+                <TouchableOpacity
+                  style={[styles.quickOptionPill, period === 'All' && styles.quickOptionPillActive]}
                   onPress={() => {
-                    setPeriod(p);
+                    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+                    setPeriod('All');
                     setShowPeriodModal(false);
-                    if (p === 'Custom' && !startDate && Platform.OS !== 'web') {
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="infinite-outline" size={15} color={period === 'All' ? '#1D4ED8' : '#64748B'} style={{ marginRight: 6 }} />
+                  <Text style={[styles.quickOptionText, period === 'All' && styles.quickOptionTextActive]}>
+                    All History
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.quickOptionPill, period === 'Custom' && styles.quickOptionPillActive]}
+                  onPress={() => {
+                    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+                    setPeriod('Custom');
+                    setShowPeriodModal(false);
+                    if (!startDate && Platform.OS !== 'web') {
                       setTimeout(() => setShowStartPicker(true), 350);
                     }
                   }}
                   activeOpacity={0.7}
                 >
-                  <Text style={[styles.modalOptionText, period === p && styles.modalOptionTextActive]}>
-                    {p === 'This Month' ? t('this_month') : p === 'Last 3 Months' ? t('last_3_months') : p === 'Last 6 Months' ? t('last_6_months') : p === 'All' ? t('all') : t('custom_date_range')}
+                  <Ionicons name="calendar-outline" size={15} color={period === 'Custom' ? '#1D4ED8' : '#64748B'} style={{ marginRight: 6 }} />
+                  <Text style={[styles.quickOptionText, period === 'Custom' && styles.quickOptionTextActive]}>
+                    Custom Range
                   </Text>
-                  {period === p && <Ionicons name="checkmark" size={20} color="#FFD740" />}
                 </TouchableOpacity>
-              ))}
+              </View>
+
+              <Text style={styles.monthSectionHeader}>ALL MONTHS</Text>
+
+              {/* Scrollable Month List */}
+              <ScrollView
+                style={{ maxHeight: 360 }}
+                showsVerticalScrollIndicator={true}
+                contentContainerStyle={{ paddingBottom: 10 }}
+              >
+                {availableMonths.map((m) => {
+                  const isSelected = (period === 'Month' || period === 'This Month') && selectedMonth === m;
+                  const isCurrent = m === currentMonthStr;
+                  const label = formatMonthDisplay(m);
+                  const stats = monthStatsMap.get(m) || { count: 0, spend: 0 };
+
+                  return (
+                    <TouchableOpacity
+                      key={m}
+                      style={[styles.monthListItem, isSelected && styles.monthListItemActive]}
+                      onPress={() => {
+                        try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+                        setSelectedMonth(m);
+                        setPeriod('Month');
+                        setShowPeriodModal(false);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 12 }}>
+                        <View style={[styles.monthIconCircle, isSelected && styles.monthIconCircleActive]}>
+                          <Ionicons
+                            name="calendar"
+                            size={18}
+                            color={isSelected ? '#2563EB' : '#64748B'}
+                          />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Text style={[styles.monthItemTitle, isSelected && styles.monthItemTitleActive]}>
+                              {label}
+                            </Text>
+                            {isCurrent && (
+                              <View style={styles.currentMonthBadge}>
+                                <Text style={styles.currentMonthBadgeText}>THIS MONTH</Text>
+                              </View>
+                            )}
+                          </View>
+                          <Text style={styles.monthItemSubtext}>
+                            {stats.count > 0
+                              ? `${stats.count} transactions • ${curr}${formatAmount(stats.spend)} spent`
+                              : 'No transactions'}
+                          </Text>
+                        </View>
+                      </View>
+
+                      {isSelected ? (
+                        <Ionicons name="checkmark-circle" size={22} color="#2563EB" />
+                      ) : (
+                        <Ionicons name="chevron-forward" size={16} color="#CBD5E1" />
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
             </View>
           </TouchableOpacity>
         </Modal>
@@ -1339,6 +1589,8 @@ export default function TransactionsScreen() {
             <Text style={styles.emptySubtitle}>
               {debouncedSearchQuery.trim()
                 ? `No transactions found matching "${debouncedSearchQuery.trim()}" across your entire history.`
+                : period === 'Month' || period === 'This Month'
+                ? `No transactions recorded in ${formatMonthDisplay(selectedMonth)}.`
                 : selectedCategory !== 'All' || filterType !== 'all'
                 ? t('no_tx_adjust_filters')
                 : t('start_tracking_msg')}
@@ -1679,6 +1931,61 @@ const styles = StyleSheet.create({
     color: '#FFD740',
     fontWeight: '900',
   },
+  periodNavigator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 16,
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+    height: 48,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.04,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  navArrowBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F8FAFC',
+  },
+  navArrowBtnDisabled: {
+    backgroundColor: '#F8FAFC',
+    opacity: 0.4,
+  },
+  navCenterBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+  },
+  navCenterText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0F172A',
+    letterSpacing: -0.2,
+  },
+  navDivider: {
+    width: 1,
+    height: 22,
+    backgroundColor: '#E2E8F0',
+    marginHorizontal: 3,
+  },
+  navDropdownTrigger: {
+    width: 36,
+    height: 38,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F8FAFC',
+  },
   dropdownButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1697,41 +2004,143 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
     justifyContent: 'flex-end',
   },
   modalContent: {
     backgroundColor: '#ffffff',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 24,
-    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: Platform.OS === 'ios' ? 36 : 24,
+    maxHeight: '80%',
+  },
+  modalHandleBar: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#CBD5E1',
+    alignSelf: 'center',
+    marginBottom: 14,
+  },
+  modalHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 14,
   },
   modalTitle: {
     fontSize: 18,
     fontWeight: '900',
-    color: '#1C1C1E',
+    color: '#0F172A',
+    letterSpacing: -0.3,
+  },
+  modalSubtitle: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#64748B',
+    marginTop: 2,
+  },
+  modalCloseBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickOptionsRow: {
+    flexDirection: 'row',
+    gap: 8,
     marginBottom: 16,
   },
-  modalOption: {
+  quickOptionPill: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  quickOptionPillActive: {
+    backgroundColor: '#EFF6FF',
+    borderColor: '#BFDBFE',
+  },
+  quickOptionText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  quickOptionTextActive: {
+    color: '#1D4ED8',
+    fontWeight: '800',
+  },
+  monthSectionHeader: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#94A3B8',
+    letterSpacing: 0.8,
+    marginBottom: 8,
+    textTransform: 'uppercase',
+  },
+  monthListItem: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    marginBottom: 6,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
   },
-  modalOptionActive: {
-    backgroundColor: '#FAFAFA',
+  monthListItemActive: {
+    backgroundColor: '#F0F7FF',
+    borderColor: '#BFDBFE',
   },
-  modalOptionText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#4B5563',
+  monthIconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
   },
-  modalOptionTextActive: {
-    color: '#1C1C1E',
+  monthIconCircleActive: {
+    backgroundColor: '#DBEAFE',
+  },
+  monthItemTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  monthItemTitleActive: {
+    color: '#1D4ED8',
     fontWeight: '800',
+  },
+  monthItemSubtext: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#64748B',
+    marginTop: 2,
+  },
+  currentMonthBadge: {
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  currentMonthBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#059669',
+    letterSpacing: 0.4,
   },
   customDateCard: {
     marginHorizontal: 20,

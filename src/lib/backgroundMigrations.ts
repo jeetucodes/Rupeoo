@@ -79,20 +79,20 @@ export async function runBackgroundMigrations(userId?: string): Promise<boolean>
     const lastVersion = await AsyncStorage.getItem(LAST_INSTALLED_VERSION_KEY);
     const isVersionUpgrade = lastVersion !== `${version}_${build}`;
 
-    // Timer check for >500ms threshold
+    // Only show full progress overlay for genuine app version upgrades that take > 2000ms
     const overlayTimer = setTimeout(() => {
-      if (currentMigrationStatus.inProgress) {
+      if (isVersionUpgrade && currentMigrationStatus.inProgress) {
         updateStatus(currentMigrationStatus.phase, currentMigrationStatus.progress, true);
       }
-    }, 500);
+    }, 2000);
 
     // 2. Light mojibake check & repair
-    updateStatus('Verifying text encodings...', 0.3, Date.now() - startTime > 500);
+    updateStatus('Verifying text encodings...', 0.3, isVersionUpgrade && Date.now() - startTime > 2000);
     await runMojibakeMigration().catch((e) => warn('[Migration] Mojibake error:', e));
     await yieldToUIThread();
 
     // 3. Notification migration
-    updateStatus('Updating notification channels...', 0.5, Date.now() - startTime > 500);
+    updateStatus('Updating notification channels...', 0.5, isVersionUpgrade && Date.now() - startTime > 2000);
     await runOneTimeOldNotificationMigration().catch((e) => warn('[Migration] Notif migration error:', e));
     await yieldToUIThread();
 
@@ -100,7 +100,7 @@ export async function runBackgroundMigrations(userId?: string): Promise<boolean>
     if (Platform.OS !== 'web') {
       const db = getAutoAddDatabase();
       if (db) {
-        updateStatus('Upgrading local database...', 0.7, Date.now() - startTime > 500);
+        updateStatus('Upgrading local database...', 0.7, isVersionUpgrade && Date.now() - startTime > 2000);
 
         try {
           const countRow = db.getFirstSync<{ count: number }>(

@@ -293,8 +293,7 @@ export async function runSmsImport(
 
     // Decision: Auto-add vs Pending Inbox
     const shouldAutoAdd =
-      parsed.confidence >= 0.9 &&
-      parsed.category !== 'Uncategorized' &&
+      parsed.confidence >= 0.8 &&
       !settings.reviewBeforeAdding &&
       settings.autoAddEnabled;
 
@@ -349,8 +348,8 @@ export async function runSmsImport(
       } catch (err) {
         warn('Error auto-adding transaction:', err);
       }
-    } else if (parsed.confidence >= 0.6 || settings.reviewBeforeAdding || parsed.category === 'Uncategorized') {
-      // Medium/Low confidence or user requested review or Uncategorized: send to Pending Inbox
+    } else if (parsed.confidence >= 0.6 || settings.reviewBeforeAdding) {
+      // Medium/Low confidence or user requested review: send to Pending Inbox
       const addedToInbox = await addPendingAlert(userId, {
         id: `pending_${payKey}`,
         payKey,

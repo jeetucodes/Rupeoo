@@ -20,6 +20,7 @@ import {
   CATEGORY_REPORT,
   CATEGORY_BUDGET_OVER,
   CATEGORY_TRANSACTION_ADDED,
+  CATEGORY_PENDING_INBOX,
 } from './channels';
 import { resolveNotificationMessage } from './messages';
 import { computeDaySpendingStats, getLocalDayBoundaries } from './stats';
@@ -339,6 +340,7 @@ export async function sendAutoAddedTransactionNotification(params: {
   amount: number;
   merchant: string;
   userId?: string;
+  category?: string;
 }): Promise<void> {
   if (Platform.OS === 'web') return;
 
@@ -355,7 +357,32 @@ export async function sendAutoAddedTransactionNotification(params: {
       merchant: params.merchant || 'Store',
     };
 
-    const resolved = resolveNotificationMessage('transaction_added', settings.language, placeholders);
+    let resolved = resolveNotificationMessage('transaction_added', settings.language, placeholders);
+    
+    // If transaction needs a category, prompt user directly in the notification
+    if (params.category === 'Uncategorized') {
+      const isHindi = settings.language === 'hi';
+      const isHinglish = settings.language === 'hinglish';
+      if (isHindi) {
+        resolved = {
+          title: 'खर्च दर्ज • श्रेणी चुनें 🏷️',
+          body: `${formatCurrency(params.amount)} (${params.merchant || 'Store'}) दर्ज हुआ • श्रेणी सेट करने के लिए टैप करें`,
+          variantIndex: 0,
+        };
+      } else if (isHinglish) {
+        resolved = {
+          title: 'Transaction Added • Category chunein 🏷️',
+          body: `${formatCurrency(params.amount)} at ${params.merchant || 'Store'} add ho gaya • Category set karne ke liye tap karein`,
+          variantIndex: 0,
+        };
+      } else {
+        resolved = {
+          title: 'Transaction Added • Set Category 🏷️',
+          body: `${formatCurrency(params.amount)} spent at ${params.merchant || 'Store'} • Tap to set category`,
+          variantIndex: 0,
+        };
+      }
+    }
 
     await Notifications.scheduleNotificationAsync({
       identifier: `tx_added_${params.transactionId}`,
@@ -369,6 +396,7 @@ export async function sendAutoAddedTransactionNotification(params: {
           type: 'AUTO_ADD_TRANSACTION',
           amount: params.amount,
           userId: params.userId,
+          category: params.category,
         },
         ...(Platform.OS === 'android' ? { channelId: CHANNEL_TRANSACTIONS } : {}),
       },
@@ -377,6 +405,62 @@ export async function sendAutoAddedTransactionNotification(params: {
     log(`[Notifications] Sent auto-added transaction notification: ${params.transactionId}`);
   } catch (err) {
     warn('[Notifications] Error sending auto-added transaction notification:', err);
+  }
+}
+
+/**
+ * Event-based trigger: Pending Alerts Inbox notification with Add & Set Category quick actions.
+ */
+export async function sendPendingInboxNotification(params: {
+  pendingId: string;
+  amount: number;
+  merchant: string;
+  userId?: string;
+  category?: string;
+}): Promise<void> {
+  if (Platform.OS === 'web') return;
+
+  try {
+    const masterEnabled = await isMasterNotificationsEnabled();
+    if (!masterEnabled) return;
+
+    await setupNotificationChannels();
+    const settings = await getNotificationSettings();
+
+    const isHindi = settings.language === 'hi';
+    const isHinglish = settings.language === 'hinglish';
+    let title = 'Payment Detected 📥';
+    let body = `${formatCurrency(params.amount)} at ${params.merchant || 'Payment'} • Tap 'Add' to record transaction`;
+
+    if (isHindi) {
+      title = 'नया भुगतान प्राप्त 📥';
+      body = `${params.merchant || 'भुगतान'} पर ${formatCurrency(params.amount)} • Rupeo में जोड़ने के लिए 'Add' दबाएं`;
+    } else if (isHinglish) {
+      title = 'Payment detect hua 📥';
+      body = `${params.merchant || 'Payment'} par ${formatCurrency(params.amount)} • Rupeo mein add karne ke liye 'Add' dabayein`;
+    }
+
+    await Notifications.scheduleNotificationAsync({
+      identifier: `inbox_${params.pendingId}`,
+      content: {
+        title,
+        body,
+        sound: 'default',
+        categoryIdentifier: CATEGORY_PENDING_INBOX,
+        data: {
+          pendingId: params.pendingId,
+          type: 'PENDING_INBOX_ALERT',
+          amount: params.amount,
+          userId: params.userId,
+          category: params.category,
+        },
+        ...(Platform.OS === 'android' ? { channelId: CHANNEL_TRANSACTIONS } : {}),
+      },
+      trigger: null,
+    });
+    log(`[Notifications] Sent pending inbox notification: ${params.pendingId}`);
+  } catch (err) {
+    warn('[Notifications] Error sending pending inbox notification:', err);
   }
 }
 

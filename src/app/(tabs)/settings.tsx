@@ -405,38 +405,56 @@ export default function SettingsScreen() {
   const [statementTransactions, setStatementTransactions] = useState<any[]>([]);
   const [availableMonths, setAvailableMonths] = useState<string[]>([]);
 
+  const populateStatementModalData = useCallback((txs: any[]) => {
+    setStatementTransactions(txs);
+
+    // Extract unique months from transactions plus current month
+    const currentM = getLocalMonthString();
+    const monthSet = new Set<string>();
+    monthSet.add(currentM);
+
+    const now = new Date();
+    now.setMonth(now.getMonth() - 1);
+    const lastM = getLocalMonthString(now);
+    monthSet.add(lastM);
+
+    txs.forEach((t: any) => {
+      const norm = normalizeDate(t.date || '');
+      if (norm && norm.length >= 7) {
+        const m = norm.slice(0, 7);
+        if (/^\d{4}-\d{2}$/.test(m)) {
+          monthSet.add(m);
+        }
+      }
+    });
+
+    const sortedMonths = Array.from(monthSet).sort((a, b) => b.localeCompare(a));
+    setAvailableMonths(sortedMonths);
+  }, []);
+
   const openStatementModal = async () => {
     if (!user?.uid) return;
     try {
-      const txs = await getAllTransactions(user.uid, true);
-      setStatementTransactions(txs);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    } catch {}
 
-      // Extract unique months from transactions plus current month
-      const currentM = getLocalMonthString();
-      const monthSet = new Set<string>();
-      monthSet.add(currentM);
+    const currentM = getLocalMonthString();
+    setStatementMonth(currentM);
+    setStatementPeriodMode('all');
+    setStatementTypeFilter('all');
+    setShowStatementModal(true);
 
-      const now = new Date();
-      now.setMonth(now.getMonth() - 1);
-      const lastM = getLocalMonthString(now);
-      monthSet.add(lastM);
+    try {
+      const txs = await getAllTransactions(user.uid, false);
+      if (txs && txs.length > 0) {
+        populateStatementModalData(txs);
+      }
 
-      txs.forEach((t: any) => {
-        const norm = normalizeDate(t.date || '');
-        if (norm && norm.length >= 7) {
-          const m = norm.slice(0, 7);
-          if (/^\d{4}-\d{2}$/.test(m)) {
-            monthSet.add(m);
-          }
+      getAllTransactions(user.uid, true).then((freshTxs) => {
+        if (freshTxs && freshTxs.length > 0) {
+          populateStatementModalData(freshTxs);
         }
-      });
-
-      const sortedMonths = Array.from(monthSet).sort((a, b) => b.localeCompare(a));
-      setAvailableMonths(sortedMonths);
-      setStatementMonth(currentM);
-      setStatementPeriodMode('all');
-      setStatementTypeFilter('all');
-      setShowStatementModal(true);
+      }).catch(() => {});
     } catch (err) {
       console.error('Error preparing statement:', err);
     }
@@ -541,35 +559,56 @@ export default function SettingsScreen() {
     }).length;
   }, [exportPeriodMode, exportMonth, exportAllTxs, totalExportTxsCount]);
 
+  const populateExportModalData = useCallback((txs: any[]) => {
+    setExportAllTxs(txs);
+    setTotalExportTxsCount(txs.length);
+
+    const currentM = getLocalMonthString();
+    const monthSet = new Set<string>();
+    monthSet.add(currentM);
+
+    txs.forEach((t: any) => {
+      const norm = normalizeDate(t.date || '');
+      if (norm && norm.length >= 7) {
+        const m = norm.slice(0, 7);
+        if (/^\d{4}-\d{2}$/.test(m)) {
+          monthSet.add(m);
+        }
+      }
+    });
+
+    const sortedMonths = Array.from(monthSet).sort((a, b) => b.localeCompare(a));
+    setExportAvailableMonths(sortedMonths);
+  }, []);
+
   const openExportModal = async () => {
     if (!user?.uid) return;
     try {
-      const txs = await getAllTransactions(user.uid, true);
-      setExportAllTxs(txs);
-      setTotalExportTxsCount(txs.length);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    } catch {}
 
-      const currentM = getLocalMonthString();
-      const monthSet = new Set<string>();
-      monthSet.add(currentM);
+    const currentM = getLocalMonthString();
+    setExportMonth(currentM);
+    setExportPeriodMode('all');
+    setExportFormat('json');
+    // Open modal immediately on tap with zero delay!
+    setShowExportModal(true);
 
-      txs.forEach((t: any) => {
-        if (t.date && typeof t.date === 'string' && t.date.length >= 7) {
-          const m = t.date.slice(0, 7);
-          if (/^\d{4}-\d{2}$/.test(m)) {
-            monthSet.add(m);
-          }
+    try {
+      // 1. Instant load from local memory cache / offline storage (0ms - no network delay)
+      const txs = await getAllTransactions(user.uid, false);
+      if (txs && txs.length > 0) {
+        populateExportModalData(txs);
+      }
+
+      // 2. Non-blocking background sync to ensure data is 100% up-to-date without blocking UI
+      getAllTransactions(user.uid, true).then((freshTxs) => {
+        if (freshTxs && freshTxs.length > 0) {
+          populateExportModalData(freshTxs);
         }
-      });
-
-      const sortedMonths = Array.from(monthSet).sort((a, b) => b.localeCompare(a));
-      setExportAvailableMonths(sortedMonths);
-      setExportMonth(currentM);
-      setExportPeriodMode('all');
-      setExportFormat('json');
-      setShowExportModal(true);
+      }).catch(() => {});
     } catch (err) {
       console.error('Error preparing export:', err);
-      setShowExportModal(true);
     }
   };
 

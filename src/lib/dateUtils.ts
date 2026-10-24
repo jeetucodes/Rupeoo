@@ -78,6 +78,21 @@ export function getRelativeMonthString(monthsOffset: number): string {
 }
 
 /**
+ * Shifts a YYYY-MM month string by an integer number of months.
+ * e.g., shiftMonthString('2026-10', -1) => '2026-09'
+ */
+export function shiftMonthString(monthStr: string, offsetMonths: number): string {
+  if (!monthStr || !/^\d{4}-\d{2}$/.test(monthStr)) {
+    return getLocalMonthString();
+  }
+  const [yearStr, monthNumStr] = monthStr.split('-');
+  const year = parseInt(yearStr, 10);
+  const month = parseInt(monthNumStr, 10) - 1;
+  const d = new Date(year, month + offsetMonths, 1);
+  return getLocalMonthString(d);
+}
+
+/**
  * Checks if a YYYY-MM-DD string is today in local time.
  */
 export function isToday(dateStr: string): boolean {

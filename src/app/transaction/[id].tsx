@@ -116,7 +116,7 @@ function ReceiptActionIcon({ type }: { type: 'edit' | 'share' | 'delete' }) {
 
 export default function TransactionDetailScreen() {
   const router = useRouter();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, openCategory } = useLocalSearchParams<{ id: string; openCategory?: string }>();
   const { user, settings } = useAuth();
   const { t } = useTranslation();
   const currency = settings?.currency === 'INR' ? '₹' : (settings?.currency || '₹');
@@ -147,6 +147,12 @@ export default function TransactionDetailScreen() {
   const [linkedBillId, setLinkedBillId] = useState<string | null>(null);
   const [sources, setSources] = useState<TransactionSourceRecord[]>([]);
   const [showCategorySheet, setShowCategorySheet] = useState(false);
+
+  useEffect(() => {
+    if (openCategory === 'true' && !loading) {
+      setShowCategorySheet(true);
+    }
+  }, [openCategory, loading]);
 
   const handleUnlinkBill = () => {
     if (!linkedBillId || !user?.uid || !id) return;

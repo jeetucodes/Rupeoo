@@ -11,6 +11,7 @@ export const CATEGORY_REMINDER = 'RUPEO_REMINDER';
 export const CATEGORY_REPORT = 'RUPEO_REPORT';
 export const CATEGORY_BUDGET_OVER = 'RUPEO_BUDGET_OVER';
 export const CATEGORY_TRANSACTION_ADDED = 'AUTO_ADD_TRANSACTION';
+export const CATEGORY_PENDING_INBOX = 'RUPEO_PENDING_INBOX';
 
 /**
  * Configure all Android notification channels and action categories upfront.
@@ -97,14 +98,33 @@ export async function setupNotificationChannels(): Promise<void> {
     // Category 4: Auto-Add Transaction
     await Notifications.setNotificationCategoryAsync(CATEGORY_TRANSACTION_ADDED, [
       {
+        identifier: 'CHANGE_CATEGORY_ACTION',
+        buttonTitle: 'Change category',
+        options: { opensAppToForeground: true },
+      },
+      {
         identifier: 'UNDO_ACTION',
         buttonTitle: 'Undo',
         options: { opensAppToForeground: false },
       },
+    ]);
+
+    // Category 5: Pending Alerts Inbox
+    await Notifications.setNotificationCategoryAsync(CATEGORY_PENDING_INBOX, [
+      {
+        identifier: 'ADD_INBOX_ACTION',
+        buttonTitle: 'Add',
+        options: { opensAppToForeground: false },
+      },
       {
         identifier: 'CHANGE_CATEGORY_ACTION',
-        buttonTitle: 'Change category',
+        buttonTitle: 'Set category',
         options: { opensAppToForeground: true },
+      },
+      {
+        identifier: 'DISMISS_INBOX_ACTION',
+        buttonTitle: 'Dismiss',
+        options: { opensAppToForeground: false },
       },
     ]);
   } catch (error) {

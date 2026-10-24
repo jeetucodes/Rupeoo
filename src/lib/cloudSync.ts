@@ -349,6 +349,7 @@ export async function pullFromCloud(
     // Sync pulled transactions into SQLite auto_added_transactions
     if (mergedTxs.length > 0) {
       try {
+        let writeCount = 0;
         for (const tx of mergedTxs) {
           const isAutoTx =
             tx.source === 'auto' ||
@@ -389,6 +390,11 @@ export async function pullFromCloud(
             userId,
             created_at: tx.created_at || Date.now(),
           });
+
+          writeCount++;
+          if (writeCount % 25 === 0) {
+            await sleep(0);
+          }
         }
       } catch (sqliteErr) {
         warn('Error saving pulled transactions to SQLite:', sqliteErr);

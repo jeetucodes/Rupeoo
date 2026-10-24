@@ -62,6 +62,7 @@ import { getSmsImportSettings, formatTransactionNote, getAutoAddPausedUntil } fr
 import {
   isMasterNotificationsEnabled,
   sendAutoAddedTransactionNotification,
+  sendPendingInboxNotification,
   triggerBudgetAlertIfNeeded,
   scheduleNext48h,
 } from '@/features/notifications';
@@ -93,11 +94,43 @@ export async function setupAutoAddNotificationChannel(): Promise<void> {
       sound: 'default',
     });
 
-    // Set category with Undo action
+    // Set category for Auto-Add with Change Category & Undo actions
     await Notifications.setNotificationCategoryAsync('AUTO_ADD_TRANSACTION', [
+      {
+        identifier: 'CHANGE_CATEGORY_ACTION',
+        buttonTitle: 'Change category',
+        options: {
+          opensAppToForeground: true,
+        },
+      },
       {
         identifier: 'UNDO_ACTION',
         buttonTitle: 'Undo',
+        options: {
+          opensAppToForeground: false,
+        },
+      },
+    ]);
+
+    // Set category for Pending Inbox with Add, Set Category & Dismiss actions
+    await Notifications.setNotificationCategoryAsync('RUPEO_PENDING_INBOX', [
+      {
+        identifier: 'ADD_INBOX_ACTION',
+        buttonTitle: 'Add',
+        options: {
+          opensAppToForeground: false,
+        },
+      },
+      {
+        identifier: 'CHANGE_CATEGORY_ACTION',
+        buttonTitle: 'Set category',
+        options: {
+          opensAppToForeground: true,
+        },
+      },
+      {
+        identifier: 'DISMISS_INBOX_ACTION',
+        buttonTitle: 'Dismiss',
         options: {
           opensAppToForeground: false,
         },
@@ -544,8 +577,8 @@ export async function handleNotificationTask(taskData: NotificationTaskPayload):
       } catch (notifErr) {
         warn('[HeadlessTask] Failed to post bill notification:', notifErr);
       }
-    } else if (shouldRouteToInboxForBill || mustReview || parsed.category === 'Uncategorized') {
-      // Route to Pending Alerts Inbox (including low-confidence / Uncategorized)
+    } else if (shouldRouteToInboxForBill || mustReview) {
+      // Route to Pending Alerts Inbox (when user configured manual review or ambiguous bill match)
       const pendingId = `pending_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
       const payKey = `${parsed.amount}_${parsed.type}_${notifHash}`;
       const suggestedId = billMatch.suggestedBill?.id || null;
@@ -593,6 +626,19 @@ export async function handleNotificationTask(taskData: NotificationTaskPayload):
         rawSnippet: fullText,
       });
       log(`[HeadlessTask] Alert saved to Pending Alerts Inbox: ${pendingId}`);
+
+      // Post notification with Add & Set Category quick actions
+      try {
+        await sendPendingInboxNotification({
+          pendingId,
+          amount: parsed.amount,
+          merchant: merchantDisplay,
+          userId: activeUserId,
+          category: billMatch.suggestedBill?.category || parsed.category,
+        });
+      } catch (notifErr) {
+        warn('[HeadlessTask] Failed to post pending inbox notification:', notifErr);
+      }
     } else {
       // Normal auto-add direct without bill match
       const messageBody = (text && text.trim().length > 0) ? text : parsed.rawText;
@@ -676,6 +722,7 @@ export async function handleNotificationTask(taskData: NotificationTaskPayload):
           amount: parsed.amount,
           merchant: merchantDisplay,
           userId: activeUserId,
+          category: parsed.category,
         });
 
         if (parsed.type === 'expense') {

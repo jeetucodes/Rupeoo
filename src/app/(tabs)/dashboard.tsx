@@ -69,6 +69,7 @@ import { AutoAddBoltButton, AutoAddBottomSheet, DashboardBatteryWarningCard } fr
 import { formatCurrency, resolveCurrencySymbol } from '@/utils/formatCurrency';
 import { subscribeCloudPullState, CloudPullState } from '@/lib/cloudSync';
 import { formatPaymentModeDisplay } from '@/lib/dataMinimization';
+import { withTimeout } from '@/lib/safeStorage';
 
 const { width, height } = Dimensions.get('window');
 
@@ -566,12 +567,23 @@ export default function DashboardScreen() {
     lastLoadTimeRef.current = now;
 
     try {
-      const [allTxs, userCats, notifs, bills] = await Promise.all([
+      const loadPromise = Promise.all([
         getAllTransactions(user.uid, forceRefresh),
         getUserCategories(user.uid, forceRefresh),
         getUserNotifications(user.uid, forceRefresh).catch(() => []),
         getRecurringBills(user.uid, forceRefresh).catch(() => []),
       ]);
+
+      const [allTxs, userCats, notifs, bills] = await withTimeout(
+        loadPromise,
+        5000,
+        [
+          getCachedTransactionsSync(user.uid) || [],
+          [],
+          [],
+          [],
+        ]
+      );
 
       setCategories(userCats);
       setUnreadNotifications(notifs.filter((n: any) => !n.isRead).length);

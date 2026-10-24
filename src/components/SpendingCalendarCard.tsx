@@ -614,39 +614,39 @@ export default function SpendingCalendarCard({
           <View style={styles.rankingKpiRow}>
             <View style={[styles.rankingKpiCard, { borderColor: '#FED7AA', backgroundColor: '#FFF7ED' }]}>
               <View style={styles.rankingKpiIconWrap}>
-                <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.fire }} style={{ width: 22, height: 22 }} contentFit="contain" />
+                <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.fire }} style={{ width: 20, height: 20 }} contentFit="contain" />
               </View>
-              <Text style={styles.rankingKpiLabel}>{t('highest_spend')}</Text>
-              <Text style={[styles.rankingKpiValue, { color: '#C2410C' }]}>
+              <Text style={styles.rankingKpiLabel} numberOfLines={1} ellipsizeMode="tail">{t('highest_spend')}</Text>
+              <Text style={[styles.rankingKpiValue, { color: '#C2410C' }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
                 {highestSpendDay ? `${currency}${highestSpendDay.expense.toLocaleString('en-IN')}` : '—'}
               </Text>
-              <Text style={styles.rankingKpiSub}>
+              <Text style={styles.rankingKpiSub} numberOfLines={1} ellipsizeMode="tail">
                 {highestSpendDay ? highestSpendDay.fullDateLabel : t('no_spends')}
               </Text>
             </View>
 
             <View style={[styles.rankingKpiCard, { borderColor: '#BBF7D0', backgroundColor: '#F0FDF4' }]}>
               <View style={styles.rankingKpiIconWrap}>
-                <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.star }} style={{ width: 22, height: 22 }} contentFit="contain" />
+                <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.star }} style={{ width: 20, height: 20 }} contentFit="contain" />
               </View>
-              <Text style={styles.rankingKpiLabel}>{t('lowest_spend')}</Text>
-              <Text style={[styles.rankingKpiValue, { color: '#15803D' }]}>
+              <Text style={styles.rankingKpiLabel} numberOfLines={1} ellipsizeMode="tail">{t('lowest_spend')}</Text>
+              <Text style={[styles.rankingKpiValue, { color: '#15803D' }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
                 {lowestNonZeroDay ? `${currency}${lowestNonZeroDay.expense.toLocaleString('en-IN')}` : '—'}
               </Text>
-              <Text style={styles.rankingKpiSub}>
+              <Text style={styles.rankingKpiSub} numberOfLines={1} ellipsizeMode="tail">
                 {lowestNonZeroDay ? lowestNonZeroDay.fullDateLabel : t('no_spends')}
               </Text>
             </View>
 
             <View style={[styles.rankingKpiCard, { borderColor: '#E0E7FF', backgroundColor: '#EEF2FF' }]}>
               <View style={styles.rankingKpiIconWrap}>
-                <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.shield }} style={{ width: 22, height: 22 }} contentFit="contain" />
+                <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.shield }} style={{ width: 20, height: 20 }} contentFit="contain" />
               </View>
-              <Text style={styles.rankingKpiLabel}>{t('zero_spend')}</Text>
-              <Text style={[styles.rankingKpiValue, { color: '#4338CA' }]}>
-                {zeroSpendDaysList.length} {t('zero_spend_days')}
+              <Text style={styles.rankingKpiLabel} numberOfLines={1} ellipsizeMode="tail">{t('zero_spend')}</Text>
+              <Text style={[styles.rankingKpiValue, { color: '#4338CA' }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
+                {zeroSpendDaysList.length} {zeroSpendDaysList.length === 1 ? 'Day' : 'Days'}
               </Text>
-              <Text style={styles.rankingKpiSub}>{t('frugal_days')}</Text>
+              <Text style={styles.rankingKpiSub} numberOfLines={1} ellipsizeMode="tail">{t('frugal_days')}</Text>
             </View>
           </View>
 
@@ -1356,11 +1356,14 @@ const styles = StyleSheet.create({
   },
   summaryPillBox: {
     flex: 1,
+    minWidth: 0,
     backgroundColor: '#FFFFFF',
     borderRadius: 18,
-    padding: 12,
+    paddingVertical: 11,
+    paddingHorizontal: 8,
     borderWidth: 1,
     borderColor: '#E2E8F0',
+    overflow: 'hidden',
   },
   summaryPillBoxPeak: {
     backgroundColor: '#FFF7F7',
@@ -1403,36 +1406,42 @@ const styles = StyleSheet.create({
   rankingKpiRow: {
     flexDirection: 'row',
     gap: 8,
-    marginBottom: 12,
+    marginBottom: 14,
+    alignItems: 'stretch',
+    width: '100%',
   },
   rankingKpiCard: {
     flex: 1,
-    borderRadius: 18,
-    padding: 12,
+    minWidth: 0,
+    borderRadius: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     backgroundColor: '#FFFFFF',
+    overflow: 'hidden',
+    justifyContent: 'center',
   },
   rankingKpiIconWrap: {
-    marginBottom: 6,
+    marginBottom: 4,
   },
   rankingKpiLabel: {
-    fontSize: 9,
+    fontSize: 8.5,
     fontWeight: '800',
     color: '#64748B',
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0.3,
   },
   rankingKpiValue: {
-    fontSize: 14,
+    fontSize: 13.5,
     fontWeight: '900',
     marginTop: 2,
     color: '#0F172A',
   },
   rankingKpiSub: {
-    fontSize: 9.5,
+    fontSize: 9,
     color: '#64748B',
-    marginTop: 1,
+    marginTop: 2,
     fontWeight: '600',
   },
 

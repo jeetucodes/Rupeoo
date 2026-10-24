@@ -481,6 +481,12 @@ export async function updateTransaction(userId: string, txId: string, txData: an
   memoryCache.transactions.set(userId, { data: updatedLocal, timestamp: Date.now() });
   notifyTransactionsListeners(updatedLocal);
 
+  // Sync with SQLite for auto-add storage
+  try {
+    const { updateTransactionInSQLite } = require('../features/autoAdd/sqliteStorage.ts');
+    updateTransactionInSQLite(txId, dataToUpdate);
+  } catch {}
+
   // Sync with Android widgets
   syncWidgetWithTransactions(userId).catch(() => { });
 
