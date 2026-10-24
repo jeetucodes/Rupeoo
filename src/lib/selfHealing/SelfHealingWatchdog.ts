@@ -214,7 +214,13 @@ class SelfHealingWatchdogService {
    */
   public armWatchdog(reason: 'startup' | 'resume' | 'navigation' = 'startup'): void {
     this.disarmWatchdog();
-    this.isHomeRendered = false;
+
+    // Only mark unrendered on initial cold startup.
+    // On resume or navigation, if the app was already rendered and healthy,
+    // do not falsely mark it unrendered (which causes false-positive watchdog timeouts).
+    if (reason === 'startup') {
+      this.isHomeRendered = false;
+    }
 
     this.watchdogTimer = setTimeout(() => {
       this.watchdogTimer = null;
