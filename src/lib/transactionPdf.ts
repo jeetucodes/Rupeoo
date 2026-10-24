@@ -874,46 +874,8 @@ function generateGradientSlipHtml(
         <img class="slip-photo" src="${resolvedImageSrc}" alt="Receipt Photo" />
       </div>
       `
-      : `
-      <div class="slip-no-photo-card">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2">
-          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-          <circle cx="8.5" cy="8.5" r="1.5"></circle>
-          <polyline points="21 15 16 10 5 21"></polyline>
-        </svg>
-        <div>
-          <div class="slip-no-photo-title">No receipt photo attached</div>
-          <div class="slip-no-photo-sub">You can attach bills or screenshots anytime via Edit.</div>
-        </div>
-      </div>
-      `
+      : ''
     }
-
-      <div class="slip-cert-card">
-        <div class="slip-cert-header">
-          <div class="slip-cert-shield">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2.5">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-              <polyline points="9 12 11 14 15 10"></polyline>
-            </svg>
-          </div>
-          <div class="slip-cert-title-wrap">
-            <div class="slip-cert-title">DIGITAL TRANSACTION RECORD</div>
-            <div class="slip-cert-sub">Zero-Knowledge Private Ledger • SHA-256 Vault</div>
-          </div>
-          <div class="slip-cert-badge">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="3">
-              <polyline points="20 6 9 17 4 12"></polyline>
-            </svg>
-            AUTHENTIC
-          </div>
-        </div>
-        <div class="slip-cert-divider"></div>
-        <div class="slip-cert-meta">
-          <span class="slip-cert-meta-label">TRANSACTION HASH</span>
-          <span class="slip-cert-meta-value">${barcodeValueToUse}</span>
-        </div>
-      </div>
     </div>
 
     <div class="slip-footer">
@@ -924,17 +886,10 @@ function generateGradientSlipHtml(
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="3">
             <polyline points="20 6 9 17 4 12"></polyline>
           </svg>
-          SAVED & VERIFIED
+          VERIFIED RECEIPT
         </div>
       </div>
       <div class="slip-footer-tagline">Tracked with Rupeo • Smart Expense Tracker</div>
-      <div class="slip-footer-seal">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2.5">
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-          <polyline points="9 12 11 14 15 10"></polyline>
-        </svg>
-        RUPEO PRIVATE VAULT • SECURE RECORD
-      </div>
     </div>
   </div>
 </body>
@@ -1578,24 +1533,6 @@ export function generateTransactionReceiptHtml(
       </div>
       ` : ''}
 
-      <!-- OFFICIAL CERTIFICATE RECORD -->
-      <div class="cert-card">
-        <div class="cert-header">
-          <div class="cert-shield-badge">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2.5">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-              <polyline points="9 12 11 14 15 10"/>
-            </svg>
-            OFFICIAL RECORD
-          </div>
-          <div class="cert-title-sub">SHA-256 ENCRYPTED VAULT</div>
-        </div>
-        <div class="cert-hash-row">
-          <span class="cert-hash-label">TRANSACTION REF</span>
-          <span class="cert-hash-val">${barcodeValueToUse}</span>
-        </div>
-      </div>
-
       <!-- DASHED SEPARATOR -->
       <div class="dashed-divider"></div>
 
@@ -1612,15 +1549,6 @@ export function generateTransactionReceiptHtml(
           <div class="footer-date-label">Issued on</div>
           <div class="footer-date-val">${generatedTimestamp}</div>
         </div>
-      </div>
-
-      <!-- TAMPER-PROOF TRUST SEAL -->
-      <div class="bill-trust-seal">
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2.5">
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-          <polyline points="9 12 11 14 15 10"/>
-        </svg>
-        COMPUTER GENERATED LEDGER RECORD • VALID WITHOUT SIGNATURE
       </div>
     </div>
   </div>

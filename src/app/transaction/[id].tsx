@@ -917,7 +917,6 @@ export default function TransactionDetailScreen() {
                       <Text style={styles.slipRowLabel}>PAYMENT MODE</Text>
                       <View style={styles.slipRowValueContainer}>
                         <ReceiptPaymentMethodBadge mode={paymentMode} isDark={false} />
-                        <Text style={styles.slipRowValue}>{paymentMode}</Text>
                       </View>
                     </View>
 
@@ -1005,7 +1004,7 @@ export default function TransactionDetailScreen() {
                       );
                     })()}
 
-                    {/* PHOTO OR NO-PHOTO PLACEHOLDER */}
+                    {/* PHOTO ONLY IF ATTACHED */}
                     {receiptImage ? (
                       <>
                         <View style={styles.slipInnerDash} />
@@ -1040,52 +1039,7 @@ export default function TransactionDetailScreen() {
                           </View>
                         </TouchableOpacity>
                       </>
-                    ) : (
-                      <View style={styles.slipNoPhotoCard}>
-                        <View style={styles.slipNoPhotoIcon}>
-                          <Ionicons name="image-outline" size={22} color="#64748B" />
-                        </View>
-                        <View style={styles.slipNoPhotoTextWrap}>
-                          <Text style={styles.slipNoPhotoTitle}>
-                            No receipt photo attached
-                          </Text>
-                          <Text style={styles.slipNoPhotoSub}>
-                            You can attach bills or screenshots anytime via Edit.
-                          </Text>
-                        </View>
-                      </View>
-                    )}
-
-                    {/* AUTHENTIC TRANSACTION CERTIFICATE & SECURITY SEAL */}
-                    <View style={styles.slipCertContainer}>
-                      <View style={styles.slipCertCard}>
-                        <View style={styles.slipCertHeader}>
-                          <View style={styles.slipCertShield}>
-                            <Ionicons name="shield-checkmark" size={15} color="#059669" />
-                          </View>
-                          <View style={styles.slipCertTextWrap}>
-                            <Text style={styles.slipCertTitle}>OFFICIAL TRANSACTION RECORD</Text>
-                            <Text style={styles.slipCertSub}>
-                              Zero-Knowledge Vault • Encrypted Ledger
-                            </Text>
-                          </View>
-                          <View style={styles.slipCertBadge}>
-                            <Ionicons
-                              name="checkmark-circle"
-                              size={11}
-                              color="#059669"
-                              style={{ marginRight: 3 }}
-                            />
-                            <Text style={styles.slipCertBadgeText}>AUTHENTIC</Text>
-                          </View>
-                        </View>
-                        <View style={styles.slipCertDivider} />
-                        <View style={styles.slipCertMetaRow}>
-                          <Text style={styles.slipCertMetaLabel}>TRANSACTION HASH</Text>
-                          <Text style={styles.slipCertMetaValue}>{barcodeValue}</Text>
-                        </View>
-                      </View>
-                    </View>
+                    ) : null}
                   </View>
 
                   {/* FOOTER */}
@@ -1102,23 +1056,12 @@ export default function TransactionDetailScreen() {
                           color="#10B981"
                           style={{ marginRight: 3 }}
                         />
-                        <Text style={styles.slipVerifiedText}>SAVED & VERIFIED</Text>
+                        <Text style={styles.slipVerifiedText}>VERIFIED RECEIPT</Text>
                       </View>
                     </View>
                     <Text style={styles.slipFooterSubtext}>
                       TRACKED WITH RUPEO • SMART EXPENSE TRACKER
                     </Text>
-                    <View style={styles.slipLuxurySeal}>
-                      <Ionicons
-                        name="lock-closed"
-                        size={11}
-                        color="#059669"
-                        style={{ marginRight: 5 }}
-                      />
-                      <Text style={styles.slipLuxurySealText}>
-                        END-TO-END ENCRYPTED PERSONAL FINANCIAL VAULT
-                      </Text>
-                    </View>
                   </View>
                 </Animated.View>
               );
