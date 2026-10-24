@@ -23,7 +23,7 @@ try {
 } catch {}
 
 export const CANONICAL_VERSION = '2.2.1';
-export const CANONICAL_BUILD = '38';
+export const CANONICAL_BUILD = '39';
 
 /**
  * Returns canonical app version information.

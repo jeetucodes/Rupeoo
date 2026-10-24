@@ -115,6 +115,8 @@ We use your information exclusively to provide and improve the Rupeo service:
 ## 6. Third-Party Service Providers
 We partner with certified third-party providers who process data strictly on our behalf:
 - **Google Firebase (Google LLC):** Authentication, Cloud Firestore encrypted database, and cloud infrastructure.
+- **Supabase (Supabase Inc.):** Secure serverless edge functions for authentication OTP verification and receipt validation.
+- **Brevo / Sendinblue:** Transactional email delivery for one-time login verification codes (OTPs).
 - **Google Mobile Ads (AdMob):** Displays banner and interstitial advertisements for free-tier users in compliance with Google Play Developer policies.
 - **Cloudinary:** High-speed cloud image optimization and encrypted storage for bill receipts.
 - **Google Play In-App Billing (`react-native-iap`):** Processes VIP/Pro subscription transactions securely without Rupeo ever handling credit card numbers.
@@ -131,7 +133,8 @@ We partner with certified third-party providers who process data strictly on our
 ## 8. Data Ownership, Export & Deletion Rights
 - **Data Ownership:** You own 100% of your financial information.
 - **Data Export:** You can export your data at any time in CSV, PDF, or JSON backup formats via Settings.
-- **Right to Erasure (Account Deletion):** You have the right to permanently erase your account at any time. Simply navigate to **Settings > Delete My Account**. This action permanently and irreversibly purges your profile, all transactions, friends khata entries, recurring bills, notifications, and uploaded photos from our active servers.
+- **Right to Erasure (In-App Account Deletion):** You have the right to permanently erase your account at any time. Simply navigate to **Settings > Delete My Account**. This action permanently and irreversibly purges your profile, all transactions, friends khata entries, recurring bills, notifications, and uploaded photos from our active servers.
+- **Web-Based Data Deletion Request (Google Play Compliance):** If you are unable to access the mobile application, you may request permanent deletion of your account and all associated data by visiting our web portal at https://rupeoo.vercel.app or by emailing innovatexlab.services@gmail.com with your registered email address and the subject *"Account Deletion Request"*. Deletion requests are fulfilled within 48 hours.
 
 ---
 

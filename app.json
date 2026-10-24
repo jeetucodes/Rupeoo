@@ -27,7 +27,7 @@
         "backgroundColor": "#0F0F11",
         "foregroundImage": "./assets/images/icon.png"
       },
-      "versionCode": 38,
+      "versionCode": 39,
       "permissions": [
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.VIBRATE",
@@ -35,10 +35,10 @@
         "android.permission.RECORD_AUDIO",
         "com.android.vending.BILLING",
         "android.permission.READ_CONTACTS",
-        "android.permission.WRITE_CONTACTS",
         "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"
       ],
       "blockedPermissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.READ_SMS",
         "android.permission.RECEIVE_SMS",
         "android.permission.SEND_SMS",

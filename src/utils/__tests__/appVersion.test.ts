@@ -11,11 +11,11 @@ test('App Version & Hardcoded String Verification (Change 8)', async (t) => {
     assert.strictEqual(typeof info.build, 'string');
     assert.strictEqual(typeof info.label, 'string');
     assert.strictEqual(info.version, '2.2.1');
-    assert.strictEqual(info.build, '38');
-    assert.strictEqual(info.label, 'v2.2.1 (38)');
+    assert.strictEqual(info.build, '39');
+    assert.strictEqual(info.label, 'v2.2.1 (39)');
     assert.strictEqual(APP_VERSION, '2.2.1');
-    assert.strictEqual(APP_VERSION_CODE, 38);
-    assert.strictEqual(APP_VERSION_DISPLAY, 'v2.2.1 (38)');
+    assert.strictEqual(APP_VERSION_CODE, 39);
+    assert.strictEqual(APP_VERSION_DISPLAY, 'v2.2.1 (39)');
   });
 
   await t.test('2. Label strictly adheres to "v{version} ({build})" format', () => {
