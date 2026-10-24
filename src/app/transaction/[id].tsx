@@ -784,7 +784,7 @@ export default function TransactionDetailScreen() {
                   style={styles.slipCardTop}
                 >
                   {/* Subtle Tech Constellation Nodes & Connecting Lines Pattern */}
-                  <Svg height="100%" width="100%" style={StyleSheet.absoluteFillObject} pointerEvents="none">
+                  <Svg height="100%" width="100%" style={StyleSheet.absoluteFill} pointerEvents="none">
                     <Line x1="40" y1="35" x2="110" y2="55" stroke="rgba(255,255,255,0.18)" strokeWidth="1" strokeDasharray="3,3" />
                     <Line x1="110" y1="55" x2="165" y2="40" stroke="rgba(255,255,255,0.15)" strokeWidth="1" />
                     <Line x1="165" y1="40" x2="230" y2="60" stroke="rgba(255,255,255,0.18)" strokeWidth="1" />
