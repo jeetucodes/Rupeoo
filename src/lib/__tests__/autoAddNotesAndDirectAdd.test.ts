@@ -133,4 +133,37 @@ test('Auto-Add Direct Add & Clean Note Tests', async (t) => {
     );
     assert.strictEqual(diffCheck.isDuplicate, false, 'Different amount/ref must not be duplicate');
   });
+
+  await t.test('10. Auto-added transaction without payment mode strictly defaults to UPI (toRemote)', async () => {
+    const { toRemote } = await import('../dataMinimization.ts');
+    const autoTx = {
+      id: 'auto_1730000000000_abcde',
+      amount: 450,
+      type: 'debit',
+      category: 'Food',
+      date: '2026-10-23',
+      source: 'notification_listener',
+      merchant_name: 'Zomato',
+    };
+
+    const remote = toRemote(autoTx);
+    assert.strictEqual(remote.paymentMode, 'upi', 'Auto-added transaction must default to upi payment mode');
+    assert.strictEqual(remote.payment_mode, 'upi');
+  });
+
+  await t.test('11. Auto-added transaction restored from cloud defaults to upi if mode missing (fromRemote)', async () => {
+    const { fromRemote } = await import('../dataMinimization.ts');
+    const remoteDoc = {
+      id: 'auto_1730000000000_abcde',
+      amount: 450,
+      type: 'debit',
+      category: 'Food',
+      date: '2026-10-23',
+      source: 'auto',
+      payee: 'Swiggy',
+    };
+
+    const restored = fromRemote(remoteDoc);
+    assert.strictEqual(restored.payment_mode, 'upi', 'Auto-added remote doc must restore as upi');
+  });
 });

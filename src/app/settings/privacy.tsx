@@ -23,6 +23,7 @@ import {
   setCloudSyncEnabled,
   deleteCloudCopy,
   uploadLocalDataToCloud,
+  syncLocalAndCloud,
   exportTransactionsToCSV,
   deleteAccountAndAllData,
 } from '@/lib/cloudSync';
@@ -40,6 +41,7 @@ export default function PrivacyAndDataScreen() {
   // Sync Progress State
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [syncProgress, setSyncProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 });
+  const [syncStatusText, setSyncStatusText] = useState<string>('');
 
   // Toggle OFF Confirmation Sheet
   const [showDisableSheet, setShowDisableSheet] = useState<boolean>(false);
@@ -104,7 +106,7 @@ export default function PrivacyAndDataScreen() {
         text2: 'Your transactions will be backed up securely to your account.',
       });
 
-      // Trigger batch upload with progress
+      // Trigger Bug 5 sync: pull first, dedupe, upload only missing/pending
       runInitialSync(user.uid);
     }
   };
@@ -113,19 +115,20 @@ export default function PrivacyAndDataScreen() {
     setIsSyncing(true);
     setSyncProgress({ current: 0, total: localTxCount || 1 });
     try {
-      const result = await uploadLocalDataToCloud(uid, (current, total) => {
+      const result = await syncLocalAndCloud(uid, (phase, current, total) => {
+        setSyncStatusText(phase);
         setSyncProgress({ current, total });
       });
       Toast.show({
         type: 'success',
-        text1: 'Backup Complete',
-        text2: `Successfully backed up ${result.success} transactions.`,
+        text1: 'All backed up',
+        text2: `Backed up ${result.success} new transactions.`,
       });
     } catch (err: any) {
       Toast.show({
         type: 'error',
         text1: 'Sync Incomplete',
-        text2: err?.message || 'Could not upload to cloud. Will retry automatically.',
+        text2: err?.message || 'Could not sync with cloud. Will retry automatically.',
       });
     } finally {
       setIsSyncing(false);

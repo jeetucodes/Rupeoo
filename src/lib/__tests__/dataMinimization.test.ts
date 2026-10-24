@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert';
 import {
   toRemote,
+  fromRemote,
   validateRemotePayload,
   sanitizeNoteForRemote,
   FORBIDDEN_FIELDS,
@@ -151,4 +152,105 @@ Paid Rs. 20.00 to CHAI POINT on A/C *9876 via UPI/629584729104.`;
     assert.strictEqual(result.valid, false);
     assert.ok(result.violations.some((v) => v.includes('9+ digit sequence')));
   });
+
+  await t.test('7. Round trip keeps all paymentMode values (Bug 2)', () => {
+    const modes = ['cash', 'upi', 'card', 'netbanking', 'other'];
+    for (const mode of modes) {
+      const local = {
+        id: `tx_${mode}`,
+        amount: 250,
+        type: 'debit',
+        category: 'Shopping',
+        date: '2026-10-23',
+        payment_mode: mode,
+        userNote: `Paid via ${mode}`,
+      };
+      const remote = toRemote(local);
+      assert.strictEqual(remote.paymentMode, mode);
+
+      const restored = fromRemote(remote, local);
+      assert.strictEqual(restored.payment_mode, mode);
+    }
+  });
+
+  await t.test('8. Missing remote paymentMode defaults to "unknown", NEVER silently "cash" (Bug 2)', () => {
+    const remoteDoc = {
+      id: 'tx_missing_mode',
+      amount: 100,
+      type: 'debit',
+      category: 'Food',
+      date: '2026-10-23',
+      // No paymentMode provided
+    };
+    const restored = fromRemote(remoteDoc);
+    assert.strictEqual(restored.payment_mode, 'unknown');
+    assert.strictEqual(restored.paymentMode, 'unknown');
+    assert.notStrictEqual(restored.payment_mode, 'cash');
+  });
+
+  await t.test('9. Local paymentMode is NEVER overwritten by a missing remote value (Bug 2)', () => {
+    const local = {
+      id: 'tx_preserve_local',
+      amount: 500,
+      type: 'debit',
+      category: 'Fuel',
+      date: '2026-10-23',
+      payment_mode: 'card',
+      originalMessage: 'Local saved alert text',
+    };
+    const remoteDoc = {
+      id: 'tx_preserve_local',
+      amount: 500,
+      type: 'debit',
+      category: 'Fuel',
+      date: '2026-10-23',
+      // Missing paymentMode and originalMessage in remote doc
+    };
+    const restored = fromRemote(remoteDoc, local);
+    assert.strictEqual(restored.payment_mode, 'card', 'Local card payment mode must be preserved');
+    assert.strictEqual(restored.originalMessage, 'Local saved alert text', 'Local originalMessage must be preserved');
+  });
+
+  await t.test('10. userNote round trip; originalMessage NEVER in remote payload (Bug 4)', () => {
+    const txWithAlert = {
+      id: 'tx_notes_test',
+      amount: 150,
+      type: 'debit',
+      category: 'Food',
+      date: '2026-10-23',
+      userNote: 'Self lunch expense',
+      originalMessage: 'Auto-detected SMS: Sent Rs 150 to Burger King from A/C 9988',
+      rawText: 'Auto-detected SMS: Sent Rs 150 to Burger King from A/C 9988',
+      accountLast4: '9988',
+    };
+
+    const remote = toRemote(txWithAlert);
+    assert.strictEqual(remote.userNote, 'Self lunch expense');
+    assert.strictEqual((remote as any).originalMessage, undefined);
+    assert.strictEqual((remote as any).rawText, undefined);
+    assert.strictEqual((remote as any).accountLast4, undefined);
+
+    const validation = validateRemotePayload(remote);
+    assert.strictEqual(validation.valid, true);
+
+    const restored = fromRemote(remote, txWithAlert);
+    assert.strictEqual(restored.userNote, 'Self lunch expense');
+    assert.strictEqual(restored.originalMessage, 'Auto-detected SMS: Sent Rs 150 to Burger King from A/C 9988');
+  });
+
+  await t.test('11. Old-format doc with only "note" still loads into userNote (Bug 4)', () => {
+    const oldRemoteDoc = {
+      id: 'tx_old_doc',
+      amount: 75,
+      type: 'debit',
+      category: 'Travel',
+      date: '2026-10-23',
+      note: 'Auto rickshaw ride',
+      // Old doc had no "userNote" key
+    };
+    const restored = fromRemote(oldRemoteDoc);
+    assert.strictEqual(restored.userNote, 'Auto rickshaw ride');
+    assert.strictEqual(restored.note, 'Auto rickshaw ride');
+  });
 });
+

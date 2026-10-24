@@ -16,7 +16,7 @@ export type NotificationType =
   | 'transaction_added';
 
 export interface NotificationPlaceholders {
-  name: string;
+  name?: string;
   spent?: string;
   budget?: string;
   left?: string;

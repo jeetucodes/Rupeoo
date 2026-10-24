@@ -26,8 +26,6 @@ import { Ionicons } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
 import {
   requestNotificationPermissions,
-  sendWelcomeNotification,
-
 } from '@/lib/notifications';
 import { warn, error } from '@/lib/logger';
 
@@ -152,7 +150,6 @@ export default function VerifyEmailScreen() {
         requestNotificationPermissions().then((g) => {
 
         }).catch(() => {});
-        sendWelcomeNotification(uid).catch(() => {});
       }
       Toast.show({ type: 'success', text1: 'Email Verified ✓', text2: 'Welcome to Rupeo!' });
       router.replace('/setup');

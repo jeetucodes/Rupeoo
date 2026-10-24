@@ -882,8 +882,11 @@ export async function generateAndShareTransactionStatementPDF(
           .map((tx, idx) => {
             const isIncome = tx.isIncome;
             const amt = tx.parsedAmount;
-            const title = tx.merchant_name || tx.description || tx.category || 'Transaction';
-            const note = tx.merchant_name && tx.description ? tx.description : tx.utr ? `Ref: ${tx.utr}` : '';
+            const payee = tx.merchant_name || tx.payee || tx.merchant;
+            const noteText = tx.description || tx.userNote || tx.note;
+            const title = payee || noteText || tx.category || 'Transaction';
+            const note = payee && noteText ? noteText : tx.utr ? `Ref: ${tx.utr}` : '';
+            const mode = tx.payment_mode || tx.paymentMode || 'UPI';
             return `
           <tr>
             <td class="td-num">${idx + 1}</td>
@@ -896,7 +899,7 @@ export async function generateAndShareTransactionStatementPDF(
               ${note ? `<div class="td-note">${note}</div>` : ''}
             </td>
             <td><span class="cat-badge">${tx.category || 'General'}</span></td>
-            <td style="color: #475569; font-size: 8.5px; font-weight: 600;">${tx.payment_mode || 'UPI'}</td>
+            <td style="color: #475569; font-size: 8.5px; font-weight: 600;">${mode}</td>
             <td class="amount-dr">
               ${!isIncome ? `-${curr}${amt.toLocaleString('en-IN')}` : '-'}
             </td>

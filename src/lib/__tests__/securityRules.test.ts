@@ -30,11 +30,11 @@ function evaluateSignedIn(ctx: SecurityContext): boolean {
 
 function evaluateIsValidTransaction(data: Record<string, any>): boolean {
   const allowedKeys = new Set([
-    'id', 'amount', 'type', 'category', 'date', 'payee', 'note', 'source', 'updatedAt', 'created_at', 'updated_at'
+    'id', 'amount', 'type', 'category', 'date', 'payee', 'note', 'userNote', 'paymentMode', 'source', 'updatedAt', 'created_at', 'updated_at'
   ]);
   const forbiddenKeys = [
     'ref_no', 'utr', 'accountLast4', 'account_last4', 'account_no',
-    'bank_name', 'bank', 'raw_body', 'original_message', 'package_name',
+    'bank_name', 'bank', 'raw_body', 'original_message', 'originalMessage', 'package_name',
     'notif_log', 'diagnostics', 'sourceHash', 'payKey'
   ];
 
@@ -66,10 +66,14 @@ function evaluateIsValidTransaction(data: Record<string, any>): boolean {
   // 8. payee validation
   if ('payee' in data && data.payee !== null && (typeof data.payee !== 'string' || data.payee.length > 100)) return false;
 
-  // 9. note validation
+  // 9. note & userNote validation
   if ('note' in data && data.note !== null && (typeof data.note !== 'string' || data.note.length > 500)) return false;
+  if ('userNote' in data && data.userNote !== null && (typeof data.userNote !== 'string' || data.userNote.length > 500)) return false;
 
-  // 10. source validation
+  // 10. paymentMode validation
+  if ('paymentMode' in data && data.paymentMode !== null && (typeof data.paymentMode !== 'string' || data.paymentMode.length > 50)) return false;
+
+  // 11. source validation
   if ('source' in data && data.source !== null && (typeof data.source !== 'string' || !['auto', 'manual', 'statement'].includes(data.source))) return false;
 
   return true;

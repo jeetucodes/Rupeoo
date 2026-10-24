@@ -21,6 +21,7 @@ export interface SettingsRowProps {
   badgeBg?: string;
   badgeColor?: string;
   onPress?: () => void;
+  onLongPress?: () => void;
   // Right control types
   isSwitch?: boolean;
   switchValue?: boolean;
@@ -44,6 +45,7 @@ export const SettingsRow = React.memo(function SettingsRow({
   badgeBg = '#EEF2FF',
   badgeColor = '#4F46E5',
   onPress,
+  onLongPress,
   isSwitch = false,
   switchValue = false,
   onSwitchChange,
@@ -71,13 +73,14 @@ export const SettingsRow = React.memo(function SettingsRow({
     }
   };
 
-  const isInteractive = Boolean(onPress || isSwitch);
+  const isInteractive = Boolean(onPress || isSwitch || onLongPress);
   const Container = isInteractive ? TouchableOpacity : View;
 
   return (
     <Container
       style={[styles.row, !isLast && styles.rowDivider, disabled && styles.disabled]}
       onPress={isInteractive ? handlePress : undefined}
+      onLongPress={onLongPress}
       activeOpacity={0.7}
       accessibilityRole={isSwitch ? 'switch' : onPress ? 'button' : undefined}
       accessibilityState={isSwitch ? { checked: switchValue } : undefined}

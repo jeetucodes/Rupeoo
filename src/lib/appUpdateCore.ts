@@ -43,7 +43,7 @@ export const STORAGE_LAST_UPDATE_PROMPTED_KEY = '@rupeo_update_last_prompted';
 // ---------------------------------------------------------------------------
 
 /**
- * Compares two semantic version strings (e.g. "2.1.10" vs "2.1.11").
+ * Compares two semantic version strings (e.g. "2.2.0" vs "2.2.1").
  * Returns:
  *   1 if a > b (a is newer)
  *  -1 if a < b (b is newer)

@@ -22,6 +22,7 @@ export interface BackupTransaction {
 export interface GenerateBackupOptions {
   periodMode?: 'all' | 'month';
   monthStr?: string; // YYYY-MM
+  format?: 'json' | 'csv' | 'all';
 }
 
 export async function generateBackupData(
@@ -74,22 +75,28 @@ export async function generateBackupData(
     time: t.time || '',
   }));
 
-  const jsonData = JSON.stringify(sanitized, null, 2);
+  const needJson = !options?.format || options.format === 'json' || options.format === 'all';
+  const needCsv = !options?.format || options.format === 'csv' || options.format === 'all';
 
-  const headers = ['Date', 'Amount', 'Type', 'Category', 'Merchant', 'Description', 'UTR', 'RefNo', 'PaymentMode', 'Time'];
-  const rows = sanitized.map(t => [
-    `"${t.date}"`,
-    t.amount,
-    `"${t.type}"`,
-    `"${(t.category || '').replace(/"/g, '""')}"`,
-    `"${(t.merchant_name || '').replace(/"/g, '""')}"`,
-    `"${(t.description || '').replace(/"/g, '""')}"`,
-    `"${(t.utr || '').replace(/"/g, '""')}"`,
-    `"${(t.ref_no || '').replace(/"/g, '""')}"`,
-    `"${(t.payment_mode || '').replace(/"/g, '""')}"`,
-    `"${(t.time || '').replace(/"/g, '""')}"`,
-  ].join(','));
-  const csvData = '\uFEFF' + [headers.join(','), ...rows].join('\n');
+  const jsonData = needJson ? JSON.stringify(sanitized, null, 2) : '[]';
+
+  let csvData = '';
+  if (needCsv) {
+    const headers = ['Date', 'Amount', 'Type', 'Category', 'Merchant', 'Description', 'UTR', 'RefNo', 'PaymentMode', 'Time'];
+    const rows = sanitized.map(t => [
+      `"${t.date}"`,
+      t.amount,
+      `"${t.type}"`,
+      `"${(t.category || '').replace(/"/g, '""')}"`,
+      `"${(t.merchant_name || '').replace(/"/g, '""')}"`,
+      `"${(t.description || '').replace(/"/g, '""')}"`,
+      `"${(t.utr || '').replace(/"/g, '""')}"`,
+      `"${(t.ref_no || '').replace(/"/g, '""')}"`,
+      `"${(t.payment_mode || '').replace(/"/g, '""')}"`,
+      `"${(t.time || '').replace(/"/g, '""')}"`,
+    ].join(','));
+    csvData = '\uFEFF' + [headers.join(','), ...rows].join('\n');
+  }
 
   return {
     count: sanitized.length,
@@ -104,7 +111,7 @@ export async function exportTransactions(
   options?: GenerateBackupOptions
 ): Promise<{ success: boolean; count: number; filename?: string; fileUri?: string; error?: string }> {
   try {
-    const { count, jsonData, csvData } = await generateBackupData(userId, options);
+    const { count, jsonData, csvData } = await generateBackupData(userId, { ...options, format });
     if (count === 0) {
       return { success: false, count: 0, error: 'No transactions to export.' };
     }

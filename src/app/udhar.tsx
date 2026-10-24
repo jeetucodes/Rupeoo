@@ -2485,15 +2485,7 @@ export default function UdharScreen() {
             </TouchableOpacity>
 
             <View style={styles.topNavTitleWrap}>
-              <View style={styles.topNavTitleRow}>
-                <ExpoImage
-                  source={require('@/assets/images/3D_frinds-icon.png')}
-                  style={{ width: 24, height: 24, marginRight: 6 }}
-                  contentFit="contain"
-                  cachePolicy="memory-disk"
-                />
-                <Text style={styles.topNavTitle}>{t('udhar_title')}</Text>
-              </View>
+              <Text style={styles.topNavTitle}>{t('udhar_title')}</Text>
               <Text style={styles.topNavSubtitle}>{t('udhar_subtitle')}</Text>
             </View>
 

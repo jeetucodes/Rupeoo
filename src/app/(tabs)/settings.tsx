@@ -1079,6 +1079,17 @@ export default function SettingsScreen() {
         keywords: ['rate', 'review', 'play store', 'google play', 'star'],
       },
       {
+        id: 'about',
+        section: 'SUPPORT & ABOUT',
+        label: 'About Rupeo',
+        subtitle: `Version v${APP_VERSION} • Made with ❤️ in India`,
+        icon: 'information-circle' as const,
+        iconBg: '#ECFDF5',
+        iconColor: '#059669',
+        action: () => router.push('/settings/about'),
+        keywords: ['about', 'version', 'rupeo', 'info', 'v2.2.1', 'developer'],
+      },
+      {
         id: 'logout',
         section: 'ACCOUNT',
         label: t('log_out'),
@@ -1521,8 +1532,19 @@ export default function SettingsScreen() {
                   iconColor="#475569"
                   label="Terms & Privacy Policy"
                   subtitle="Our 100% on-device data commitment"
-                  isLast
                   onPress={() => setLegalDoc('privacy')}
+                />
+                <SettingsRow
+                  icon="information-circle-outline"
+                  iconBg="#ECFDF5"
+                  iconColor="#059669"
+                  label="About Rupeo"
+                  subtitle={`v${APP_VERSION} • Made with ❤️ in India`}
+                  badge={`v${APP_VERSION}`}
+                  badgeBg="#DCFCE7"
+                  badgeColor="#15803D"
+                  isLast
+                  onPress={() => router.push('/settings/about')}
                 />
               </SettingsSection>
 

@@ -30,8 +30,8 @@ export function AdminUpdateModal({ visible, onClose }: AdminUpdateModalProps) {
   const { appConfig, refreshConfig } = useAuth();
 
   const [enabled, setEnabled] = useState(true);
-  const [versionName, setVersionName] = useState('2.1.11');
-  const [versionCode, setVersionCode] = useState('38');
+  const [versionName, setVersionName] = useState(APP_VERSION);
+  const [versionCode, setVersionCode] = useState(String(APP_VERSION_CODE));
   const [force, setForce] = useState(false);
   const [title, setTitle] = useState('');
   const [message, setMessage] = useState('');
@@ -41,8 +41,8 @@ export function AdminUpdateModal({ visible, onClose }: AdminUpdateModalProps) {
   useEffect(() => {
     if (visible && appConfig) {
       setEnabled(appConfig.updatePromptEnabled !== false);
-      setVersionName(appConfig.latestVersion || '2.1.11');
-      setVersionCode(String(appConfig.latestVersionCode || 38));
+      setVersionName(appConfig.latestVersion || APP_VERSION);
+      setVersionCode(String(appConfig.latestVersionCode || APP_VERSION_CODE));
       setForce(Boolean(appConfig.forceUpdate));
       setTitle(appConfig.updateTitle || 'New Version Available! 🚀');
       setMessage(
@@ -61,8 +61,8 @@ export function AdminUpdateModal({ visible, onClose }: AdminUpdateModalProps) {
     }
 
     const finalEnabled = overrideEnabled !== undefined ? overrideEnabled : enabled;
-    const finalCode = parseInt(versionCode, 10) || 38;
-    const finalVersion = versionName.trim() || '2.1.11';
+    const finalCode = parseInt(versionCode, 10) || APP_VERSION_CODE;
+    const finalVersion = versionName.trim() || APP_VERSION;
 
     setIsSaving(true);
     try {
@@ -190,7 +190,7 @@ export function AdminUpdateModal({ visible, onClose }: AdminUpdateModalProps) {
                   style={styles.textInput}
                   value={versionName}
                   onChangeText={setVersionName}
-                  placeholder="e.g. 2.1.11"
+                  placeholder={`e.g. ${APP_VERSION}`}
                   placeholderTextColor="#94A3B8"
                   autoCapitalize="none"
                 />
@@ -202,7 +202,7 @@ export function AdminUpdateModal({ visible, onClose }: AdminUpdateModalProps) {
                   style={styles.textInput}
                   value={versionCode}
                   onChangeText={setVersionCode}
-                  placeholder="e.g. 38"
+                  placeholder={`e.g. ${APP_VERSION_CODE}`}
                   placeholderTextColor="#94A3B8"
                   keyboardType="numeric"
                 />

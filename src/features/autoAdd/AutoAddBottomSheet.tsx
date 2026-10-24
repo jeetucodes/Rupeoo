@@ -343,7 +343,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(15, 23, 42, 0.45)', // Dimmed backdrop
   },
   backdrop: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
   sheetContainer: {
     backgroundColor: '#FFFFFF', // Light theme card background

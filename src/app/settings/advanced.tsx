@@ -29,6 +29,7 @@ import { generateAndShareTransactionStatementPDF } from '@/lib/statementPdf';
 import { getLocalMonthString } from '@/lib/dateUtils';
 import Constants from 'expo-constants';
 import { APP_VERSION, APP_VERSION_CODE, APP_VERSION_DISPLAY, APP_PLATFORM } from '@/constants/version';
+import { safeGoBack } from '@/lib/navigation';
 import { repairCorruptedStorageKeys } from '@/lib/safeStorage';
 import { getLastCrash, clearLastCrash, CrashReport } from '@/lib/crashReporting';
 
@@ -290,7 +291,7 @@ export default function AdvancedSettingsScreen() {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
-          onPress={() => router.back()}
+          onPress={() => safeGoBack(router, '/(tabs)/settings')}
           style={styles.backButton}
           activeOpacity={0.7}
           accessibilityRole="button"
@@ -468,6 +469,15 @@ export default function AdvancedSettingsScreen() {
             label="Platform"
             value={APP_PLATFORM}
             showChevron={false}
+          />
+          <SettingsRow
+            icon="information-circle-outline"
+            iconBg="#ECFDF5"
+            iconColor="#059669"
+            label="About Rupeo"
+            subtitle="Overview, privacy commitment & version details"
+            value={`v${APP_VERSION}`}
+            onPress={() => router.push('/settings/about')}
           />
           {isAdmin && (
             <SettingsRow

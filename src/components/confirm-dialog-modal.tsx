@@ -18,6 +18,8 @@ interface ConfirmDialogModalProps {
   type?: 'danger' | 'warning' | 'info';
   icon?: keyof typeof Ionicons.glyphMap;
   loading?: boolean;
+  secondaryText?: string;
+  onSecondary?: () => void;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -28,6 +30,8 @@ export function ConfirmDialogModal({
   message,
   confirmText = 'Delete',
   cancelText = 'Cancel',
+  secondaryText,
+  onSecondary,
   type = 'danger',
   icon,
   loading = false,
@@ -58,32 +62,76 @@ export function ConfirmDialogModal({
           <Text style={styles.message}>{message}</Text>
 
           {/* Actions */}
-          <View style={styles.actionRow}>
-            <TouchableOpacity
-              style={styles.cancelBtn}
-              onPress={onCancel}
-              disabled={loading}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.cancelBtnText}>{cancelText}</Text>
-            </TouchableOpacity>
+          {secondaryText && onSecondary ? (
+            <View style={{ width: '100%', marginTop: 20 }}>
+              <TouchableOpacity
+                style={[
+                  styles.confirmBtn,
+                  { width: '100%', marginBottom: 10 },
+                  isDanger ? styles.confirmBtnDanger : styles.confirmBtnPrimary,
+                ]}
+                onPress={onConfirm}
+                disabled={loading}
+                activeOpacity={0.85}
+              >
+                {loading ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.confirmBtnText}>{confirmText}</Text>
+                )}
+              </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[
-                styles.confirmBtn,
-                isDanger ? styles.confirmBtnDanger : styles.confirmBtnPrimary,
-              ]}
-              onPress={onConfirm}
-              disabled={loading}
-              activeOpacity={0.85}
-            >
-              {loading ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <Text style={styles.confirmBtnText}>{confirmText}</Text>
-              )}
-            </TouchableOpacity>
-          </View>
+              <TouchableOpacity
+                style={[
+                  styles.cancelBtn,
+                  { width: '100%', marginBottom: 10, borderColor: '#FCA5A5', backgroundColor: '#FEF2F2' },
+                ]}
+                onPress={onSecondary}
+                disabled={loading}
+                activeOpacity={0.85}
+              >
+                <Text style={[styles.cancelBtnText, { color: '#DC2626', fontWeight: '700' }]}>
+                  {secondaryText}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.cancelBtn, { width: '100%' }]}
+                onPress={onCancel}
+                disabled={loading}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.cancelBtnText}>{cancelText}</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.actionRow}>
+              <TouchableOpacity
+                style={styles.cancelBtn}
+                onPress={onCancel}
+                disabled={loading}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.cancelBtnText}>{cancelText}</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.confirmBtn,
+                  isDanger ? styles.confirmBtnDanger : styles.confirmBtnPrimary,
+                ]}
+                onPress={onConfirm}
+                disabled={loading}
+                activeOpacity={0.85}
+              >
+                {loading ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.confirmBtnText}>{confirmText}</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
       </View>
     </Modal>

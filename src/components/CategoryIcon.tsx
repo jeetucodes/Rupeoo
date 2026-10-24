@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 interface Props {
   categoryName: string;
-  iconName: string;
+  iconName?: string;
   color?: string;
   size?: number;
   style?: StyleProp<ImageStyle | ViewStyle>;
@@ -128,7 +128,7 @@ const LOWERCASE_ONLINE_ICONS: Record<string, string> = Object.keys(ONLINE_ICONS)
   return acc;
 }, {} as Record<string, string>);
 
-function CategoryIconComponent({ categoryName, iconName, color = '#6B7280', size = 16, style }: Props) {
+function CategoryIconComponent({ categoryName, iconName = '', color = '#6B7280', size = 16, style }: Props) {
   const [imageError, setImageError] = React.useState(false);
 
   // Fast O(1) case-insensitive lookup

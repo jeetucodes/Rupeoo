@@ -30,6 +30,7 @@ import {
 } from '@/features/autoAdd/nativeModule';
 import { getRecentNotifLogs, NotifLogEntry, clearNotifLogs } from '@/features/autoAdd/sqliteStorage';
 import { getFriendlySenderName } from '@/features/autoAdd/filter';
+import { APP_VERSION_DISPLAY } from '@/constants/version';
 
 export default function TroubleshootScreen() {
   const router = useRouter();
@@ -129,7 +130,8 @@ export default function TroubleshootScreen() {
     } catch { }
 
     const reportLines = [
-      '=== Rupeo Auto-Add Diagnostics Report ===',
+      `=== Rupeo Diagnostics Report (Rupeo ${APP_VERSION_DISPLAY}) ===`,
+      `App Version: Rupeo ${APP_VERSION_DISPLAY}`,
       `Date: ${new Date().toISOString()}`,
       `Platform: ${Platform.OS} (v${Platform.Version})`,
       `Device Manufacturer: ${manufacturer}`,

@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
 import { saveUserSettings, UserSettings } from '@/lib/database';
-import { sendWelcomeNotification } from '@/lib/notifications';
+import { updateWelcomeNotificationContentIfPending } from '@/lib/welcomeNotification';
 
 const LANGUAGES = [
   { id: 'English', label: 'English', char: 'A' },
@@ -45,7 +45,8 @@ export default function SetupScreen() {
       const newSettings: UserSettings = { language, currency };
       await saveUserSettings(user.uid, newSettings);
       setSettings(newSettings);
-      sendWelcomeNotification(user.uid).catch(() => {});
+      // If a welcome notification was scheduled on login/signup, update its content with user-selected language
+      updateWelcomeNotificationContentIfPending(user.uid, language, user.displayName).catch(() => {});
 
       router.replace('/starting-balance');
     } catch (err) {

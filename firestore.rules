@@ -24,12 +24,12 @@ service cloud.firestore {
     // Helper: Validates minimized transaction payload with size limits & strict field constraints
     function isValidTransaction(data) {
       return data.keys().hasOnly([
-        'id', 'amount', 'type', 'category', 'date', 'payee', 'note', 'source', 'updatedAt', 'created_at', 'updated_at'
+        'id', 'amount', 'type', 'category', 'date', 'time', 'payee', 'merchant_name', 'note', 'userNote', 'description', 'paymentMode', 'payment_mode', 'source', 'updatedAt', 'created_at', 'updated_at'
       ])
       // Deny any forbidden sensitive fields explicitly
       && !data.keys().hasAny([
         'ref_no', 'utr', 'accountLast4', 'account_last4', 'account_no',
-        'bank_name', 'bank', 'raw_body', 'original_message', 'package_name',
+        'bank_name', 'bank', 'raw_body', 'original_message', 'originalMessage', 'package_name',
         'notif_log', 'diagnostics', 'sourceHash', 'payKey'
       ])
       // Id validation (max 128 chars)
@@ -42,10 +42,18 @@ service cloud.firestore {
       && data.category is string && data.category.size() > 0 && data.category.size() <= 60
       // Date validation (strictly YYYY-MM-DD, 10 chars)
       && data.date is string && data.date.size() == 10 && data.date.matches('^\\d{4}-\\d{2}-\\d{2}$')
-      // Optional payee validation (max 100 chars)
+      // Optional time (max 50 chars)
+      && (!('time' in data) || data.time == null || (data.time is string && data.time.size() <= 50))
+      // Optional payee / merchant_name validation (max 100 chars)
       && (!('payee' in data) || data.payee == null || (data.payee is string && data.payee.size() <= 100))
-      // Optional user note validation (max 500 chars)
+      && (!('merchant_name' in data) || data.merchant_name == null || (data.merchant_name is string && data.merchant_name.size() <= 100))
+      // Optional user note / description validation (max 500 chars)
       && (!('note' in data) || data.note == null || (data.note is string && data.note.size() <= 500))
+      && (!('userNote' in data) || data.userNote == null || (data.userNote is string && data.userNote.size() <= 500))
+      && (!('description' in data) || data.description == null || (data.description is string && data.description.size() <= 500))
+      // Payment mode validation (max 50 chars)
+      && (!('paymentMode' in data) || data.paymentMode == null || (data.paymentMode is string && data.paymentMode.size() <= 50))
+      && (!('payment_mode' in data) || data.payment_mode == null || (data.payment_mode is string && data.payment_mode.size() <= 50))
       // Source validation ('auto' | 'manual' | 'statement')
       && (!('source' in data) || data.source == null || (data.source is string && data.source in ['auto', 'manual', 'statement']))
       // Timestamp validation

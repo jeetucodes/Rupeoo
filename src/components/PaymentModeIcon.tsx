@@ -26,8 +26,12 @@ function PaymentModeIconComponent({ mode, size = 16, color = '#6B7280', style }:
     return <ExpoImage source={require('@/assets/images/cash_user.png')} contentFit="contain" cachePolicy="memory-disk" style={[{ width: size, height: size }, style]} />;
   }
 
+  if (m.includes('unknown') || !m) {
+    return <Ionicons name="help-circle-outline" size={size} color={color} style={style as StyleProp<TextStyle>} />;
+  }
+
   // Fallback
-  return <Ionicons name="cash-outline" size={size} color={color} style={style as StyleProp<TextStyle>} />;
+  return <Ionicons name="wallet-outline" size={size} color={color} style={style as StyleProp<TextStyle>} />;
 }
 
 export default React.memo(PaymentModeIconComponent);

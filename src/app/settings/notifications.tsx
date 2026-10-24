@@ -35,8 +35,8 @@ import {
   resolveNotificationMessage,
   NotificationLanguage,
   NotificationSettings,
-  requestNotificationPermissions,
 } from '@/features/notifications';
+import { requestNotificationPermissions } from '@/lib/notifications';
 
 function parseTime24hToDate(timeStr: string = '22:00'): Date {
   const [hStr, mStr] = timeStr.split(':');
