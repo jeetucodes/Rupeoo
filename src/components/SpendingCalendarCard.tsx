@@ -610,44 +610,95 @@ export default function SpendingCalendarCard({
       ) : (
         /* 7. HIGH / LOW EXECUTIVE RANKING VIEW */
         <View style={styles.rankingContainer}>
-          {/* Top Comparison KPI Trio Banner */}
-          <View style={styles.rankingKpiRow}>
-            <View style={[styles.rankingKpiCard, { borderColor: '#FED7AA', backgroundColor: '#FFF7ED' }]}>
-              <View style={styles.rankingKpiIconWrap}>
-                <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.fire }} style={{ width: 20, height: 20 }} contentFit="contain" />
-              </View>
-              <Text style={styles.rankingKpiLabel} numberOfLines={1} ellipsizeMode="tail">{t('highest_spend')}</Text>
-              <Text style={[styles.rankingKpiValue, { color: '#C2410C' }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
-                {highestSpendDay ? `${currency}${highestSpendDay.expense.toLocaleString('en-IN')}` : '—'}
-              </Text>
-              <Text style={styles.rankingKpiSub} numberOfLines={1} ellipsizeMode="tail">
-                {highestSpendDay ? highestSpendDay.fullDateLabel : t('no_spends')}
-              </Text>
+          {/* Top Comparison KPI Grid: 2 Balanced Comparison Cards + 1 Zero Spend Banner */}
+          <View style={styles.rankingKpiGrid}>
+            <View style={styles.rankingKpiRow}>
+              {/* Highest Spend Card */}
+              <TouchableOpacity
+                style={[
+                  styles.rankingKpiCard,
+                  { borderColor: '#FED7AA', backgroundColor: '#FFF7ED' },
+                  rankingFilter === 'highest' && { borderColor: '#EA580C', borderWidth: 2 },
+                ]}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setRankingFilter(rankingFilter === 'highest' ? 'all' : 'highest');
+                }}
+                activeOpacity={0.75}
+              >
+                <View style={styles.rankingKpiHeaderRow}>
+                  <View style={styles.rankingKpiIconWrap}>
+                    <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.fire }} style={{ width: 18, height: 18 }} contentFit="contain" />
+                  </View>
+                  <Text style={[styles.rankingKpiLabel, { color: '#C2410C' }]} numberOfLines={1}>
+                    {t('highest_spend')}
+                  </Text>
+                </View>
+                <Text style={styles.rankingKpiValue} numberOfLines={1}>
+                  {highestSpendDay ? `${currency}${highestSpendDay.expense.toLocaleString('en-IN')}` : '—'}
+                </Text>
+                <Text style={styles.rankingKpiSub} numberOfLines={1}>
+                  {highestSpendDay ? highestSpendDay.fullDateLabel : t('no_spends')}
+                </Text>
+              </TouchableOpacity>
+
+              {/* Lowest Spend Card */}
+              <TouchableOpacity
+                style={[
+                  styles.rankingKpiCard,
+                  { borderColor: '#BBF7D0', backgroundColor: '#F0FDF4' },
+                  rankingFilter === 'lowest' && { borderColor: '#16A34A', borderWidth: 2 },
+                ]}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setRankingFilter(rankingFilter === 'lowest' ? 'all' : 'lowest');
+                }}
+                activeOpacity={0.75}
+              >
+                <View style={styles.rankingKpiHeaderRow}>
+                  <View style={styles.rankingKpiIconWrap}>
+                    <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.star }} style={{ width: 18, height: 18 }} contentFit="contain" />
+                  </View>
+                  <Text style={[styles.rankingKpiLabel, { color: '#15803D' }]} numberOfLines={1}>
+                    {t('lowest_spend')}
+                  </Text>
+                </View>
+                <Text style={styles.rankingKpiValue} numberOfLines={1}>
+                  {lowestNonZeroDay ? `${currency}${lowestNonZeroDay.expense.toLocaleString('en-IN')}` : '—'}
+                </Text>
+                <Text style={styles.rankingKpiSub} numberOfLines={1}>
+                  {lowestNonZeroDay ? lowestNonZeroDay.fullDateLabel : t('no_spends')}
+                </Text>
+              </TouchableOpacity>
             </View>
 
-            <View style={[styles.rankingKpiCard, { borderColor: '#BBF7D0', backgroundColor: '#F0FDF4' }]}>
-              <View style={styles.rankingKpiIconWrap}>
-                <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.star }} style={{ width: 20, height: 20 }} contentFit="contain" />
+            {/* Zero-Spend Days Banner */}
+            <TouchableOpacity
+              style={[
+                styles.rankingZeroBanner,
+                rankingFilter === 'zero' && { borderColor: '#6366F1', borderWidth: 2, backgroundColor: '#EEF2FF' },
+              ]}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setRankingFilter(rankingFilter === 'zero' ? 'all' : 'zero');
+              }}
+              activeOpacity={0.75}
+            >
+              <View style={styles.rankingZeroLeft}>
+                <View style={styles.rankingZeroIconWrap}>
+                  <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.shield }} style={{ width: 18, height: 18 }} contentFit="contain" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.rankingZeroTitle} numberOfLines={1}>{t('zero_spend_days')}</Text>
+                  <Text style={styles.rankingZeroSub} numberOfLines={1}>{t('frugal_days')}</Text>
+                </View>
               </View>
-              <Text style={styles.rankingKpiLabel} numberOfLines={1} ellipsizeMode="tail">{t('lowest_spend')}</Text>
-              <Text style={[styles.rankingKpiValue, { color: '#15803D' }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
-                {lowestNonZeroDay ? `${currency}${lowestNonZeroDay.expense.toLocaleString('en-IN')}` : '—'}
-              </Text>
-              <Text style={styles.rankingKpiSub} numberOfLines={1} ellipsizeMode="tail">
-                {lowestNonZeroDay ? lowestNonZeroDay.fullDateLabel : t('no_spends')}
-              </Text>
-            </View>
-
-            <View style={[styles.rankingKpiCard, { borderColor: '#E0E7FF', backgroundColor: '#EEF2FF' }]}>
-              <View style={styles.rankingKpiIconWrap}>
-                <ExpoImage cachePolicy="memory-disk" source={{ uri: ICONS_3D.shield }} style={{ width: 20, height: 20 }} contentFit="contain" />
+              <View style={styles.rankingZeroBadge}>
+                <Text style={styles.rankingZeroBadgeText}>
+                  {zeroSpendDaysList.length} {zeroSpendDaysList.length === 1 ? 'Day' : 'Days'}
+                </Text>
               </View>
-              <Text style={styles.rankingKpiLabel} numberOfLines={1} ellipsizeMode="tail">{t('zero_spend')}</Text>
-              <Text style={[styles.rankingKpiValue, { color: '#4338CA' }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>
-                {zeroSpendDaysList.length} {zeroSpendDaysList.length === 1 ? 'Day' : 'Days'}
-              </Text>
-              <Text style={styles.rankingKpiSub} numberOfLines={1} ellipsizeMode="tail">{t('frugal_days')}</Text>
-            </View>
+            </TouchableOpacity>
           </View>
 
           {/* Sub-Filters: [All] [Highest] [Lowest] [Zero Spends] */}
@@ -1356,6 +1407,7 @@ const styles = StyleSheet.create({
   },
   summaryPillBox: {
     flex: 1,
+    flexBasis: 0,
     minWidth: 0,
     backgroundColor: '#FFFFFF',
     borderRadius: 18,
@@ -1403,46 +1455,105 @@ const styles = StyleSheet.create({
   rankingContainer: {
     paddingTop: 2,
   },
+  rankingKpiGrid: {
+    marginBottom: 14,
+    gap: 10,
+  },
   rankingKpiRow: {
     flexDirection: 'row',
-    gap: 8,
-    marginBottom: 14,
-    alignItems: 'stretch',
+    gap: 10,
     width: '100%',
   },
   rankingKpiCard: {
     flex: 1,
+    flexBasis: 0,
     minWidth: 0,
     borderRadius: 16,
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-    borderWidth: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderWidth: 1.5,
     borderColor: '#E2E8F0',
     backgroundColor: '#FFFFFF',
     overflow: 'hidden',
     justifyContent: 'center',
   },
+  rankingKpiHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+  },
   rankingKpiIconWrap: {
-    marginBottom: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   rankingKpiLabel: {
-    fontSize: 8.5,
+    fontSize: 10,
     fontWeight: '800',
-    color: '#64748B',
     textTransform: 'uppercase',
-    letterSpacing: 0.3,
+    letterSpacing: 0.4,
   },
   rankingKpiValue: {
-    fontSize: 13.5,
+    fontSize: 16,
     fontWeight: '900',
-    marginTop: 2,
     color: '#0F172A',
+    marginBottom: 2,
   },
   rankingKpiSub: {
-    fontSize: 9,
+    fontSize: 10,
     color: '#64748B',
-    marginTop: 2,
     fontWeight: '600',
+  },
+  // Full-width Zero Spend Banner
+  rankingZeroBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    paddingVertical: 11,
+    paddingHorizontal: 13,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+  },
+  rankingZeroLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+    minWidth: 0,
+  },
+  rankingZeroIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: '#EEF2FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  rankingZeroTitle: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: '#1E293B',
+  },
+  rankingZeroSub: {
+    fontSize: 10.5,
+    color: '#64748B',
+    fontWeight: '500',
+    marginTop: 1,
+  },
+  rankingZeroBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    backgroundColor: '#EEF2FF',
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+  },
+  rankingZeroBadgeText: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: '#4338CA',
   },
 
   // FILTER PILLS
