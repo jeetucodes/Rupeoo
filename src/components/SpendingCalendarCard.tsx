@@ -12,6 +12,7 @@ import * as Haptics from 'expo-haptics';
 import CategoryIcon from './CategoryIcon';
 import PaymentModeIcon from './PaymentModeIcon';
 import { useTranslation } from '@/lib/i18n';
+import { formatPaymentModeDisplay } from '@/lib/dataMinimization';
 
 // 3D Sugary Fluent Emojis for Calendar Elements
 const ICONS_3D = {
@@ -33,8 +34,13 @@ export interface CalendarTxItem {
   category: string;
   title?: string;
   merchant_name?: string;
+  payee?: string;
+  merchant?: string;
   description?: string;
+  note?: string;
+  userNote?: string;
   payment_mode?: string;
+  paymentMode?: string;
   time?: string;
 }
 
@@ -384,44 +390,53 @@ export default function SpendingCalendarCard({
       {/* 4. CALENDAR VIEW */}
       {viewMode === 'calendar' ? (
         <View style={styles.calendarContainer}>
-          {/* Weekday Header: M  T  W  T  F  S  S */}
-          <View style={styles.weekDaysRow}>
-            {weekDays.map((w, idx) => (
-              <Text key={`${w}-${idx}`} style={styles.weekDayHeader}>
-                {w}
-              </Text>
-            ))}
-          </View>
+          {/* Framed Calendar Box with Crisp Border */}
+          <View style={styles.calendarGridBox}>
+            {/* Weekday Header: M  T  W  T  F  S  S */}
+            <View style={styles.weekDaysRow}>
+              {weekDays.map((w, idx) => (
+                <Text
+                  key={`${w}-${idx}`}
+                  style={[
+                    styles.weekDayHeader,
+                    (idx === 5 || idx === 6) && styles.weekDayHeaderWeekend,
+                  ]}
+                >
+                  {w}
+                </Text>
+              ))}
+            </View>
 
-          {/* Days Grid */}
-          <View style={styles.daysGridWrap}>
-            {/* Leading empty slots */}
-            {Array.from({ length: leadingEmptyDays }).map((_, i) => (
-              <View key={`empty-${i}`} style={styles.emptyDayCell} />
-            ))}
+            {/* Days Grid */}
+            <View style={styles.daysGridWrap}>
+              {/* Leading empty slots */}
+              {Array.from({ length: leadingEmptyDays }).map((_, i) => (
+                <View key={`empty-${i}`} style={styles.emptyDayCell} />
+              ))}
 
-            {/* Days of Month */}
-            {daysGrid.map(d => {
-              const isSelected = activeDay?.dateStr === d.dateStr;
-              const hasSpend = d.expense > 0;
-              const isPeak = highestSpendDay && d.dateStr === highestSpendDay.dateStr && hasSpend;
+              {/* Days of Month */}
+              {daysGrid.map(d => {
+                const isSelected = activeDay?.dateStr === d.dateStr;
+                const hasSpend = d.expense > 0;
+                const isPeak = highestSpendDay && d.dateStr === highestSpendDay.dateStr && hasSpend;
 
-              return (
-                <View key={d.dateStr} style={styles.dayCellContainer}>
-                  <TouchableOpacity
-                    style={[
-                      styles.dayCellPill,
-                      isSelected && styles.dayCellPillSelected,
-                      d.isToday && !isSelected && styles.dayCellPillToday,
-                    ]}
-                    onPress={() => {
-                      if (!d.isFuture) {
-                        handleSelectDay(d.dateStr);
-                      }
-                    }}
-                    activeOpacity={d.isFuture ? 1 : 0.7}
-                    disabled={d.isFuture}
-                  >
+                return (
+                  <View key={d.dateStr} style={styles.dayCellContainer}>
+                    <TouchableOpacity
+                      style={[
+                        styles.dayCellPill,
+                        d.isFuture && styles.dayCellPillFuture,
+                        isSelected && styles.dayCellPillSelected,
+                        d.isToday && !isSelected && styles.dayCellPillToday,
+                      ]}
+                      onPress={() => {
+                        if (!d.isFuture) {
+                          handleSelectDay(d.dateStr);
+                        }
+                      }}
+                      activeOpacity={d.isFuture ? 1 : 0.7}
+                      disabled={d.isFuture}
+                    >
                     <Text
                       style={[
                         styles.dayCellNumber,
@@ -448,8 +463,9 @@ export default function SpendingCalendarCard({
               );
             })}
           </View>
+        </View>
 
-          {/* 5. INTERACTIVE DAY DETAIL INSPECTOR */}
+        {/* 5. INTERACTIVE DAY DETAIL INSPECTOR */}
           {activeDay && (
             <View style={styles.dayInspectorCard}>
               <View style={styles.dayInspectorHeader}>
@@ -492,12 +508,12 @@ export default function SpendingCalendarCard({
                         </View>
                         <View style={{ flex: 1, marginRight: 8 }}>
                           <Text style={styles.dayTxnTitle} numberOfLines={1}>
-                            {tx.title || tx.merchant_name || tx.category}
+                            {tx.title || tx.merchant_name || tx.payee || tx.merchant || tx.category || 'Transaction'}
                           </Text>
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
-                            <PaymentModeIcon mode={tx.payment_mode || 'UPI'} size={11} />
+                            <PaymentModeIcon mode={tx.payment_mode || tx.paymentMode || 'unknown'} size={11} />
                             <Text style={styles.dayTxnMeta}>
-                              {tx.category} • {tx.payment_mode || 'UPI'}
+                              {tx.category} • {formatPaymentModeDisplay(tx.payment_mode || tx.paymentMode)}
                             </Text>
                           </View>
                         </View>
@@ -881,7 +897,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 24,
     padding: 16,
-    borderWidth: 0,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
     marginBottom: 14,
     shadowColor: '#0F172A',
     shadowOpacity: 0.04,
@@ -899,11 +916,12 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   headerIconBadge: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: '#F1F5F9',
-    borderWidth: 0,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -924,7 +942,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#F1F5F9',
     borderRadius: 14,
     padding: 3,
-    borderWidth: 0,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
     alignSelf: 'flex-start',
   },
   viewToggleBtn: {
@@ -963,13 +982,19 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   monthNavArrow: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: '#F1F5F9',
-    borderWidth: 0,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.04,
+    shadowOffset: { width: 0, height: 1 },
+    shadowRadius: 2,
+    elevation: 1,
   },
   monthTitleWrap: {
     flexDirection: 'row',
@@ -983,11 +1008,14 @@ const styles = StyleSheet.create({
     letterSpacing: -0.2,
   },
   todaySmallPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#EFF6FF',
     paddingHorizontal: 9,
     paddingVertical: 4,
     borderRadius: 12,
-    borderWidth: 0,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
   },
   todaySmallPillText: {
     fontSize: 9.5,
@@ -1004,7 +1032,8 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 14,
     marginBottom: 14,
-    borderWidth: 0,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   monthSnapshotLeft: {
     flex: 1.1,
@@ -1048,8 +1077,9 @@ const styles = StyleSheet.create({
     width: 22,
     height: 22,
     borderRadius: 11,
-    borderWidth: 0,
-    backgroundColor: '#E2E8F0',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1061,19 +1091,40 @@ const styles = StyleSheet.create({
 
   // CALENDAR
   calendarContainer: {},
+  calendarGridBox: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 12,
+    marginBottom: 12,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.02,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
+    elevation: 1,
+  },
   weekDaysRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    paddingVertical: 8,
     paddingHorizontal: 4,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   weekDayHeader: {
     flex: 1,
     textAlign: 'center',
-    fontSize: 11,
+    fontSize: 11.5,
     fontWeight: '700',
-    color: '#94A3B8',
+    color: '#64748B',
     letterSpacing: 0.3,
+  },
+  weekDayHeaderWeekend: {
+    color: '#94A3B8',
   },
   daysGridWrap: {
     flexDirection: 'row',
@@ -1088,28 +1139,42 @@ const styles = StyleSheet.create({
     height: 44,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 2,
+    marginBottom: 4,
   },
   dayCellPill: {
-    width: 36,
-    height: 38,
-    borderRadius: 14,
+    width: 38,
+    height: 40,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 0,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.02,
+    shadowOffset: { width: 0, height: 1 },
+    shadowRadius: 2,
+    elevation: 1,
   },
   dayCellPillSelected: {
     backgroundColor: '#0F172A',
+    borderColor: '#0F172A',
     shadowColor: '#0F172A',
-    shadowOpacity: 0.18,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 5,
-    elevation: 2,
+    shadowOpacity: 0.22,
+    shadowOffset: { width: 0, height: 3 },
+    shadowRadius: 6,
+    elevation: 3,
   },
   dayCellPillToday: {
     borderWidth: 1.5,
-    borderColor: '#3B82F6',
+    borderColor: '#2563EB',
     backgroundColor: '#EFF6FF',
+  },
+  dayCellPillFuture: {
+    backgroundColor: 'transparent',
+    borderColor: 'transparent',
+    shadowOpacity: 0,
+    elevation: 0,
   },
   dayCellNumber: {
     fontSize: 13,
@@ -1129,10 +1194,10 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   dayActivityDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#0F172A',
+    width: 4.5,
+    height: 4.5,
+    borderRadius: 2.25,
+    backgroundColor: '#2563EB',
     marginTop: 2,
   },
   dayActivityDotPeak: {
@@ -1147,12 +1212,18 @@ const styles = StyleSheet.create({
 
   // DAY INSPECTOR CARD
   dayInspectorCard: {
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#FFFFFF',
     borderRadius: 20,
     padding: 14,
-    marginTop: 10,
+    marginTop: 2,
     marginBottom: 12,
-    borderWidth: 0,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.03,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
+    elevation: 1,
   },
   dayInspectorHeader: {
     flexDirection: 'row',
@@ -1167,10 +1238,14 @@ const styles = StyleSheet.create({
     letterSpacing: -0.2,
   },
   inspectorTodayBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#EFF6FF',
     paddingHorizontal: 8,
-    paddingVertical: 2,
+    paddingVertical: 2.5,
     borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
   },
   inspectorTodayBadgeText: {
     fontSize: 9,
@@ -1186,15 +1261,17 @@ const styles = StyleSheet.create({
   },
   dayTotalPill: {
     paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingVertical: 4.5,
     borderRadius: 12,
-    borderWidth: 0,
+    borderWidth: 1,
   },
   dayTotalPillExpense: {
-    backgroundColor: '#FEE2E2',
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
   },
   dayTotalPillZero: {
-    backgroundColor: '#DCFCE7',
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
   },
   dayTotalPillText: {
     fontSize: 12,
@@ -1204,7 +1281,7 @@ const styles = StyleSheet.create({
     color: '#DC2626',
   },
   dayTotalTextZero: {
-    color: '#16A34A',
+    color: '#059669',
   },
   dayTxnList: {
     gap: 8,
@@ -1212,22 +1289,19 @@ const styles = StyleSheet.create({
   dayTxnItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F8FAFC',
     borderRadius: 16,
     padding: 10,
-    borderWidth: 0,
-    shadowColor: '#0F172A',
-    shadowOpacity: 0.02,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 4,
-    elevation: 1,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
   },
   dayTxnIcon: {
-    width: 32,
-    height: 32,
+    width: 34,
+    height: 34,
     borderRadius: 12,
-    borderWidth: 0,
-    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 10,
@@ -1249,15 +1323,16 @@ const styles = StyleSheet.create({
   dayEmptyBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F8FAFC',
     borderRadius: 16,
     padding: 12,
     gap: 10,
-    borderWidth: 0,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   dayEmptyIconWrap: {
-    width: 32,
-    height: 32,
+    width: 34,
+    height: 34,
     borderRadius: 12,
     backgroundColor: '#0F172A',
     alignItems: 'center',
@@ -1281,17 +1356,21 @@ const styles = StyleSheet.create({
   },
   summaryPillBox: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#FFFFFF',
     borderRadius: 18,
     padding: 12,
-    borderWidth: 0,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   summaryPillBoxPeak: {
-    backgroundColor: '#FEF2F2',
-    borderWidth: 0,
+    backgroundColor: '#FFF7F7',
+    borderWidth: 1,
+    borderColor: '#FECACA',
   },
   summaryPillBoxLow: {
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
   },
   summaryPillHeader: {
     flexDirection: 'row',
@@ -1330,8 +1409,9 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: 18,
     padding: 12,
-    borderWidth: 0,
-    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
   },
   rankingKpiIconWrap: {
     marginBottom: 6,
@@ -1366,14 +1446,16 @@ const styles = StyleSheet.create({
   filterPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F1F5F9',
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 14,
-    borderWidth: 0,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   filterPillActive: {
     backgroundColor: '#0F172A',
+    borderColor: '#0F172A',
     shadowColor: '#0F172A',
     shadowOpacity: 0.1,
     shadowOffset: { width: 0, height: 2 },
@@ -1403,8 +1485,9 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
-    borderWidth: 0,
-    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#F8FAFC',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1425,33 +1508,39 @@ const styles = StyleSheet.create({
   rankItemCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#FFFFFF',
     borderRadius: 18,
     padding: 12,
-    borderWidth: 0,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   rankItemCardPeak: {
-    backgroundColor: '#FEF2F2',
-    borderWidth: 0,
+    backgroundColor: '#FFF7F7',
+    borderWidth: 1,
+    borderColor: '#FECACA',
   },
   rankBadge: {
     width: 28,
     height: 28,
     borderRadius: 14,
-    borderWidth: 0,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 10,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: '#F8FAFC',
   },
   rankBadgeGold: {
     backgroundColor: '#FEE2E2',
+    borderColor: '#FECACA',
   },
   rankBadgeLow: {
     backgroundColor: '#DCFCE7',
+    borderColor: '#BBF7D0',
   },
   rankBadgeNormal: {
     backgroundColor: '#F1F5F9',
+    borderColor: '#E2E8F0',
   },
   rankBadgeText: {
     fontSize: 11,
