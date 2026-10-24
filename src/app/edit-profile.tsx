@@ -25,14 +25,17 @@ import { useTranslation } from '@/lib/i18n';
 import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
 import { uploadImage } from '@/lib/upload';
-import { getUserSettings, saveUserSettings } from '@/lib/database';
+import { getUserSettings, saveUserSettings, deleteAllTransactions } from '@/lib/database';
+import { updateWelcomeNotificationContentIfPending } from '@/lib/welcomeNotification';
 import { safeGoBack } from '@/lib/navigation';
 import Toast from 'react-native-toast-message';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { ALL_CURRENCIES } from '@/lib/currencies';
 import { CurrencySelectorModal } from '@/components/CurrencySelectorModal';
 import { VipAvatar } from '@/components/VipAvatar';
+import { ConfirmDialogModal } from '@/components/confirm-dialog-modal';
 import { warn, error } from '@/lib/logger';
+import { LinearGradient } from 'expo-linear-gradient';
 
 // ---------------------------------------------------------------------------
 // FieldRow — Clean modern labeled input field
@@ -110,7 +113,7 @@ const fieldStyles = StyleSheet.create({
 // ---------------------------------------------------------------------------
 export default function EditProfileScreen() {
   const router = useRouter();
-  const { user, settings, isPremium, refreshUser, refreshSettings } = useAuth();
+  const { user, logout, settings, isPremium, refreshUser, refreshSettings } = useAuth();
   const { t } = useTranslation();
 
   const [name, setName] = useState(user?.displayName || '');
@@ -127,6 +130,7 @@ export default function EditProfileScreen() {
   const [uploadingImage, setUploadingImage] = useState(false);
   const [showCurrencyModal, setShowCurrencyModal] = useState(false);
   const [showPhotoModal, setShowPhotoModal] = useState(false);
+  const [logoutModalVisible, setLogoutModalVisible] = useState(false);
 
   const selectedCurrencyObj = ALL_CURRENCIES.find(c => c.symbol === currency || c.code === currency);
 
@@ -321,6 +325,7 @@ export default function EditProfileScreen() {
 
       await refreshUser();
       await refreshSettings();
+      updateWelcomeNotificationContentIfPending(auth.currentUser.uid, currentSettings.language || 'English', name.trim()).catch(() => {});
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       Toast.show({
@@ -371,21 +376,36 @@ export default function EditProfileScreen() {
             style={styles.backBtn}
             onPress={() => safeGoBack(router)}
             activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
           >
             <Ionicons name="arrow-back" size={20} color="#0F172A" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Edit Profile</Text>
+          <View style={styles.topBarCenter}>
+            <Text style={styles.headerTitle}>Profile & Account</Text>
+            <Text style={styles.headerSubTitle}>Manage your identity & preferences</Text>
+          </View>
           <TouchableOpacity
-            style={[styles.saveTopBtn, (loading || uploadingImage) && { opacity: 0.6 }]}
+            style={[styles.saveTopBtnWrapper, (loading || uploadingImage) && { opacity: 0.6 }]}
             onPress={handleSave}
             disabled={loading || uploadingImage}
-            activeOpacity={0.8}
+            activeOpacity={0.85}
           >
-            {loading ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
-            ) : (
-              <Text style={styles.saveTopBtnText}>Save</Text>
-            )}
+            <LinearGradient
+              colors={['#2563EB', '#1D4ED8']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.saveTopBtn}
+            >
+              {loading ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <>
+                  <Ionicons name="checkmark" size={15} color="#FFFFFF" style={{ marginRight: 4 }} />
+                  <Text style={styles.saveTopBtnText}>Save</Text>
+                </>
+              )}
+            </LinearGradient>
           </TouchableOpacity>
         </View>
 
@@ -396,12 +416,17 @@ export default function EditProfileScreen() {
         >
 
           {/* ── Profile Hero / Avatar Section ── */}
-          <View style={styles.heroCard}>
+          <LinearGradient
+            colors={['#EFF6FF', '#F8FAFC', '#FFFFFF']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0, y: 1 }}
+            style={styles.heroCard}
+          >
             <View style={styles.avatarContainer}>
               <TouchableOpacity
                 onPress={() => setShowPhotoModal(true)}
                 disabled={uploadingImage}
-                activeOpacity={0.85}
+                activeOpacity={0.88}
                 style={styles.avatarTouchTarget}
               >
                 <View style={[styles.avatarRing, isPremium && styles.avatarRingVip]}>
@@ -410,7 +435,7 @@ export default function EditProfileScreen() {
                     name={name}
                     email={user?.email}
                     isPremium={isPremium}
-                    size={104}
+                    size={96}
                     showBadge={false}
                   />
                   {uploadingImage && (
@@ -420,31 +445,64 @@ export default function EditProfileScreen() {
                   )}
                 </View>
 
-                {/* Floating Edit Camera Badge */}
-                <View style={styles.cameraBadge}>
-                  <Ionicons name="camera" size={15} color="#FFFFFF" />
-                </View>
+                {/* Floating Edit Camera Badge with Gradient */}
+                <LinearGradient
+                  colors={['#2563EB', '#1D4ED8']}
+                  style={styles.cameraBadge}
+                >
+                  <Ionicons name="camera" size={14} color="#FFFFFF" />
+                </LinearGradient>
               </TouchableOpacity>
             </View>
 
             <Text style={styles.heroName}>{name || 'Your Name'}</Text>
+
             <View style={styles.emailPill}>
-              <Ionicons name="shield-checkmark" size={12} color="#10B981" />
+              <Ionicons name="shield-checkmark" size={12} color="#059669" />
               <Text style={styles.heroEmail}>{user?.email || 'No email attached'}</Text>
             </View>
 
             {isPremium ? (
-              <View style={styles.vipTag}>
-                <Ionicons name="star" size={12} color="#D97706" />
-                <Text style={styles.vipTagText}>Rupeo VIP Member</Text>
+              <LinearGradient
+                colors={['#F59E0B', '#D97706']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.vipTagGradient}
+              >
+                <Ionicons name="diamond" size={12} color="#FFFFFF" style={{ marginRight: 4 }} />
+                <Text style={styles.vipTagGradientText}>Rupeo PRO Member</Text>
+              </LinearGradient>
+            ) : (
+              <View style={styles.freePlanTag}>
+                <Ionicons name="person-outline" size={11} color="#64748B" style={{ marginRight: 4 }} />
+                <Text style={styles.freePlanTagText}>Free Account</Text>
               </View>
-            ) : null}
-          </View>
+            )}
+
+            <TouchableOpacity
+              style={styles.changePhotoPrompt}
+              onPress={() => setShowPhotoModal(true)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="camera-outline" size={13} color="#2563EB" style={{ marginRight: 4 }} />
+              <Text style={styles.changePhotoPromptText}>Tap avatar to change photo</Text>
+            </TouchableOpacity>
+          </LinearGradient>
 
           {/* ── Personal Information ── */}
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Personal Information</Text>
-            <Text style={styles.cardSubtitle}>Your personal contact details and identity</Text>
+            <View style={styles.cardHeaderRow}>
+              <View style={[styles.cardHeaderIconWrap, { backgroundColor: '#EFF6FF' }]}>
+                <Ionicons name="person" size={16} color="#2563EB" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.cardTitle}>Personal Details</Text>
+                <Text style={styles.cardSubtitle}>Your identity and contact info</Text>
+              </View>
+              <View style={[styles.cardBadge, { backgroundColor: '#EFF6FF' }]}>
+                <Text style={[styles.cardBadgeText, { color: '#2563EB' }]}>IDENTITY</Text>
+              </View>
+            </View>
 
             <FieldRow icon="person-outline" iconColor="#3B82F6" label="Full Name">
               <View style={styles.inputWrap}>
@@ -475,8 +533,8 @@ export default function EditProfileScreen() {
                   {user?.email || '—'}
                 </Text>
                 <View style={styles.lockedPill}>
-                  <Ionicons name="lock-closed" size={11} color="#64748B" />
-                  <Text style={styles.lockedPillText}>Locked</Text>
+                  <Ionicons name="lock-closed" size={11} color="#059669" />
+                  <Text style={styles.lockedPillText}>Verified</Text>
                 </View>
               </View>
             </FieldRow>
@@ -507,8 +565,18 @@ export default function EditProfileScreen() {
 
           {/* ── Financial Preferences ── */}
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Financial Preferences</Text>
-            <Text style={styles.cardSubtitle}>Customize currency and monthly expense targets</Text>
+            <View style={styles.cardHeaderRow}>
+              <View style={[styles.cardHeaderIconWrap, { backgroundColor: '#ECFDF5' }]}>
+                <Ionicons name="wallet" size={16} color="#059669" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.cardTitle}>Financial Setup</Text>
+                <Text style={styles.cardSubtitle}>Base currency and monthly expense target</Text>
+              </View>
+              <View style={[styles.cardBadge, { backgroundColor: '#ECFDF5' }]}>
+                <Text style={[styles.cardBadgeText, { color: '#059669' }]}>TARGETS</Text>
+              </View>
+            </View>
 
             <FieldRow icon="cash-outline" iconColor="#10B981" label="Base Currency">
               <TouchableOpacity
@@ -534,7 +602,7 @@ export default function EditProfileScreen() {
             </FieldRow>
 
             <FieldRow
-              icon="wallet-outline"
+              icon="trending-up-outline"
               iconColor="#3B82F6"
               label={`Monthly Budget Target (${currency})`}
               helper="Personal limit"
@@ -617,8 +685,18 @@ export default function EditProfileScreen() {
 
           {/* ── Account Information & Security ── */}
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Account Security</Text>
-            <Text style={styles.cardSubtitle}>Linked credentials and session details</Text>
+            <View style={styles.cardHeaderRow}>
+              <View style={[styles.cardHeaderIconWrap, { backgroundColor: '#F5F3FF' }]}>
+                <Ionicons name="shield-checkmark" size={16} color="#7C3AED" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.cardTitle}>Account & Security</Text>
+                <Text style={styles.cardSubtitle}>Linked credentials and session details</Text>
+              </View>
+              <View style={[styles.cardBadge, { backgroundColor: '#F0FDFA' }]}>
+                <Text style={[styles.cardBadgeText, { color: '#0D9488' }]}>SAFE</Text>
+              </View>
+            </View>
 
             {/* Account ID / UID */}
             <View style={styles.infoRow}>
@@ -688,19 +766,36 @@ export default function EditProfileScreen() {
 
           {/* ── Prominent Bottom Save Button ── */}
           <TouchableOpacity
-            style={[styles.primarySaveBtn, (loading || uploadingImage) && { opacity: 0.6 }]}
+            style={[styles.primarySaveBtnWrapper, (loading || uploadingImage) && { opacity: 0.6 }]}
             onPress={handleSave}
             disabled={loading || uploadingImage}
-            activeOpacity={0.85}
+            activeOpacity={0.88}
           >
-            {loading ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
-            ) : (
-              <>
-                <Ionicons name="checkmark-done" size={20} color="#FFFFFF" style={{ marginRight: 8 }} />
-                <Text style={styles.primarySaveBtnText}>Save Profile Changes</Text>
-              </>
-            )}
+            <LinearGradient
+              colors={['#2563EB', '#1D4ED8']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.primarySaveBtn}
+            >
+              {loading ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <>
+                  <Ionicons name="checkmark-circle" size={20} color="#FFFFFF" style={{ marginRight: 8 }} />
+                  <Text style={styles.primarySaveBtnText}>Save Profile Changes</Text>
+                </>
+              )}
+            </LinearGradient>
+          </TouchableOpacity>
+
+          {/* ── Log Out Button ── */}
+          <TouchableOpacity
+            style={styles.logoutBtn}
+            onPress={() => setLogoutModalVisible(true)}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="log-out-outline" size={18} color="#DC2626" style={{ marginRight: 8 }} />
+            <Text style={styles.logoutBtnText}>Log Out</Text>
           </TouchableOpacity>
 
           <View style={{ height: 40 }} />
@@ -794,6 +889,29 @@ export default function EditProfileScreen() {
         selectedCurrency={currency}
         onSelect={setCurrency}
       />
+
+      <ConfirmDialogModal
+        visible={logoutModalVisible}
+        title="Log Out"
+        message="Log out? Data on this phone stays unless you choose Delete local data."
+        confirmText="Keep data & Log out"
+        secondaryText="Delete local data & Log out"
+        cancelText="Cancel"
+        type="warning"
+        icon="log-out-outline"
+        onConfirm={() => {
+          setLogoutModalVisible(false);
+          logout();
+        }}
+        onSecondary={async () => {
+          setLogoutModalVisible(false);
+          if (user?.uid) {
+            await deleteAllTransactions(user.uid);
+          }
+          logout();
+        }}
+        onCancel={() => setLogoutModalVisible(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -809,7 +927,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 18,
+    paddingHorizontal: 16,
     paddingVertical: 12,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
@@ -825,19 +943,40 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
+  topBarCenter: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
+    paddingHorizontal: 8,
+  },
   headerTitle: {
-    fontSize: 17,
+    fontSize: 16.5,
     fontWeight: '800',
     color: '#0F172A',
     letterSpacing: -0.3,
   },
+  headerSubTitle: {
+    fontSize: 11,
+    color: '#64748B',
+    fontWeight: '500',
+    marginTop: 1,
+  },
+  saveTopBtnWrapper: {
+    borderRadius: 10,
+    overflow: 'hidden',
+    shadowColor: '#2563EB',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 4,
+    elevation: 2,
+  },
   saveTopBtn: {
-    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
     paddingVertical: 8,
-    backgroundColor: '#0F172A',
     borderRadius: 10,
     minWidth: 64,
-    alignItems: 'center',
     justifyContent: 'center',
   },
   saveTopBtnText: {
@@ -858,7 +997,6 @@ const styles = StyleSheet.create({
 
   // Hero Avatar Card
   heroCard: {
-    backgroundColor: '#FFFFFF',
     borderRadius: 24,
     paddingVertical: 24,
     paddingHorizontal: 20,
@@ -912,7 +1050,6 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#0F172A',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2.5,
@@ -940,6 +1077,22 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#0F172A',
   },
+  changePhotoPrompt: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 14,
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
+    marginTop: 2,
+  },
+  changePhotoPromptText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#2563EB',
+  },
   heroName: {
     fontSize: 20,
     fontWeight: '800',
@@ -951,15 +1104,52 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingVertical: 4.5,
     borderRadius: 12,
-    marginBottom: 6,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   heroEmail: {
     fontSize: 12,
     fontWeight: '600',
+    color: '#64748B',
+  },
+  vipTagGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 12,
+    marginBottom: 10,
+    shadowColor: '#D97706',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  vipTagGradientText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.4,
+  },
+  freePlanTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
+    backgroundColor: '#F1F5F9',
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  freePlanTagText: {
+    fontSize: 11,
+    fontWeight: '700',
     color: '#64748B',
   },
   vipTag: {
@@ -991,6 +1181,29 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     shadowRadius: 8,
     elevation: 1,
+  },
+  cardHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  cardHeaderIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  cardBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+    borderRadius: 6,
+  },
+  cardBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
   cardTitle: {
     fontSize: 15,
@@ -1275,24 +1488,43 @@ const styles = StyleSheet.create({
   },
 
   // Primary Bottom Save Button
+  primarySaveBtnWrapper: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: '#2563EB',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
+  },
   primarySaveBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#0F172A',
     borderRadius: 16,
     paddingVertical: 16,
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
   },
   primarySaveBtnText: {
     fontSize: 15,
     fontWeight: '800',
     color: '#FFFFFF',
     letterSpacing: 0.2,
+  },
+  logoutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FEE2E2',
+    borderRadius: 16,
+    paddingVertical: 15,
+    marginTop: 12,
+  },
+  logoutBtnText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#DC2626',
   },
 
   // Photo Action Modal / Bottom Sheet
