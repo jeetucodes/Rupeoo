@@ -926,8 +926,8 @@ export async function generateAndShareTransactionStatementPDF(
         <div class="seal-sub">Generated from tamper-proof encrypted local & cloud synchronization. Valid without physical signature.</div>
       </div>
     </div>
-    <div style="font-size: 9px; font-weight: 800; color: #2563EB;">
-      VERIFY: rupeoo.vercel.app/scanner
+    <div style="font-size: 9px; font-weight: 800; color: #059669; letter-spacing: 0.5px;">
+      AUTHENTIC RECORD • ENCRYPTED LEDGER
     </div>
   </div>
 

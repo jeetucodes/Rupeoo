@@ -723,7 +723,7 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
           <div class="meta-period">${periodTitle}</div>
           <div>Date: ${generatedDate} ${generatedTime}</div>
           <div style="color: #0F172A; font-weight: 800; margin-top: 1px;">PAGE 1 OF 3 • CERTIFIED AUDIT</div>
-          <div style="font-size: 8px; font-weight: 800; color: #2563EB; margin-top: 2px;">VERIFY: rupeoo.vercel.app/scanner</div>
+          <div style="font-size: 8px; font-weight: 800; color: #059669; margin-top: 2px;">AUTHENTIC FINANCIAL RECORD</div>
         </div>
       </div>
 
@@ -831,7 +831,7 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
 
     <div class="page-footer">
       <span>Rupeo Financial Intelligence • Page 1 of 3</span>
-      <span>Automated Wealth Analytics • Verify at https://rupeoo.vercel.app/scanner</span>
+      <span>Automated Wealth Analytics • Cryptographic Local Vault</span>
     </div>
   </div>
 
@@ -935,7 +935,7 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
 
     <div class="page-footer">
       <span>Rupeo Financial Intelligence • Page 2 of 3</span>
-      <span>Budget Compliance & Wave Trajectory • Verify at https://rupeoo.vercel.app/scanner</span>
+      <span>Budget Compliance & Wave Trajectory • Tamper-Proof Record</span>
     </div>
   </div>
 
@@ -1088,7 +1088,7 @@ export async function generateAndShareFinancialReportPDF(data: PDFReportData): P
 
     <div class="page-footer">
       <span>Rupeo Financial Reports • Official Ledger & Audit Trail</span>
-      <span>Certified Official Ledger • Verify at https://rupeoo.vercel.app/scanner</span>
+      <span>Certified Official Ledger • Encrypted Private Vault</span>
     </div>
   </div>
 

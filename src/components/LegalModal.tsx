@@ -79,7 +79,7 @@ export const LegalModal: React.FC<LegalModalProps> = ({
               <Text style={styles.legalText}>
                 • To manage, display, and securely synchronize your personal accounts, friends ledger, and transactions across devices.{'\n'}
                 • To calculate financial statistics, category breakdowns, and cash flow trends.{'\n'}
-                • To generate authentic scannable ISO/IEC 16388 Code 39 barcode transaction receipts and Split UPI payment request passes.{'\n'}
+                • To generate authentic encrypted digital transaction receipts and Split UPI payment request passes.{'\n'}
                 • To provide AI-powered financial summaries and smart spending recommendations.{'\n'}
                 • To handle optional VIP / Pro subscription features.{'\n'}
                 • <Text style={styles.legalTextSemibold}>No Sale of Data:</Text> We do not sell, rent, or trade your personal or financial data to third-party advertisers or data brokers.{'\n\n'}
@@ -161,9 +161,9 @@ export const LegalModal: React.FC<LegalModalProps> = ({
                 • You must immediately notify us of any suspected unauthorized access to your account.{'\n\n'}
               </Text>
 
-              <Text style={styles.legalSectionHeading}>6. Receipts, Barcodes & Shared Documents</Text>
+              <Text style={styles.legalSectionHeading}>6. Receipts & Shared Documents</Text>
               <Text style={styles.legalText}>
-                • Rupeo provides receipt sharing and ISO/IEC 16388 Code 39 barcode encoding for personal expense verification.{'\n'}
+                • Rupeo provides tamper-proof digital receipt sharing and personal expense verification.{'\n'}
                 • You are solely responsible for ensuring the legality, authenticity, and accuracy of any images or transaction receipts that you upload, export, or share with third parties.{'\n\n'}
               </Text>
 

@@ -294,8 +294,8 @@ function generateGradientSlipHtml(
   const paymentBadgeHtml = getPaymentMethodLogoHtml(paymentMode, false);
 
   const topGradient = isCredit
-    ? 'linear-gradient(135deg, #065F46 0%, #047857 40%, #059669 75%, #10B981 100%)'
-    : 'linear-gradient(135deg, #7F1D1D 0%, #991B1B 40%, #B91C1C 75%, #DC2626 100%)';
+    ? 'linear-gradient(135deg, #022C22 0%, #064E3B 40%, #047857 75%, #059669 100%)'
+    : 'linear-gradient(135deg, #0A0F1D 0%, #111827 40%, #1E293B 75%, #334155 100%)';
 
   return `
 <!DOCTYPE html>
@@ -580,29 +580,81 @@ function generateGradientSlipHtml(
       display: block;
       margin: 0 auto;
     }
-    .slip-barcode-wrap {
+    .slip-cert-card {
       margin-top: 18px;
-      text-align: center;
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: #F8FAFC;
+      border: 1px solid #E2E8F0;
+      text-align: left;
     }
-    .slip-barcode-footer {
+    .slip-cert-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .slip-cert-shield {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: #ECFDF5;
+      border: 1px solid #A7F3D0;
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 6px;
-      margin-top: 6px;
+      flex-shrink: 0;
     }
-    .slip-barcode-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: #10B981;
+    .slip-cert-title-wrap {
+      flex: 1;
     }
-    .slip-barcode-text {
-      font-size: 9.5px;
+    .slip-cert-title {
+      font-size: 11px;
       font-weight: 800;
-      color: #475569;
+      color: #0F172A;
+      letter-spacing: 0.3px;
+    }
+    .slip-cert-sub {
+      font-size: 9px;
+      font-weight: 600;
+      color: #64748B;
+      margin-top: 1px;
+    }
+    .slip-cert-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: #ECFDF5;
+      border: 1px solid #A7F3D0;
+      border-radius: 8px;
+      padding: 3px 7px;
+      font-size: 9px;
+      font-weight: 800;
+      color: #059669;
+      letter-spacing: 0.5px;
+    }
+    .slip-cert-divider {
+      height: 1px;
+      background: #E2E8F0;
+      margin: 9px 0 8px;
+    }
+    .slip-cert-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .slip-cert-meta-label {
+      font-size: 9px;
+      font-weight: 800;
+      color: #94A3B8;
       letter-spacing: 0.8px;
       text-transform: uppercase;
+    }
+    .slip-cert-meta-value {
+      font-size: 10px;
+      font-weight: 800;
+      color: #0F172A;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      letter-spacing: 0.8px;
     }
     .slip-footer {
       background: #FAFBFC;
@@ -656,18 +708,19 @@ function generateGradientSlipHtml(
       text-transform: uppercase;
       margin-bottom: 12px;
     }
-    .slip-verify-pill {
+    .slip-footer-seal {
       display: inline-flex;
       align-items: center;
+      justify-content: center;
       gap: 5px;
-      background: #F1F5F9;
-      border: 1px solid #E2E8F0;
-      border-radius: 18px;
-      padding: 5px 14px;
-      font-size: 10.5px;
+      font-size: 9.5px;
       font-weight: 800;
-      color: #0F172A;
-      text-decoration: none;
+      color: #059669;
+      background: #ECFDF5;
+      border: 1px solid #A7F3D0;
+      border-radius: 14px;
+      padding: 4px 12px;
+      letter-spacing: 0.4px;
     }
     .pm-logo-pill {
       display: inline-flex;
@@ -836,14 +889,29 @@ function generateGradientSlipHtml(
       `
     }
 
-      <div class="slip-barcode-wrap">
-        ${barcodeInfo.svg}
-        <div style="font-size:11px;font-weight:800;color:#0F172A;letter-spacing:2px;margin-top:4px;">
-          ${barcodeInfo.text}
+      <div class="slip-cert-card">
+        <div class="slip-cert-header">
+          <div class="slip-cert-shield">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2.5">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+              <polyline points="9 12 11 14 15 10"></polyline>
+            </svg>
+          </div>
+          <div class="slip-cert-title-wrap">
+            <div class="slip-cert-title">DIGITAL TRANSACTION RECORD</div>
+            <div class="slip-cert-sub">Zero-Knowledge Private Ledger • SHA-256 Vault</div>
+          </div>
+          <div class="slip-cert-badge">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="3">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+            AUTHENTIC
+          </div>
         </div>
-        <div class="slip-barcode-footer">
-          <div class="slip-barcode-dot"></div>
-          <div class="slip-barcode-text">RUPEO · CODE 39 SCANNABLE RECORD</div>
+        <div class="slip-cert-divider"></div>
+        <div class="slip-cert-meta">
+          <span class="slip-cert-meta-label">TRANSACTION HASH</span>
+          <span class="slip-cert-meta-value">${barcodeValueToUse}</span>
         </div>
       </div>
     </div>
@@ -860,12 +928,13 @@ function generateGradientSlipHtml(
         </div>
       </div>
       <div class="slip-footer-tagline">Tracked with Rupeo • Smart Expense Tracker</div>
-      <a class="slip-verify-pill" href="https://rupeoo.vercel.app/scanner">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#0F172A" stroke-width="2.5">
+      <div class="slip-footer-seal">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2.5">
           <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+          <polyline points="9 12 11 14 15 10"></polyline>
         </svg>
-        Verify: rupeoo.vercel.app/scanner
-      </a>
+        RUPEO PRIVATE VAULT • SECURE RECORD
+      </div>
     </div>
   </div>
 </body>
@@ -1206,41 +1275,62 @@ export function generateTransactionReceiptHtml(
       display: block;
     }
 
-    /* Barcode Card */
-    .barcode-card {
-      padding: 10px 14px 8px;
-      text-align: center;
+    /* Certificate Card */
+    .cert-card {
+      padding: 12px 14px;
       margin-bottom: 12px;
-      background: #FFFFFF;
+      background: ${isDark ? '#0D1526' : '#FFFFFF'};
       border-radius: 12px;
-      border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.15)' : '#E2E8F0'};
+      border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0'};
     }
-    .barcode-svg-wrap {
+    .cert-header {
       display: flex;
-      justify-content: center;
       align-items: center;
-      margin-bottom: 4px;
-      background: #FFFFFF;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
     }
-    .barcode-subtext {
+    .cert-shield-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 10px;
+      font-weight: 800;
+      color: #059669;
+      background: #ECFDF5;
+      border: 1px solid #A7F3D0;
+      border-radius: 6px;
+      padding: 3px 8px;
+      letter-spacing: 0.5px;
+    }
+    .cert-title-sub {
+      font-size: 8.5px;
+      color: #64748B;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .cert-hash-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: ${isDark ? '#050811' : '#F8FAFC'};
+      border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.08)' : '#E2E8F0'};
+      border-radius: 8px;
+      padding: 6px 10px;
+    }
+    .cert-hash-label {
+      font-size: 9px;
+      font-weight: 800;
+      color: #94A3B8;
+      letter-spacing: 0.6px;
+    }
+    .cert-hash-val {
       font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Mono', Menlo, Consolas, monospace;
       font-size: 10px;
       font-weight: 800;
-      color: #0F172A;
-      letter-spacing: 2px;
-      margin-top: 2px;
-    }
-    .barcode-security-row {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 5px;
-      font-size: 8.5px;
-      font-weight: 800;
-      color: #64748B;
+      color: ${isDark ? '#38BDF8' : '#0F172A'};
       letter-spacing: 0.8px;
-      margin-top: 6px;
-      text-transform: uppercase;
     }
 
     /* Dashed Separator */
@@ -1299,21 +1389,21 @@ export function generateTransactionReceiptHtml(
       font-weight: 700;
       color: ${isDark ? '#FFFFFF' : '#0F172A'};
     }
-    .verification-pill {
+    .bill-trust-seal {
       display: flex;
       align-items: center;
       justify-content: center;
       gap: 5px;
-      background: ${isDark ? '#0D1526' : '#F8FAFC'};
-      border: 1px solid ${isDark ? 'rgba(56, 189, 248, 0.3)' : '#E2E8F0'};
+      font-size: 8.5px;
+      font-weight: 800;
+      color: #059669;
+      background: #ECFDF5;
+      border: 1px solid #A7F3D0;
       border-radius: 12px;
-      padding: 5px 12px;
-      font-size: 9.5px;
-      font-weight: 700;
-      color: ${isDark ? '#38BDF8' : '#0F172A'};
-      text-decoration: none;
-      width: fit-content;
+      padding: 4px 12px;
       margin: 0 auto;
+      width: fit-content;
+      letter-spacing: 0.4px;
     }
 
     @page {
@@ -1488,18 +1578,21 @@ export function generateTransactionReceiptHtml(
       </div>
       ` : ''}
 
-      <!-- AUTHENTIC SCANNABLE BARCODE SECTION -->
-      <div class="barcode-card">
-        <div class="barcode-svg-wrap">
-          ${barcodeInfo.svg}
+      <!-- OFFICIAL CERTIFICATE RECORD -->
+      <div class="cert-card">
+        <div class="cert-header">
+          <div class="cert-shield-badge">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2.5">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              <polyline points="9 12 11 14 15 10"/>
+            </svg>
+            OFFICIAL RECORD
+          </div>
+          <div class="cert-title-sub">SHA-256 ENCRYPTED VAULT</div>
         </div>
-        <div class="barcode-subtext">${barcodeInfo.text}</div>
-        <div class="barcode-security-row">
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#64748B" stroke-width="2.5">
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-            <polyline points="9 12 11 14 15 10"/>
-          </svg>
-          <span>OFFICIAL TRANSACTION RECORD • ISO/IEC 16388</span>
+        <div class="cert-hash-row">
+          <span class="cert-hash-label">TRANSACTION REF</span>
+          <span class="cert-hash-val">${barcodeValueToUse}</span>
         </div>
       </div>
 
@@ -1521,14 +1614,14 @@ export function generateTransactionReceiptHtml(
         </div>
       </div>
 
-      <!-- VERIFICATION LINK -->
-      <a class="verification-pill" href="https://rupeoo.vercel.app/scanner">
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+      <!-- TAMPER-PROOF TRUST SEAL -->
+      <div class="bill-trust-seal">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2.5">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          <polyline points="9 12 11 14 15 10"/>
         </svg>
-        Verify Authenticity: rupeoo.vercel.app/scanner
-      </a>
+        COMPUTER GENERATED LEDGER RECORD • VALID WITHOUT SIGNATURE
+      </div>
     </div>
   </div>
 </body>

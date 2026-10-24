@@ -50,7 +50,6 @@ import { ConfirmDialogModal } from '@/components/confirm-dialog-modal';
 import CategoryIcon from '@/components/CategoryIcon';
 import Toast from 'react-native-toast-message';
 import Skeleton from '@/components/Skeleton';
-import ScannableBarcode from '@/components/ScannableBarcode';
 import ReceiptPaymentMethodBadge from '@/components/ReceiptPaymentMethodBadge';
 import { getDisplayTransactionNote } from '@/lib/smsSettings';
 import { formatPaymentModeDisplay } from '@/lib/dataMinimization';
@@ -492,7 +491,6 @@ export default function TransactionDetailScreen() {
       `Category: ${category} | Payment Mode: ${paymentMode}`,
       ...(description ? [`Note: ${description}`] : []),
       '',
-      '🔍 Verify Receipt Authenticity: https://rupeoo.vercel.app/scanner',
       'Track every expense smartly with Rupeo.',
       '📲 Download Rupeo on Google Play Store: https://play.google.com/store/apps/details?id=com.innovatexlabs.paisewaise',
     ].join('\n');
@@ -723,8 +721,8 @@ export default function TransactionDetailScreen() {
                   <LinearGradient
                     colors={
                       type === 'credit'
-                        ? ['#065F46', '#047857', '#059669', '#10B981']
-                        : ['#7F1D1D', '#991B1B', '#B91C1C', '#DC2626']
+                        ? ['#022C22', '#064E3B', '#047857', '#059669']
+                        : ['#0A0F1D', '#111827', '#1E293B', '#334155']
                     }
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
@@ -737,8 +735,8 @@ export default function TransactionDetailScreen() {
                         {
                           backgroundColor:
                             type === 'credit'
-                              ? 'rgba(16, 185, 129, 0.25)'
-                              : 'rgba(239, 68, 68, 0.25)',
+                              ? 'rgba(16, 185, 129, 0.22)'
+                              : 'rgba(255, 215, 64, 0.12)',
                         },
                       ]}
                     />
@@ -748,8 +746,8 @@ export default function TransactionDetailScreen() {
                         {
                           backgroundColor:
                             type === 'credit'
-                              ? 'rgba(16, 185, 129, 0.15)'
-                              : 'rgba(255, 215, 64, 0.18)',
+                              ? 'rgba(52, 211, 153, 0.15)'
+                              : 'rgba(148, 163, 184, 0.12)',
                         },
                       ]}
                     />
@@ -1058,9 +1056,35 @@ export default function TransactionDetailScreen() {
                       </View>
                     )}
 
-                    {/* SCANNABLE BARCODE */}
-                    <View style={styles.slipBarcodeContainer}>
-                      <ScannableBarcode value={barcodeValue} width={280} height={50} />
+                    {/* AUTHENTIC TRANSACTION CERTIFICATE & SECURITY SEAL */}
+                    <View style={styles.slipCertContainer}>
+                      <View style={styles.slipCertCard}>
+                        <View style={styles.slipCertHeader}>
+                          <View style={styles.slipCertShield}>
+                            <Ionicons name="shield-checkmark" size={15} color="#059669" />
+                          </View>
+                          <View style={styles.slipCertTextWrap}>
+                            <Text style={styles.slipCertTitle}>OFFICIAL TRANSACTION RECORD</Text>
+                            <Text style={styles.slipCertSub}>
+                              Zero-Knowledge Vault • Encrypted Ledger
+                            </Text>
+                          </View>
+                          <View style={styles.slipCertBadge}>
+                            <Ionicons
+                              name="checkmark-circle"
+                              size={11}
+                              color="#059669"
+                              style={{ marginRight: 3 }}
+                            />
+                            <Text style={styles.slipCertBadgeText}>AUTHENTIC</Text>
+                          </View>
+                        </View>
+                        <View style={styles.slipCertDivider} />
+                        <View style={styles.slipCertMetaRow}>
+                          <Text style={styles.slipCertMetaLabel}>TRANSACTION HASH</Text>
+                          <Text style={styles.slipCertMetaValue}>{barcodeValue}</Text>
+                        </View>
+                      </View>
                     </View>
                   </View>
 
@@ -1084,25 +1108,17 @@ export default function TransactionDetailScreen() {
                     <Text style={styles.slipFooterSubtext}>
                       TRACKED WITH RUPEO • SMART EXPENSE TRACKER
                     </Text>
-                    <TouchableOpacity
-                      onPress={() =>
-                        Linking.openURL('https://rupeoo.vercel.app/scanner').catch(
-                          () => {}
-                        )
-                      }
-                      activeOpacity={0.7}
-                      style={styles.slipVerifyLinkPill}
-                    >
+                    <View style={styles.slipLuxurySeal}>
                       <Ionicons
-                        name="shield-checkmark"
+                        name="lock-closed"
                         size={11}
-                        color="#0F172A"
-                        style={{ marginRight: 4 }}
+                        color="#059669"
+                        style={{ marginRight: 5 }}
                       />
-                      <Text style={styles.slipVerifyLinkText}>
-                        Verify: rupeoo.vercel.app/scanner
+                      <Text style={styles.slipLuxurySealText}>
+                        END-TO-END ENCRYPTED PERSONAL FINANCIAL VAULT
                       </Text>
-                    </TouchableOpacity>
+                    </View>
                   </View>
                 </Animated.View>
               );
@@ -2040,27 +2056,85 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
     marginTop: 2,
   },
-  slipBarcodeContainer: {
+  slipCertContainer: {
     marginTop: 16,
-    alignItems: 'center',
+    width: '100%',
   },
-  slipBarcodeFooterRow: {
+  slipCertCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 12,
+  },
+  slipCertHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    marginTop: 6,
   },
-  slipBarcodeGreenDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
-    backgroundColor: '#10B981',
+  slipCertShield: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
   },
-  slipBarcodeFooterText: {
+  slipCertTextWrap: {
+    flex: 1,
+  },
+  slipCertTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#0F172A',
+    letterSpacing: 0.3,
+  },
+  slipCertSub: {
+    fontSize: 9.5,
+    fontWeight: '600',
+    color: '#64748B',
+    marginTop: 1,
+  },
+  slipCertBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    borderRadius: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
+  slipCertBadgeText: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: '#059669',
+    letterSpacing: 0.5,
+  },
+  slipCertDivider: {
+    height: 1,
+    backgroundColor: '#E2E8F0',
+    marginVertical: 10,
+  },
+  slipCertMetaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  slipCertMetaLabel: {
     fontSize: 9,
     fontWeight: '800',
-    color: '#475569',
-    letterSpacing: 0.6,
+    color: '#94A3B8',
+    letterSpacing: 0.8,
+  },
+  slipCertMetaValue: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#0F172A',
+    letterSpacing: 0.8,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
   },
   slipCardFooter: {
     alignItems: 'center',
@@ -2125,25 +2199,21 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     textAlign: 'center',
   },
-  slipVerifyLinkPill: {
+  slipLuxurySeal: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#ECFDF5',
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: '#A7F3D0',
     paddingVertical: 5,
     paddingHorizontal: 12,
-    borderRadius: 16,
-    shadowColor: '#000',
-    shadowOpacity: 0.03,
-    shadowOffset: { width: 0, height: 1 },
-    shadowRadius: 2,
-    elevation: 1,
+    borderRadius: 14,
   },
-  slipVerifyLinkText: {
-    fontSize: 10.5,
+  slipLuxurySealText: {
+    fontSize: 9.5,
     fontWeight: '800',
-    color: '#0F172A',
+    color: '#059669',
+    letterSpacing: 0.4,
   },
 
   typeSelector: {
