@@ -1,9 +1,0 @@
-{
-  "gradle.autoDetect": "off",
-  "gradle.nestedProjects": false,
-  "java.import.gradle.enabled": false,
-  "java.project.resourceFilters": [
-    "node_modules",
-    ".git"
-  ]
-}
