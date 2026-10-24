@@ -51,6 +51,7 @@ import { safeGoBack } from '@/lib/navigation';
 import { formatTime12Hour, getLocalDateString, getRelativeDateString, parseLocalDate } from '@/lib/dateUtils';
 import { triggerTransactionVibration, triggerCalculatorKeyVibration } from '@/lib/sound';
 import { warn, error } from '@/lib/logger';
+import { SelfHealingWatchdog } from '@/lib/selfHealing/SelfHealingWatchdog';
 
 const QUICK_AMOUNTS = [50, 100, 200, 500, 1000, 2000];
 
@@ -188,6 +189,12 @@ export default function AddExpenseScreen() {
       setVoiceModalVisible(true);
     }
   }, [params?.type, params?.voice]);
+
+  // Guard: Protect form input & active typing from watchdog interruptions
+  useEffect(() => {
+    const endForm = SelfHealingWatchdog.beginFormInteraction('add_transaction_screen');
+    return () => endForm();
+  }, []);
 
   const [amount, setAmount] = useState('');
   const [merchant, setMerchant] = useState('');

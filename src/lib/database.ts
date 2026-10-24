@@ -50,6 +50,7 @@ import {
   undoBillPaymentInSQLite,
 } from '@/features/autoAdd/sqliteStorage';
 import { warn, error } from '@/lib/logger';
+import { SelfHealingWatchdog } from './selfHealing/SelfHealingWatchdog';
 
 export {
   getOfflineTransactions,
@@ -287,7 +288,8 @@ export function normalizeDate(dateStr: string): string {
 
 export async function insertTransaction(userId: string, tx: any, statementId?: number) {
   if (!userId) return null;
-
+  const endWrite = SelfHealingWatchdog.beginDatabaseWrite();
+  try {
   // 1. Generate client-side Firestore Document ID (permanent ID from creation or deterministic ID)
   const txsRef = collection(db, `users/${userId}/transactions`);
   const newDocRef = doc(txsRef);
@@ -421,11 +423,16 @@ export async function insertTransaction(userId: string, tx: any, statementId?: n
     }).catch(() => { });
   }
 
-  return txId;
+    return txId;
+  } finally {
+    endWrite();
+  }
 }
 
 export async function updateTransaction(userId: string, txId: string, txData: any) {
   if (!userId || !txId) return;
+  const endWrite = SelfHealingWatchdog.beginDatabaseWrite();
+  try {
 
   const dataToUpdate: Record<string, any> = {
     is_manually_edited: txData.is_manually_edited !== undefined ? txData.is_manually_edited : 1,
@@ -504,6 +511,9 @@ export async function updateTransaction(userId: string, txId: string, txData: an
   import('@/features/notifications').then(({ scheduleNext48h }) => {
     scheduleNext48h(userId).catch(() => {});
   }).catch(() => {});
+  } finally {
+    endWrite();
+  }
 }
 
 export async function getTransactionById(userId: string, txId: string): Promise<any | null> {
@@ -541,6 +551,8 @@ export async function insertTransactionsBatch(
   statementId?: number
 ): Promise<{ imported: number; skipped: number }> {
   if (!userId) return { imported: 0, skipped: 0 };
+  const endWrite = SelfHealingWatchdog.beginDatabaseWrite();
+  try {
   let imported = 0;
   let skipped = 0;
 
@@ -648,6 +660,9 @@ export async function insertTransactionsBatch(
   }
 
   return { imported, skipped };
+  } finally {
+    endWrite();
+  }
 }
 
 export function parseTimeToMinutes(timeStr?: string | null): number | null {
@@ -788,7 +803,8 @@ export async function getTransactionsByMonth(userId: string, monthYear: string):
 
 export async function deleteTransaction(userId: string, txId: string) {
   if (!userId || !txId) return;
-
+  const endWrite = SelfHealingWatchdog.beginDatabaseWrite();
+  try {
   // 1. Gather all existing transactions from memory cache and offline storage
   const cachedList = memoryCache.transactions.get(userId)?.data || [];
   const localTxs = await getOfflineTransactions(userId);
@@ -832,6 +848,9 @@ export async function deleteTransaction(userId: string, txId: string) {
   import('@/features/notifications').then(({ scheduleNext48h }) => {
     scheduleNext48h(userId).catch(() => {});
   }).catch(() => {});
+  } finally {
+    endWrite();
+  }
 }
 
 export async function deleteAllTransactions(userId: string) {
@@ -1598,27 +1617,75 @@ function mapNotification(id: string, data: Record<string, any>, fallback?: Recor
   };
 }
 
+export const MAX_USER_NOTIFICATIONS_COUNT = 10;
+export const LOCAL_NOTIFICATIONS_STORAGE_KEY = '@rupeo_local_notifications_v1';
+
+async function pruneOldNotifications(userId: string, excessDocs: { id: string; source?: string }[]) {
+  if (!userId || !excessDocs || excessDocs.length === 0) return;
+  try {
+    const batch = writeBatch(db);
+    let count = 0;
+    excessDocs.forEach(item => {
+      if (item.source !== 'admin_notification' && item.id) {
+        batch.delete(doc(db, `users/${userId}/notifications`, item.id));
+        count++;
+      }
+    });
+    if (count > 0) {
+      await batch.commit();
+      log(`[Notifications] Automatically pruned ${count} older notifications beyond top 10 limit.`);
+    }
+  } catch (err) {
+    warn('[Notifications] Error auto-pruning older notifications:', err);
+  }
+}
+
 async function loadUserNotifications(userId: string): Promise<AppNotification[]> {
-  const historySnapshot = await getDocs(
-    query(collection(db, `users/${userId}/notifications`), limit(100))
-  );
-  const history = new Map(historySnapshot.docs.map(item => [item.id, item.data()]));
+  try {
+    const historySnapshot = await getDocs(
+      query(collection(db, `users/${userId}/notifications`), limit(30))
+    );
+    const history = new Map(historySnapshot.docs.map(item => [item.id, item.data()]));
 
-  const activeAdminSnapshot = await getDocs(
-    query(collection(db, 'admin_notifications'), where('active', '==', true), limit(50))
-  );
-  const adminNotifications = activeAdminSnapshot.docs.map(item => {
-    const adminData = item.data();
-    return mapNotification(item.id, history.get(item.id) || {}, adminData);
-  });
+    const activeAdminSnapshot = await getDocs(
+      query(collection(db, 'admin_notifications'), where('active', '==', true), limit(20))
+    );
+    const adminNotifications = activeAdminSnapshot.docs.map(item => {
+      const adminData = item.data();
+      return mapNotification(item.id, history.get(item.id) || {}, adminData);
+    });
 
-  const localNotifications = historySnapshot.docs
-    .filter(item => item.data().source !== 'admin_notification')
-    .map(item => mapNotification(item.id, item.data()));
+    const localNotifications = historySnapshot.docs
+      .filter(item => item.data().source !== 'admin_notification')
+      .map(item => mapNotification(item.id, item.data()));
 
-  return [...adminNotifications, ...localNotifications].sort(
-    (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
-  );
+    const allSorted = [...adminNotifications, ...localNotifications].sort(
+      (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+    );
+
+    // Keep strictly the last 10 notifications
+    const last10 = allSorted.slice(0, MAX_USER_NOTIFICATIONS_COUNT);
+
+    // Automatically delete/prune anything older than the last 10
+    if (allSorted.length > MAX_USER_NOTIFICATIONS_COUNT) {
+      pruneOldNotifications(userId, allSorted.slice(MAX_USER_NOTIFICATIONS_COUNT)).catch(() => {});
+    }
+
+    // Cache locally for offline availability
+    AsyncStorage.setItem(`${LOCAL_NOTIFICATIONS_STORAGE_KEY}_${userId}`, JSON.stringify(last10)).catch(() => {});
+
+    return last10;
+  } catch (err) {
+    warn('Error loading notifications from cloud, falling back to local cache:', err);
+    try {
+      const cachedRaw = await AsyncStorage.getItem(`${LOCAL_NOTIFICATIONS_STORAGE_KEY}_${userId}`);
+      if (cachedRaw) {
+        const parsed = JSON.parse(cachedRaw);
+        if (Array.isArray(parsed)) return parsed.slice(0, MAX_USER_NOTIFICATIONS_COUNT);
+      }
+    } catch {}
+    return [];
+  }
 }
 
 export async function getUserNotifications(userId: string, forceRefresh = false): Promise<AppNotification[]> {
@@ -1627,7 +1694,7 @@ export async function getUserNotifications(userId: string, forceRefresh = false)
   const now = Date.now();
   const cached = memoryCache.notifications.get(userId);
   if (!forceRefresh && cached && (now - cached.timestamp < NOTIF_CACHE_TTL_MS)) {
-    return cached.data;
+    return cached.data.slice(0, MAX_USER_NOTIFICATIONS_COUNT);
   }
 
   try {
@@ -1660,9 +1727,19 @@ export function subscribeToUserNotifications(
     const historyById = new Map(history.map(item => [item.id, item]));
     const merged = admin.map(item => ({ ...item, isRead: historyById.get(item.id)?.isRead || false }));
     const local = history.filter(item => item.source !== 'admin_notification');
-    onChange([...merged, ...local].sort(
+    const allSorted = [...merged, ...local].sort(
       (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
-    ));
+    );
+
+    // Keep strictly the last 10 notifications
+    const last10 = allSorted.slice(0, MAX_USER_NOTIFICATIONS_COUNT);
+
+    // Automatically prune older notifications beyond 10
+    if (allSorted.length > MAX_USER_NOTIFICATIONS_COUNT) {
+      pruneOldNotifications(userId, allSorted.slice(MAX_USER_NOTIFICATIONS_COUNT)).catch(() => {});
+    }
+
+    onChange(last10);
   };
 
   const unsubscribeHistory = onSnapshot(
@@ -1691,22 +1768,109 @@ export function subscribeToUserNotifications(
 }
 
 export async function createNotification(
-  userId: string,
-  notification: { title: string; message: string; type?: 'budget' | 'tip' | 'reminder' | 'system'; silentPush?: boolean }
-) {
-  if (!userId) return;
-  const colRef = collection(db, `users/${userId}/notifications`);
-  const docRef = await addDoc(colRef, {
+  userId?: string | null,
+  notification?: {
+    title: string;
+    message: string;
+    type?: 'budget' | 'tip' | 'reminder' | 'system';
+    silentPush?: boolean;
+    id?: string;
+    source?: string;
+  }
+): Promise<string | undefined> {
+  if (!notification || !notification.title) return;
+  const activeUid = userId || auth?.currentUser?.uid || 'local';
+
+  const notifId = notification.id || `notif_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  const notifObj: AppNotification = {
+    id: notifId,
     title: notification.title,
-    message: notification.message,
+    message: notification.message || '',
     type: notification.type || 'system',
     isRead: false,
-    silentPush: notification.silentPush || false,
-    created_at: serverTimestamp(),
-  });
-  invalidateNotificationsCache(userId);
-  return docRef.id;
+    createdAt: new Date().toISOString(),
+    source: notification.source || 'app',
+  };
+
+  // 1. Immediately update local storage (keeps strictly the last 10)
+  try {
+    const storageKey = `${LOCAL_NOTIFICATIONS_STORAGE_KEY}_${activeUid}`;
+    const raw = await AsyncStorage.getItem(storageKey);
+    let list: AppNotification[] = [];
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) list = parsed;
+      } catch {}
+    }
+
+    // Deduplicate if identical alert was logged within last 10 seconds
+    const isDuplicate = list.some(
+      (item) =>
+        item.title === notifObj.title &&
+        item.message === notifObj.message &&
+        Math.abs(new Date(item.createdAt).getTime() - new Date(notifObj.createdAt).getTime()) < 10000
+    );
+
+    if (!isDuplicate) {
+      list = [notifObj, ...list.filter(item => item.id !== notifObj.id)].slice(0, MAX_USER_NOTIFICATIONS_COUNT);
+      await AsyncStorage.setItem(storageKey, JSON.stringify(list));
+      memoryCache.notifications.set(activeUid, { data: list, timestamp: Date.now() });
+    }
+  } catch (localErr) {
+    warn('[Notifications] Error saving to local storage:', localErr);
+  }
+
+  // 2. Persist to Firestore if online and logged in
+  if (activeUid !== 'local' && db) {
+    try {
+      const colRef = collection(db, `users/${activeUid}/notifications`);
+      if (notification.id) {
+        await setDoc(doc(colRef, notification.id), {
+          title: notification.title,
+          message: notification.message || '',
+          type: notification.type || 'system',
+          isRead: false,
+          silentPush: notification.silentPush || false,
+          source: notification.source || 'app',
+          created_at: serverTimestamp(),
+        }, { merge: true });
+      } else {
+        const added = await addDoc(colRef, {
+          title: notification.title,
+          message: notification.message || '',
+          type: notification.type || 'system',
+          isRead: false,
+          silentPush: notification.silentPush || false,
+          source: notification.source || 'app',
+          created_at: serverTimestamp(),
+        });
+        notifObj.id = added.id;
+      }
+
+      // Auto-prune Firestore collection to ensure at most 10 notifications remain
+      const snap = await getDocs(query(colRef, limit(25)));
+      if (snap.docs.length > MAX_USER_NOTIFICATIONS_COUNT) {
+        const allDocs = snap.docs.map(d => ({
+          id: d.id,
+          createdAt: timestampToIso(d.data().createdAt || d.data().created_at),
+          source: d.data().source,
+        })).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+        if (allDocs.length > MAX_USER_NOTIFICATIONS_COUNT) {
+          pruneOldNotifications(activeUid, allDocs.slice(MAX_USER_NOTIFICATIONS_COUNT)).catch(() => {});
+        }
+      }
+    } catch (remoteErr) {
+      warn('[Notifications] Error persisting to Firestore:', remoteErr);
+    }
+  }
+
+  invalidateNotificationsCache(activeUid);
+  return notifObj.id;
 }
+
+export const recordInAppNotification = createNotification;
 
 export async function markNotificationAsRead(userId: string, notificationId: string) {
   if (!userId || !notificationId) return;

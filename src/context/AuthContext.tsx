@@ -13,6 +13,7 @@ import { stopRealtimeNotificationWatcher } from '@/lib/notifications';
 import { scheduleWelcomeNotification, handleWelcomeNotificationOnLogout } from '@/lib/welcomeNotification';
 import { safeJsonParse, withTimeout } from '@/lib/safeStorage';
 import { warn, error } from '@/lib/logger';
+import { SelfHealingWatchdog } from '@/lib/selfHealing/SelfHealingWatchdog';
 
 export type AdsStrategy = 'custom_only' | 'custom_first' | 'network_only' | 'both';
 
@@ -291,6 +292,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState<UserSettings | null>(null);
 
+  // Watchdog bypass listener: if SelfHealingWatchdog triggers recovery (1.5s timeout on startup/resume),
+  // immediately unblock loading so cached UI can render with zero white screen
+  useEffect(() => {
+    return SelfHealingWatchdog.onBypassLoading(() => {
+      setLoading(false);
+    });
+  }, []);
+
+  // 2-second hard safety timeout: If auth hydration has not resolved within 2s,
+  // unblock UI to prevent white screen of death / freeze
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setLoading((prev) => {
+        if (prev) {
+          warn('[AuthContext] Auth hydration fallback timeout triggered (2s). Releasing loading state.');
+          return false;
+        }
+        return prev;
+      });
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, []);
+
   // Track initial auth check on app launch to ensure welcome notification is NEVER scheduled on app open
   const isInitialAuthCheckDoneRef = React.useRef(false);
   const previousUidRef = React.useRef<string | null>(null);
@@ -467,10 +491,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           let cachedProfile: any = null;
           let cachedSettings: any = null;
           try {
-            const [rawProfile, rawSettings] = await Promise.all([
-              AsyncStorage.getItem(cacheKey).catch(() => null),
-              AsyncStorage.getItem(settingsCacheKey).catch(() => null),
-            ]);
+            const [rawProfile, rawSettings] = await withTimeout(
+              Promise.all([
+                AsyncStorage.getItem(cacheKey).catch(() => null),
+                AsyncStorage.getItem(settingsCacheKey).catch(() => null),
+              ]),
+              2000,
+              [null, null]
+            );
             if (rawProfile) {
               cachedProfile = safeJsonParse(rawProfile, null, cacheKey);
             }
@@ -507,10 +535,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               .catch((bgErr) => warn('Background profile refresh error:', bgErr));
           } else {
             // First time login / cold start without cache: wait with strict timeout
-            const [fetchedUser, fetchedSettings] = await Promise.all([
-              fetchUserProfile(currentUser),
-              fetchSettings(currentUser),
-            ]);
+            const [fetchedUser, fetchedSettings] = await withTimeout(
+              Promise.all([
+                fetchUserProfile(currentUser),
+                fetchSettings(currentUser),
+              ]),
+              2500,
+              [currentUser as RupeoUser, null]
+            );
 
             profileUser = fetchedUser;
             userSettings = fetchedSettings;

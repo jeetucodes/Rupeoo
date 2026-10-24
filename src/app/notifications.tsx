@@ -214,16 +214,22 @@ export default function NotificationsScreen() {
   };
 
   const filteredList = useMemo(() => {
+    let result: AppNotification[];
     switch (activeTab) {
       case 'unread':
-        return notifications.filter(n => !n.isRead);
+        result = notifications.filter(n => !n.isRead);
+        break;
       case 'budget':
-        return notifications.filter(n => n.type === 'budget');
+        result = notifications.filter(n => n.type === 'budget');
+        break;
       case 'tip':
-        return notifications.filter(n => n.type === 'tip');
+        result = notifications.filter(n => n.type === 'tip');
+        break;
       default:
-        return notifications;
+        result = notifications;
+        break;
     }
+    return result.slice(0, 10);
   }, [notifications, activeTab]);
 
   const unreadCount = notifications.filter(n => !n.isRead).length;
@@ -341,6 +347,14 @@ export default function NotificationsScreen() {
             Insights
           </Text>
         </TouchableOpacity>
+      </View>
+
+      {/* 10-notification notice badge */}
+      <View style={styles.autoPrunePill}>
+        <Ionicons name="information-circle-outline" size={13} color="#64748B" />
+        <Text style={styles.autoPrunePillText}>
+          {t('notifications_last_10_badge')}
+        </Text>
       </View>
 
       <ScrollView
@@ -548,6 +562,26 @@ const styles = StyleSheet.create({
   tabChipTextActive: {
     color: '#FFD740',
     fontWeight: '900',
+  },
+  autoPrunePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 8,
+    marginHorizontal: 20,
+    marginBottom: 6,
+    maxWidth: 480,
+    alignSelf: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  autoPrunePillText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748B',
   },
   scrollContent: {
     flexGrow: 1,

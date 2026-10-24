@@ -111,14 +111,27 @@ export function useAutoAdd(): UseAutoAddReturn {
     };
   }, [refresh]);
 
-  // Sync on App resume
+  // Sync on App resume (debounced 600ms to prevent stacking queries on rapid minimize/reopen)
   useEffect(() => {
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     const sub = AppState.addEventListener('change', (state: AppStateStatus) => {
       if (state === 'active') {
-        refresh();
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          debounceTimer = null;
+          refresh();
+        }, 600);
+      } else {
+        if (debounceTimer) {
+          clearTimeout(debounceTimer);
+          debounceTimer = null;
+        }
       }
     });
-    return () => sub.remove();
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      sub.remove();
+    };
   }, [refresh]);
 
   // 30-second interval: automatically refreshes countdown & checks pause expiry

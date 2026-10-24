@@ -7,6 +7,10 @@
     "icon": "./assets/images/icon.png",
     "scheme": "rupeo",
     "userInterfaceStyle": "light",
+    "notification": {
+      "icon": "./assets/images/notification-icon.png",
+      "color": "#FFD740"
+    },
     "ios": {
       "icon": "./assets/images/icon.png",
       "bundleIdentifier": "com.innovatexlabs.paisewaise",
@@ -94,8 +98,8 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/images/android-icon-monochrome.png",
-          "color": "#F59E0B"
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#FFD740"
         }
       ],
       "expo-sharing",

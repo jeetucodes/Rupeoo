@@ -897,6 +897,12 @@ export const dictionary: Record<string, Record<Language, string>> = {
     Hinglish: 'Naya update download ho gaya hai. Update apply karne ke liye app restart karein.',
   },
   update_restart_btn: { English: 'Restart Now', Hindi: 'अभी रीस्टार्ट करें', Hinglish: 'Abhi Restart Karein' },
+  notifications: { English: 'Notifications', Hindi: 'सूचनाएं', Hinglish: 'Notifications' },
+  notifications_last_10_badge: {
+    English: 'Showing last 10 • Older alerts auto-deleted',
+    Hindi: 'नवीनतम 10 दिख रही हैं • पुरानी अपने आप हट जाती हैं',
+    Hinglish: 'Last 10 notifications • Baki apne aap delete ho jati hain',
+  },
 };
 
 export function useTranslation() {

@@ -43,6 +43,7 @@ import {
   normalizeDate,
   getOfflineTransactions,
   recordMatchedBillPayment,
+  createNotification,
 } from '@/lib/database';
 import {
   isPackageAllowedForAlerts,
@@ -573,6 +574,14 @@ export async function handleNotificationTask(taskData: NotificationTaskPayload):
             },
             trigger: Platform.OS === 'android' ? { channelId: NOTIFICATION_CHANNEL_ID } : null,
           });
+
+          createNotification(activeUserId, {
+            id: `bill_paid_${txId}`,
+            title: notifTitle,
+            message: notifBody,
+            type: 'reminder',
+            source: 'auto_add_bill',
+          }).catch(() => {});
         }
       } catch (notifErr) {
         warn('[HeadlessTask] Failed to post bill notification:', notifErr);

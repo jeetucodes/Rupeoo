@@ -60,17 +60,50 @@ export async function openListenerSettings(): Promise<boolean> {
 }
 
 /**
+ * Checks if the Rupeo NotificationListenerService is currently connected and active.
+ */
+export async function isListenerConnected(): Promise<boolean> {
+  if (Platform.OS !== 'android') return false;
+  if (!RupeoNotifModule?.isListenerConnected) return false;
+  try {
+    return await RupeoNotifModule.isListenerConnected();
+  } catch {
+    return false;
+  }
+}
+
+let isRebindingInFlight = false;
+let lastRebindTimestamp = 0;
+
+/**
  * Requests the Android system to rebind the NotificationListenerService (call on app start/foreground).
+ * Idempotent singleton: avoids redundant rebinds if service is already connected or requested within 5s.
  */
 export async function requestRebind(): Promise<boolean> {
   if (Platform.OS !== 'android') return false;
   if (!RupeoNotifModule?.requestRebind) return false;
 
+  const now = Date.now();
+  if (isRebindingInFlight || now - lastRebindTimestamp < 5000) {
+    return true;
+  }
+  isRebindingInFlight = true;
+  lastRebindTimestamp = now;
+
   try {
+    // If the native service is already connected and active 24/7, do not re-request rebind
+    if (RupeoNotifModule.isListenerConnected) {
+      const connected = await RupeoNotifModule.isListenerConnected();
+      if (connected) {
+        return true;
+      }
+    }
     return await RupeoNotifModule.requestRebind();
   } catch (err) {
     warn('requestRebind error:', err);
     return false;
+  } finally {
+    isRebindingInFlight = false;
   }
 }
 

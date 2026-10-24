@@ -71,6 +71,9 @@ import { formatCurrency, resolveCurrencySymbol } from '@/utils/formatCurrency';
 import { subscribeCloudPullState, CloudPullState } from '@/lib/cloudSync';
 import { formatPaymentModeDisplay } from '@/lib/dataMinimization';
 import { withTimeout } from '@/lib/safeStorage';
+import { SelfHealingWatchdog } from '@/lib/selfHealing/SelfHealingWatchdog';
+import { SelfHealingErrorBoundary } from '@/components/SelfHealingErrorBoundary';
+import { getHomeSnapshotSync, saveHomeSnapshot } from '@/lib/selfHealing/HomeSnapshotCache';
 
 const { width, height } = Dimensions.get('window');
 
@@ -474,10 +477,18 @@ export default function DashboardScreen() {
     return Math.min(Math.max(Math.round(windowWidth * 0.175), 60), 72);
   }, [windowWidth]);
 
+  const homeSnapshot = user?.uid ? getHomeSnapshotSync(user.uid) : null;
   const cachedInitial = user?.uid ? getCachedTransactionsSync(user.uid) : null;
-  const hasCache = Boolean(cachedInitial && cachedInitial.length > 0);
+  const hasCache = Boolean((cachedInitial && cachedInitial.length > 0) || homeSnapshot);
 
   const initialTotals = useMemo(() => {
+    if (homeSnapshot) {
+      return {
+        s: homeSnapshot.totalSpend,
+        c: homeSnapshot.totalCredit,
+        curM: homeSnapshot.thisMonthSpend,
+      };
+    }
     if (!cachedInitial || cachedInitial.length === 0) return { s: 0, c: 0, curM: 0 };
     let s = 0;
     let c = 0;
@@ -493,21 +504,29 @@ export default function DashboardScreen() {
       }
     });
     return { s, c, curM };
-  }, [cachedInitial]);
+  }, [cachedInitial, homeSnapshot]);
 
   const [totalSpend, setTotalSpend] = useState<number>(() => initialTotals.s);
   const [totalCredit, setTotalCredit] = useState<number>(() => initialTotals.c);
   const [thisMonthSpend, setThisMonthSpend] = useState<number>(() => initialTotals.curM);
-  const [transactions, setTransactions] = useState<any[]>(() => hasCache ? sortTransactionsRecentFirst(cachedInitial!) : []);
+  const [transactions, setTransactions] = useState<any[]>(() => {
+    if (cachedInitial && cachedInitial.length > 0) return sortTransactionsRecentFirst(cachedInitial);
+    if (homeSnapshot && homeSnapshot.recentTransactions) return homeSnapshot.recentTransactions;
+    return [];
+  });
   const [categories, setCategories] = useState<CategoryItem[]>([]);
-  const [recurringBills, setRecurringBills] = useState<RecurringBill[]>([]);
+  const [recurringBills, setRecurringBills] = useState<RecurringBill[]>(() => {
+    return (homeSnapshot?.upcomingBills as RecurringBill[]) || [];
+  });
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [unreadNotifications, setUnreadNotifications] = useState<number>(0);
   const [hideBalance, setHideBalance] = useState<boolean>(true);
   const [loading, setLoading] = useState<boolean>(() => !hasCache);
   const [refreshing, setRefreshing] = useState(false);
   const [showUdharCard, setShowUdharCard] = useState<boolean>(true);
-  const [udharDues, setUdharDues] = useState<{ totalToReceive: number; totalToPay: number } | null>(null);
+  const [udharDues, setUdharDues] = useState<{ totalToReceive: number; totalToPay: number } | null>(() => {
+    return homeSnapshot?.udharDues || null;
+  });
   const [voiceModalVisible, setVoiceModalVisible] = useState(false);
   const [autoAddSheetVisible, setAutoAddSheetVisible] = useState(false);
   const [pullState, setPullState] = useState<CloudPullState>({ isPulling: false, message: '', count: 0 });
@@ -595,22 +614,50 @@ export default function DashboardScreen() {
       let curMonthS = 0;
       const currentMonthKey = getLocalMonthString();
 
-      allTxs.forEach((tx: any) => {
-        const amt = Number(tx.amount) || 0;
-        if (tx.type === 'debit') {
-          totalS += amt;
-          if (tx.date && tx.date.startsWith(currentMonthKey)) {
-            curMonthS += amt;
+      if (allTxs && allTxs.length > 0) {
+        allTxs.forEach((tx: any) => {
+          const amt = Number(tx.amount) || 0;
+          if (tx.type === 'debit') {
+            totalS += amt;
+            if (tx.date && tx.date.startsWith(currentMonthKey)) {
+              curMonthS += amt;
+            }
+          } else {
+            totalC += amt;
+          }
+        });
+
+        setTotalSpend(totalS);
+        setTotalCredit(totalC);
+        setThisMonthSpend(curMonthS);
+        setTransactions(sortTransactionsRecentFirst(allTxs));
+
+        // Update SWR cache and notify watchdog that Home Screen has rendered
+        saveHomeSnapshot(user.uid, {
+          totalSpend: totalS,
+          totalCredit: totalC,
+          thisMonthSpend: curMonthS,
+          recentTransactions: sortTransactionsRecentFirst(allTxs).slice(0, 20),
+          upcomingBills: bills,
+        });
+      } else {
+        // SAFETY GUARD: Do not overwrite cached balance with ₹0 on fallback
+        const cachedSnap = getHomeSnapshotSync(user.uid);
+        if (cachedSnap && (cachedSnap.totalSpend > 0 || cachedSnap.totalCredit > 0)) {
+          setTotalSpend(cachedSnap.totalSpend);
+          setTotalCredit(cachedSnap.totalCredit);
+          setThisMonthSpend(cachedSnap.thisMonthSpend);
+          if (cachedSnap.recentTransactions && cachedSnap.recentTransactions.length > 0) {
+            setTransactions(cachedSnap.recentTransactions);
           }
         } else {
-          totalC += amt;
+          setTotalSpend(0);
+          setTotalCredit(0);
+          setThisMonthSpend(0);
+          setTransactions([]);
         }
-      });
-
-      setTotalSpend(totalS);
-      setTotalCredit(totalC);
-      setThisMonthSpend(curMonthS);
-      setTransactions(sortTransactionsRecentFirst(allTxs));
+      }
+      SelfHealingWatchdog.notifyHomeRendered();
 
       // Fast background checks for Udhar
       getShowUdharOnDashboard(user.uid).then((visible) => {
@@ -619,9 +666,12 @@ export default function DashboardScreen() {
 
       getAllFriendsSummaries(user.uid).then((res) => {
         if (res && (res.totalToReceive > 0 || res.totalToPay > 0)) {
-          setUdharDues({ totalToReceive: res.totalToReceive, totalToPay: res.totalToPay });
+          const dues = { totalToReceive: res.totalToReceive, totalToPay: res.totalToPay };
+          setUdharDues(dues);
+          saveHomeSnapshot(user.uid, { udharDues: dues });
         } else {
           setUdharDues(null);
+          saveHomeSnapshot(user.uid, { udharDues: null });
         }
       }).catch(() => { });
 
@@ -665,6 +715,43 @@ export default function DashboardScreen() {
       loadData(false);
     }, [user?.uid])
   );
+
+  // Debounced foreground refresh on resume (prevents stacked queries on rapid minimize/reopen)
+  useEffect(() => {
+    let resumeTimer: ReturnType<typeof setTimeout> | null = null;
+    const sub = AppState.addEventListener('change', (state: AppStateStatus) => {
+      if (state === 'active') {
+        if (resumeTimer) clearTimeout(resumeTimer);
+        resumeTimer = setTimeout(() => {
+          resumeTimer = null;
+          loadData(false);
+        }, 700);
+      } else {
+        if (resumeTimer) {
+          clearTimeout(resumeTimer);
+          resumeTimer = null;
+        }
+      }
+    });
+
+    return () => {
+      if (resumeTimer) clearTimeout(resumeTimer);
+      sub.remove();
+    };
+  }, [user?.uid]);
+
+  // 0ms notify watchdog that Home Screen has mounted cleanly
+  useEffect(() => {
+    SelfHealingWatchdog.notifyHomeRendered();
+  }, []);
+
+  // Listen for watchdog bypass: immediately release loading spinners if stuck
+  useEffect(() => {
+    return SelfHealingWatchdog.onBypassLoading(() => {
+      setLoading(false);
+      setRefreshing(false);
+    });
+  }, []);
 
   // Instant real-time & voice transaction listener: immediately updates dashboard transactions list at top
   useEffect(() => {
@@ -1109,7 +1196,8 @@ export default function DashboardScreen() {
 
 
         {/* HERO TOTAL BALANCE CARD */}
-        <View style={styles.balanceCard}>
+        <SelfHealingErrorBoundary name="TotalBalanceWidget" silent>
+          <View style={styles.balanceCard}>
           <LinearGradient
             colors={['#D5F9E3', '#CFFAFE', '#EDE9FE']}
             start={{ x: 0, y: 0 }}
@@ -1203,6 +1291,7 @@ export default function DashboardScreen() {
             </View>
           </View>
         </View>
+        </SelfHealingErrorBoundary>
 
         {/* Small dismissible battery warning if listener is active but battery is optimized */}
         <DashboardBatteryWarningCard />
@@ -1210,6 +1299,7 @@ export default function DashboardScreen() {
         {/* QUICK ACCESS: UPCOMING BILLS & FRIENDS / UDHAR */}
         <View style={styles.quickTwoBtnsRow}>
           {/* 1. UPCOMING BILLS CARD */}
+          <SelfHealingErrorBoundary name="UpcomingBillsWidget" silent>
           <TouchableOpacity
             style={styles.quickActionTile}
             onPress={() => router.push('/reminders')}
@@ -1290,8 +1380,10 @@ export default function DashboardScreen() {
               />
             </View>
           </TouchableOpacity>
+          </SelfHealingErrorBoundary>
 
           {/* 2. FRIENDS & UDHAR KHATA TILE */}
+          <SelfHealingErrorBoundary name="UdharKhataWidget" silent>
           <TouchableOpacity
             style={styles.quickActionTile}
             onPress={() => router.push('/udhar' as any)}
@@ -1375,6 +1467,7 @@ export default function DashboardScreen() {
               />
             </View>
           </TouchableOpacity>
+          </SelfHealingErrorBoundary>
         </View>
 
         {/* SMART QR PAY CARD — commented out, preserved for future use */}
@@ -1418,59 +1511,60 @@ export default function DashboardScreen() {
         {/* GOOGLE ADMOB HOME BANNER */}
         <HomeBannerAd />
 
-        {/* RECENT TRANSACTIONS HEADER */}
-        <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle}>{t('recent_transaction')}</Text>
-          <TouchableOpacity onPress={() => router.push('/transactions')} activeOpacity={0.7}>
-            <Text style={styles.seeAllLink}>{t('see_all')}</Text>
-          </TouchableOpacity>
-        </View>
-
-
-
-        {/* RECENT TRANSACTIONS LIST */}
-        {recentTransactions.length > 0 ? (
-          <View style={styles.transactionsListCard}>
-            {recentTransactions.map((tx: any, idx: number) => (
-              <DashboardTransactionItem
-                key={tx.id || idx}
-                tx={tx}
-                isLast={idx === recentTransactions.length - 1}
-                curr={curr}
-                meta={getCategoryMeta(tx.category)}
-                onPress={handlePressRecentTx}
-              />
-            ))}
-          </View>
-        ) : pullState.isPulling && transactions.length === 0 ? (
-          <View style={styles.emptyCard}>
-            <ActivityIndicator size="small" color="#D97706" style={{ marginBottom: 12 }} />
-            <Text style={styles.emptyTitle}>Restoring your data...</Text>
-            <Text style={styles.emptySub}>
-              {pullState.count > 0 ? `Loaded ${pullState.count} transactions, updating list...` : 'Connecting to cloud database...'}
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.emptyCard}>
-            <View style={styles.emptyIconBg}>
-              <Ionicons name="receipt-outline" size={28} color="#94A3B8" />
-            </View>
-            <Text style={styles.emptyTitle}>{t('no_transactions_found')}</Text>
-            <Text style={styles.emptySub}>
-              {selectedCategory !== 'All'
-                ? `No transactions found under ${selectedCategory}`
-                : t('recent_expenses_appear')}
-            </Text>
-            <TouchableOpacity
-              style={styles.addFirstBtn}
-              onPress={() => router.push('/add')}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="add-circle" size={16} color="#0F172A" style={{ marginRight: 6 }} />
-              <Text style={styles.addFirstBtnText}>{t('add_transaction')}</Text>
+        {/* RECENT TRANSACTIONS SECTION */}
+        <SelfHealingErrorBoundary name="RecentTransactionsWidget" silent>
+          {/* RECENT TRANSACTIONS HEADER */}
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>{t('recent_transaction')}</Text>
+            <TouchableOpacity onPress={() => router.push('/transactions')} activeOpacity={0.7}>
+              <Text style={styles.seeAllLink}>{t('see_all')}</Text>
             </TouchableOpacity>
           </View>
-        )}
+
+          {/* RECENT TRANSACTIONS LIST */}
+          {recentTransactions.length > 0 ? (
+            <View style={styles.transactionsListCard}>
+              {recentTransactions.map((tx: any, idx: number) => (
+                <DashboardTransactionItem
+                  key={tx.id || idx}
+                  tx={tx}
+                  isLast={idx === recentTransactions.length - 1}
+                  curr={curr}
+                  meta={getCategoryMeta(tx.category)}
+                  onPress={handlePressRecentTx}
+                />
+              ))}
+            </View>
+          ) : pullState.isPulling && transactions.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <ActivityIndicator size="small" color="#D97706" style={{ marginBottom: 12 }} />
+              <Text style={styles.emptyTitle}>Restoring your data...</Text>
+              <Text style={styles.emptySub}>
+                {pullState.count > 0 ? `Loaded ${pullState.count} transactions, updating list...` : 'Connecting to cloud database...'}
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.emptyCard}>
+              <View style={styles.emptyIconBg}>
+                <Ionicons name="receipt-outline" size={28} color="#94A3B8" />
+              </View>
+              <Text style={styles.emptyTitle}>{t('no_transactions_found')}</Text>
+              <Text style={styles.emptySub}>
+                {selectedCategory !== 'All'
+                  ? `No transactions found under ${selectedCategory}`
+                  : t('recent_expenses_appear')}
+              </Text>
+              <TouchableOpacity
+                style={styles.addFirstBtn}
+                onPress={() => router.push('/add')}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="add-circle" size={16} color="#0F172A" style={{ marginRight: 6 }} />
+                <Text style={styles.addFirstBtnText}>{t('add_transaction')}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </SelfHealingErrorBoundary>
 
       </ScrollView>
 

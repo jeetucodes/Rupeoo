@@ -340,6 +340,13 @@ export async function sendLocalPushNotification(
       },
       trigger: null,
     });
+
+    createNotification(undefined, {
+      title,
+      message: body,
+      type: data?.type || 'system',
+      source: data?.source || 'local_push',
+    }).catch(() => {});
   } catch (error) {
     warn('sendLocalPushNotification error:', error);
   }

@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { warn, error as logError } from './logger';
-import { safeJsonParse } from './safeStorage';
+import { warn, error as logError } from './logger.ts';
+import { safeJsonParse } from './safeStorage.ts';
 
 export const LAST_CRASH_STORAGE_KEY = '@rupeo_last_crash_report';
 

@@ -17,7 +17,7 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
-import { initDatabase, syncUserOfflineData, deleteTransaction, undoBillPayment } from '@/lib/database';
+import { initDatabase, syncUserOfflineData, deleteTransaction, undoBillPayment, createNotification } from '@/lib/database';
 import { confirmPendingAlert, dismissPendingAlert } from '@/lib/pendingInbox';
 import { initializeAds } from '@/lib/ads';
 import Toast from 'react-native-toast-message';
@@ -43,6 +43,8 @@ import { initSyncEngine } from '@/lib/syncEngine';
 import { installGlobalErrorHandler, recordCrash } from '@/lib/crashReporting';
 import { StartupRecoveryScreen } from '@/components/StartupRecoveryScreen';
 import { withTimeout } from '@/lib/safeStorage';
+import { SelfHealingWatchdog } from '@/lib/selfHealing/SelfHealingWatchdog';
+import { SelfHealingErrorBoundary } from '@/components/SelfHealingErrorBoundary';
 
 const startupStartTime = Date.now();
 let dbOpenDuration = 0;
@@ -129,7 +131,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const lastActivePullRef = React.useRef<number>(Date.now());
   const hasLoggedTimingsRef = React.useRef<boolean>(false);
 
-  // 8-second startup watchdog: clears immediately when loading finishes
+  // 1.5-second startup watchdog fallback: clears immediately when loading finishes
   useEffect(() => {
     if (!loading) {
       setStartupTimeout(false);
@@ -139,11 +141,18 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       if (loading) {
         setStartupTimeout(true);
         SplashScreen.hideAsync().catch(() => {});
-        recordCrash(new Error('App startup exceeded watchdog timeout'), false, 'startup_watchdog').catch(() => {});
+        SelfHealingWatchdog.triggerWatchdogRecovery('auth_guard_hydration_timeout');
+        recordCrash(new Error('App startup exceeded 1.5s watchdog timeout'), false, 'startup_watchdog').catch(() => {});
       }
-    }, 8000);
+    }, 1500);
     return () => clearTimeout(timer);
   }, [loading]);
+
+  useEffect(() => {
+    if (user?.uid) {
+      SelfHealingWatchdog.initialize(user.uid);
+    }
+  }, [user?.uid]);
 
   // Subscribe to background migration status
   useEffect(() => {
@@ -212,19 +221,23 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     // Initialize single-flight, battery-friendly sync engine
     const stopSyncEngine = initSyncEngine(user.uid);
 
-    // Lifecycle triggers for local non-sync notifications & widget
+    // Lifecycle triggers for local non-sync notifications & widget (deferred after interactions)
+    let resumeTask: any = null;
     const appStateSub = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') {
-        scheduleNext48h(user.uid).catch(() => {});
-        if (Platform.OS === 'android') {
-          requestRebind().catch(() => {});
-          isListenerEnabled().catch(() => {});
-        }
+        resumeTask = InteractionManager.runAfterInteractions(() => {
+          scheduleNext48h(user.uid).catch(() => {});
+          if (Platform.OS === 'android') {
+            requestRebind().catch(() => {});
+            isListenerEnabled().catch(() => {});
+          }
+        });
       }
     });
 
     return () => {
       stopSyncEngine();
+      if (resumeTask?.cancel) resumeTask.cancel();
       appStateSub.remove();
     };
   }, [user?.uid]);
@@ -403,61 +416,92 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     // Active foreground/background response listener
     const sub = Notifications.addNotificationResponseReceivedListener(handleNotificationResponse);
 
-    return () => sub.remove();
+    // Active listener for when ANY notification is delivered/received on device
+    // (captures morning/evening routines, daily reports, auto-add alerts into in-app inbox)
+    const receivedSub = Notifications.addNotificationReceivedListener((notification) => {
+      try {
+        const content = notification.request.content;
+        const data = content.data || {};
+        const type = (data.type === 'budget' || data.type === 'budget_over' || data.type === 'budget_80')
+          ? 'budget'
+          : (data.type === 'reminder' || data.type === 'report' || data.slotId)
+            ? 'reminder'
+            : 'system';
+
+        createNotification(user?.uid, {
+          id: notification.request.identifier,
+          title: content.title || 'Rupeo Alert',
+          message: content.body || '',
+          type,
+          source: data.source || data.type || data.typeKey || 'os_notification',
+        }).catch(() => {});
+      } catch (err) {
+        warn('Error recording received notification into inbox:', err);
+      }
+    });
+
+    return () => {
+      sub.remove();
+      receivedSub.remove();
+    };
   }, [router, user?.uid]);
 
   useEffect(() => {
     if (loading) return;
 
-    const currentSegment = segments[0] as string | undefined;
-    const isPublicRoute =
-      !currentSegment ||
-      currentSegment === 'index' ||
-      currentSegment === 'onboarding' ||
-      currentSegment === 'login' ||
-      currentSegment === 'forgot-password' ||
-      currentSegment === 'starting-balance' ||
-      currentSegment === 'setup' ||
-      currentSegment === 'verify-email';
+    try {
+      const currentSegment = segments[0] as string | undefined;
+      const isPublicRoute =
+        !currentSegment ||
+        currentSegment === 'index' ||
+        currentSegment === 'onboarding' ||
+        currentSegment === 'login' ||
+        currentSegment === 'forgot-password' ||
+        currentSegment === 'starting-balance' ||
+        currentSegment === 'setup' ||
+        currentSegment === 'verify-email';
 
-    if (!user && !isPublicRoute) {
-      cancelAndDismissWelcomeNotification().catch(() => {});
-      if (currentSegment === 'quick-add' || currentSegment === 'quick-add-voice' || currentSegment === 'add') {
-        AsyncStorage.setItem('@rupeo_pending_redirect', `/${currentSegment}`).catch(() => {});
-      }
-      router.replace('/login');
-    } else if (!user) {
-      // User is logged out on a public route - ensure pending welcome notification is cancelled & dismissed
-      cancelAndDismissWelcomeNotification().catch(() => {});
-    } else if (user) {
-      // A9. Gate unverified email/password accounts created after VERIFICATION_CUTOFF
-      if (isVerificationRequired(auth?.currentUser)) {
-        if (currentSegment !== 'verify-email') {
-          router.replace('/verify-email');
+      if (!user && !isPublicRoute) {
+        cancelAndDismissWelcomeNotification().catch(() => {});
+        if (currentSegment === 'quick-add' || currentSegment === 'quick-add-voice' || currentSegment === 'add') {
+          AsyncStorage.setItem('@rupeo_pending_redirect', `/${currentSegment}`).catch(() => {});
         }
-        return;
-      } else if (currentSegment === 'verify-email') {
-        router.replace(user.hasSetStartingBalance ? '/(tabs)/dashboard' : '/starting-balance');
-        return;
-      }
-
-      // Sync widget with user's latest transaction summary (deferred after interactions)
-      InteractionManager.runAfterInteractions(() => {
-        syncWidgetWithTransactions(user.uid).catch(() => {});
-      });
-
-      if (currentSegment === 'login') {
-        AsyncStorage.getItem('@rupeo_pending_redirect').then((pending) => {
-          if (pending) {
-            AsyncStorage.removeItem('@rupeo_pending_redirect').catch(() => {});
-            router.replace(pending as any);
-          } else {
-            router.replace(user.hasSetStartingBalance ? '/(tabs)/dashboard' : '/starting-balance');
+        router.replace('/login');
+      } else if (!user) {
+        // User is logged out on a public route - ensure pending welcome notification is cancelled & dismissed
+        cancelAndDismissWelcomeNotification().catch(() => {});
+      } else if (user) {
+        // A9. Gate unverified email/password accounts created after VERIFICATION_CUTOFF
+        if (isVerificationRequired(auth?.currentUser)) {
+          if (currentSegment !== 'verify-email') {
+            router.replace('/verify-email');
           }
-        }).catch(() => {
+          return;
+        } else if (currentSegment === 'verify-email') {
           router.replace(user.hasSetStartingBalance ? '/(tabs)/dashboard' : '/starting-balance');
+          return;
+        }
+
+        // Sync widget with user's latest transaction summary (deferred after interactions)
+        InteractionManager.runAfterInteractions(() => {
+          syncWidgetWithTransactions(user.uid).catch(() => {});
         });
+
+        if (currentSegment === 'login') {
+          AsyncStorage.getItem('@rupeo_pending_redirect').then((pending) => {
+            if (pending) {
+              AsyncStorage.removeItem('@rupeo_pending_redirect').catch(() => {});
+              router.replace(pending as any);
+            } else {
+              router.replace(user.hasSetStartingBalance ? '/(tabs)/dashboard' : '/starting-balance');
+            }
+          }).catch(() => {
+            router.replace(user.hasSetStartingBalance ? '/(tabs)/dashboard' : '/starting-balance');
+          });
+        }
       }
+    } catch (navErr) {
+      warn('[Navigation] Guard caught error:', navErr);
     }
   }, [user, loading, settings, segments]);
 
@@ -610,9 +654,22 @@ export default function RootLayout() {
   const segments = useSegments();
   const currentSegment = segments[0] as string | undefined;
   const isTransparentOverlay = currentSegment === 'quick-add-voice';
+  const [softResetKey, setSoftResetKey] = useState(0);
 
   useEffect(() => {
     installGlobalErrorHandler((err) => {
+      SplashScreen.hideAsync().catch(() => {});
+    });
+
+    // Initialize Self-Healing Watchdog system (1.5s startup watchdog + UI heartbeat monitor)
+    SelfHealingWatchdog.initialize(auth?.currentUser?.uid);
+
+    const unsubReset = SelfHealingWatchdog.onSoftReset((reason) => {
+      log('[RootLayout] Executing Soft UI Reset:', reason);
+      setSoftResetKey((k) => k + 1);
+    });
+
+    const unsubBypass = SelfHealingWatchdog.onBypassLoading(() => {
       SplashScreen.hideAsync().catch(() => {});
     });
 
@@ -648,6 +705,8 @@ export default function RootLayout() {
         .catch((e) => logError('Notification permission error:', e));
     });
     return () => {
+      unsubReset();
+      unsubBypass();
       task.cancel();
     };
   }, []);
@@ -655,10 +714,14 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <RootErrorBoundary>
-          <AuthProvider>
-            <AuthGuard>
-              <View style={[styles.appContainer, isTransparentOverlay && { backgroundColor: 'transparent' }]}>
+        <SelfHealingErrorBoundary name="RootApp">
+          <RootErrorBoundary>
+            <AuthProvider>
+              <AuthGuard>
+                <View
+                  key={`root-shell-${softResetKey}`}
+                  style={[styles.appContainer, isTransparentOverlay && { backgroundColor: 'transparent' }]}
+                >
                 <View style={[styles.appContent, isTransparentOverlay && { backgroundColor: 'transparent' }]}>
                   <Stack
                     screenOptions={{
@@ -770,9 +833,10 @@ export default function RootLayout() {
           <StatusBar style="dark" />
           <Toast config={customToastConfig} topOffset={Platform.OS === 'ios' ? 55 : 45} />
         </RootErrorBoundary>
-      </SafeAreaProvider>
-    </GestureHandlerRootView>
-  );
+      </SelfHealingErrorBoundary>
+    </SafeAreaProvider>
+  </GestureHandlerRootView>
+);
 }
 
 const styles = StyleSheet.create({

@@ -79,6 +79,12 @@ export async function runBackgroundMigrations(userId?: string): Promise<boolean>
     const lastVersion = await AsyncStorage.getItem(LAST_INSTALLED_VERSION_KEY);
     const isVersionUpgrade = lastVersion !== `${version}_${build}`;
 
+    if (!isVersionUpgrade) {
+      log('[Migration] Version up-to-date, skipping migrations on normal launch/resume.');
+      updateStatus('Ready', 1, false);
+      return true;
+    }
+
     // Only show full progress overlay for genuine app version upgrades that take > 2000ms
     const overlayTimer = setTimeout(() => {
       if (isVersionUpgrade && currentMigrationStatus.inProgress) {

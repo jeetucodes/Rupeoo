@@ -33,6 +33,7 @@ import {
   getDailyReportTemplateKey,
 } from './rules';
 import { warn, log } from '@/lib/logger';
+import { createNotification } from '@/lib/database';
 
 export { isQuietWindow, parseTimeString };
 
@@ -292,6 +293,13 @@ export async function triggerBudgetAlertIfNeeded(
           },
           trigger: null, // Instant
         });
+        createNotification(userId, {
+          id: `budget_over_${dateStr}`,
+          title: resolved.title,
+          message: resolved.body,
+          type: 'budget',
+          source: 'budget_over',
+        }).catch(() => {});
         log('[Notifications] Fired instant budget_over alert.');
         return;
       }
@@ -324,6 +332,13 @@ export async function triggerBudgetAlertIfNeeded(
           },
           trigger: null, // Instant
         });
+        createNotification(userId, {
+          id: `budget_80_${dateStr}`,
+          title: resolved.title,
+          message: resolved.body,
+          type: 'budget',
+          source: 'budget_80',
+        }).catch(() => {});
         log('[Notifications] Fired instant budget_80 alert.');
       }
     }
@@ -402,6 +417,13 @@ export async function sendAutoAddedTransactionNotification(params: {
       },
       trigger: null,
     });
+    createNotification(params.userId, {
+      id: `tx_added_${params.transactionId}`,
+      title: resolved.title,
+      message: resolved.body,
+      type: 'system',
+      source: 'auto_add',
+    }).catch(() => {});
     log(`[Notifications] Sent auto-added transaction notification: ${params.transactionId}`);
   } catch (err) {
     warn('[Notifications] Error sending auto-added transaction notification:', err);
@@ -458,6 +480,13 @@ export async function sendPendingInboxNotification(params: {
       },
       trigger: null,
     });
+    createNotification(params.userId, {
+      id: `inbox_${params.pendingId}`,
+      title,
+      message: body,
+      type: 'reminder',
+      source: 'auto_add_inbox',
+    }).catch(() => {});
     log(`[Notifications] Sent pending inbox notification: ${params.pendingId}`);
   } catch (err) {
     warn('[Notifications] Error sending pending inbox notification:', err);

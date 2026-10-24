@@ -312,4 +312,56 @@ test('Notification System Unit Tests', async (t) => {
     assert.ok(txHi.body.includes('₹349.00'));
     assert.ok(txHi.body.includes('Swiggy'));
   });
+
+  // 16. In-App Notification 10-item cap & pruning simulation
+  await t.test('16. Notification inbox caps at 10 items and auto-prunes older alerts', () => {
+    const MAX_ITEMS = 10;
+    // Generate 18 simulated notifications over a chronological sequence
+    const generated = Array.from({ length: 18 }, (_, i) => ({
+      id: `notif_${i + 1}`,
+      title: `Alert ${i + 1}`,
+      message: `Message body for notification ${i + 1}`,
+      type: (i % 2 === 0 ? 'reminder' : 'system') as 'reminder' | 'system',
+      createdAt: new Date(Date.now() - (18 - i) * 60000).toISOString(),
+      isRead: false,
+    }));
+
+    // Sort descending (latest first)
+    const sorted = [...generated].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+
+    // Keep top 10
+    const kept = sorted.slice(0, MAX_ITEMS);
+    // Excess to prune
+    const excess = sorted.slice(MAX_ITEMS);
+
+    assert.strictEqual(kept.length, 10, 'Must strictly keep 10 notifications');
+    assert.strictEqual(excess.length, 8, '8 older notifications must be identified for pruning');
+    assert.strictEqual(kept[0].id, 'notif_18', 'Latest notification is notif_18');
+    assert.strictEqual(kept[9].id, 'notif_9', '10th notification is notif_9');
+    assert.ok(!kept.some(n => n.id === 'notif_1'), 'Oldest notification notif_1 must NOT be in kept list');
+  });
+
+  // 17. Every notification type (subh-saam, auto-add, budget) resolves properly for in-app inbox
+  await t.test('17. Subh-saam routines, auto-add, bills, and budget notifications produce valid inbox entries', () => {
+    const types: Array<{ key: any; placeholders: NotificationPlaceholders }> = [
+      { key: 'morning', placeholders: { name: 'Jeetu', budget: '₹1,500' } },
+      { key: 'lunch', placeholders: { name: 'Jeetu', spent: '₹200' } },
+      { key: 'teatime', placeholders: { name: 'Jeetu', spent: '₹350' } },
+      { key: 'evening', placeholders: { name: 'Jeetu' } },
+      { key: 'report_under', placeholders: { spent: '₹600', left: '₹900' } },
+      { key: 'report_over', placeholders: { spent: '₹1,800', over: '₹300' } },
+      { key: 'budget_80', placeholders: { category: 'Food', percent: '80%' } },
+      { key: 'budget_over', placeholders: { category: 'Shopping', percent: '100%' } },
+      { key: 'transaction_added', placeholders: { amount: '₹150.00', merchant: 'Chai Point' } },
+    ];
+
+    for (const item of types) {
+      const msg = resolveNotificationMessage(item.key, 'hinglish', item.placeholders);
+      assert.ok(msg.title && msg.title.trim().length > 0, `${item.key} must have non-empty title`);
+      assert.ok(msg.body && msg.body.trim().length > 0, `${item.key} must have non-empty body`);
+      assert.ok(!msg.body.includes('{') && !msg.body.includes('}'), `${item.key} placeholders must be replaced`);
+    }
+  });
 });

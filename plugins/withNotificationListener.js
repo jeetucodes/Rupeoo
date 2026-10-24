@@ -120,6 +120,33 @@ const withNotificationListener = (config) => {
           ],
         });
       }
+
+      // 1.3 Ensure notification icons and colors in meta-data
+      if (!application['meta-data']) {
+        application['meta-data'] = [];
+      }
+      const ensureMetaData = (name, resource) => {
+        const exists = application['meta-data'].some((m) => m.$ && m.$['android:name'] === name);
+        if (!exists) {
+          application['meta-data'].push({
+            $: { 'android:name': name, 'android:resource': resource },
+          });
+        }
+      };
+      ensureMetaData('expo.modules.notifications.default_notification_icon', '@drawable/notification_icon');
+      ensureMetaData('expo.modules.notifications.default_notification_color', '@color/notification_icon_color');
+      ensureMetaData('com.google.firebase.messaging.default_notification_icon', '@drawable/notification_icon');
+      ensureMetaData('com.google.firebase.messaging.default_notification_color', '@color/notification_icon_color');
+
+      // 1.4 Ensure MainActivity uses singleTask launchMode to prevent duplicate instances
+      if (application.activity) {
+        const mainActivity = application.activity.find(
+          (a) => a.$ && (a.$['android:name'] === '.MainActivity' || a.$['android:name'] === 'com.innovatexlabs.paisewaise.MainActivity')
+        );
+        if (mainActivity && mainActivity.$) {
+          mainActivity.$['android:launchMode'] = 'singleTask';
+        }
+      }
     }
 
     return config;
@@ -153,6 +180,10 @@ class RupeoNotificationListener : NotificationListenerService() {
 
     companion object {
         private const val TAG = "RupeoNotifListener"
+
+        @Volatile
+        var isConnected: Boolean = false
+            private set
 
         // Allowlisted package IDs for SMS apps and Indian UPI/Banking apps
         private val ALLOWLISTED_PACKAGES = setOf(
@@ -211,12 +242,20 @@ class RupeoNotificationListener : NotificationListenerService() {
 
     override fun onListenerConnected() {
         super.onListenerConnected()
+        isConnected = true
         Log.i(TAG, "RupeoNotificationListener connected successfully.")
     }
 
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
+        isConnected = false
         Log.w(TAG, "RupeoNotificationListener disconnected.")
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        isConnected = false
+        Log.i(TAG, "RupeoNotificationListener destroyed.")
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
@@ -398,8 +437,18 @@ class RupeoNotifModule(private val reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
+    fun isListenerConnected(promise: Promise) {
+        promise.resolve(RupeoNotificationListener.isConnected)
+    }
+
+    @ReactMethod
     fun requestRebind(promise: Promise) {
         try {
+            if (RupeoNotificationListener.isConnected) {
+                // Service is already connected and actively listening 24/7 - avoid duplicate binder churn
+                promise.resolve(true)
+                return
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 val componentName = ComponentName(reactContext, RupeoNotificationListener::class.java)
                 android.service.notification.NotificationListenerService.requestRebind(componentName)
