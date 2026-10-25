@@ -3,6 +3,7 @@ import { getAutoAddDatabase } from '@/features/autoAdd/sqliteStorage';
 import { getOfflineTransactions } from '@/lib/offlineSync';
 import { DaySpendingStats } from './types';
 import { warn } from '@/lib/logger';
+import { withTimeout } from '@/lib/safeStorage';
 
 export interface RawTransactionItem {
   id: string;
@@ -43,16 +44,17 @@ export async function computeDaySpendingStats(
   const { startMs, endMs, dateStr } = getLocalDayBoundaries(targetDate);
   const transactionsMap = new Map<string, RawTransactionItem>();
 
-  // 1. Fetch from SQLite auto_added_transactions (Native)
+  // 1. Fetch from SQLite auto_added_transactions (Native non-blocking)
   if (Platform.OS !== 'web') {
     try {
       const db = getAutoAddDatabase();
       if (db) {
-        const rows = db.getAllSync<any>(
+        const queryPromise = db.getAllAsync<any>(
           `SELECT id, amount, type, category, merchant, timestamp FROM auto_added_transactions 
            WHERE timestamp >= ? AND timestamp <= ?`,
           [startMs, endMs]
         );
+        const rows = await withTimeout(queryPromise, 1000, []);
         for (const r of rows) {
           transactionsMap.set(r.id, {
             id: r.id,

@@ -38,6 +38,7 @@ import {
   saveNotificationSettings,
   scheduleNext48h,
 } from '@/features/notifications';
+import { SelfHealingWatchdog } from '@/lib/selfHealing/SelfHealingWatchdog';
 
 export default function BudgetScreen() {
   const router = useRouter();
@@ -95,6 +96,7 @@ export default function BudgetScreen() {
       error('Error fetching budget data:', err);
     } finally {
       setLoading(false);
+      SelfHealingWatchdog.notifyScreenRendered('budget');
     }
   };
 

@@ -1,3 +1,4 @@
+import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth, db } from './firebase';
 import {
@@ -408,19 +409,21 @@ export async function insertTransaction(userId: string, tx: any, statementId?: n
     payload: txPayload,
   });
 
-  // 4. Background fire-and-forget sync to Firebase (debounced to protect battery/network)
-  triggerDebouncedSync(userId, 1500);
+  // 4. Foreground fire-and-forget sync & notification lookahead (only when app is active)
+  if (typeof AppState !== 'undefined' && AppState.currentState === 'active') {
+    triggerDebouncedSync(userId, 1500);
 
-  if ((tx.type || 'debit').toLowerCase() === 'debit') {
-    checkAndTriggerBudgetAlert(userId).catch(() => { });
-    import('@/features/notifications').then(({ triggerBudgetAlertIfNeeded, scheduleNext48h }) => {
-      triggerBudgetAlertIfNeeded(Number(tx.amount) || 0, userId).catch(() => { });
-      scheduleNext48h(userId).catch(() => { });
-    }).catch(() => { });
-  } else {
-    import('@/features/notifications').then(({ scheduleNext48h }) => {
-      scheduleNext48h(userId).catch(() => { });
-    }).catch(() => { });
+    if ((tx.type || 'debit').toLowerCase() === 'debit') {
+      checkAndTriggerBudgetAlert(userId).catch(() => { });
+      import('@/features/notifications').then(({ triggerBudgetAlertIfNeeded, scheduleNext48h }) => {
+        triggerBudgetAlertIfNeeded(Number(tx.amount) || 0, userId).catch(() => { });
+        scheduleNext48h(userId).catch(() => { });
+      }).catch(() => { });
+    } else {
+      import('@/features/notifications').then(({ scheduleNext48h }) => {
+        scheduleNext48h(userId).catch(() => { });
+      }).catch(() => { });
+    }
   }
 
     return txId;
@@ -505,12 +508,14 @@ export async function updateTransaction(userId: string, txId: string, txData: an
     payload: dataToUpdate,
   });
 
-  // 3. Background sync (debounced to protect battery/network)
-  triggerDebouncedSync(userId, 5000);
+  if (typeof AppState !== 'undefined' && AppState.currentState === 'active') {
+    // 3. Foreground sync (debounced to protect battery/network)
+    triggerDebouncedSync(userId, 5000);
 
-  import('@/features/notifications').then(({ scheduleNext48h }) => {
-    scheduleNext48h(userId).catch(() => {});
-  }).catch(() => {});
+    import('@/features/notifications').then(({ scheduleNext48h }) => {
+      scheduleNext48h(userId).catch(() => {});
+    }).catch(() => {});
+  }
   } finally {
     endWrite();
   }
@@ -842,12 +847,14 @@ export async function deleteTransaction(userId: string, txId: string) {
     targetId: txId,
   });
 
-  // 3. Background sync (debounced to protect battery/network)
-  triggerDebouncedSync(userId, 5000);
+  if (typeof AppState !== 'undefined' && AppState.currentState === 'active') {
+    // 3. Foreground sync (debounced to protect battery/network)
+    triggerDebouncedSync(userId, 5000);
 
-  import('@/features/notifications').then(({ scheduleNext48h }) => {
-    scheduleNext48h(userId).catch(() => {});
-  }).catch(() => {});
+    import('@/features/notifications').then(({ scheduleNext48h }) => {
+      scheduleNext48h(userId).catch(() => {});
+    }).catch(() => {});
+  }
   } finally {
     endWrite();
   }
@@ -1620,8 +1627,14 @@ function mapNotification(id: string, data: Record<string, any>, fallback?: Recor
 export const MAX_USER_NOTIFICATIONS_COUNT = 10;
 export const LOCAL_NOTIFICATIONS_STORAGE_KEY = '@rupeo_local_notifications_v1';
 
+let lastPruneTimestamp = 0;
+
 async function pruneOldNotifications(userId: string, excessDocs: { id: string; source?: string }[]) {
   if (!userId || !excessDocs || excessDocs.length === 0) return;
+  const now = Date.now();
+  if (now - lastPruneTimestamp < 30000) return; // Throttle pruning to at most once per 30s to prevent snapshot storm
+  lastPruneTimestamp = now;
+
   try {
     const batch = writeBatch(db);
     let count = 0;
@@ -1900,22 +1913,38 @@ export async function markNotificationsAsRead(userId: string) {
     }
     const batch = writeBatch(db);
     let count = 0;
+    const unreadDocIds = new Set<string>();
     snap.forEach(d => {
       if (!d.data().isRead) {
+        unreadDocIds.add(d.id);
         batch.set(doc(db, `users/${userId}/notifications`, d.id), { isRead: true }, { merge: true });
         count++;
       }
     });
 
-    // Also mark active admin notifications as read for this user in their history
+    // Also mark active admin notifications as read for this user, avoiding duplicate commits
     try {
       const adminSnap = await getDocs(
         query(collection(db, 'admin_notifications'), where('active', '==', true), limit(50))
       );
-      adminSnap.forEach(d => {
-        batch.set(doc(db, `users/${userId}/notifications`, d.id), { isRead: true, source: 'admin_notification' }, { merge: true });
-        count++;
-      });
+      if (!adminSnap.empty) {
+        const userHistorySnap = await getDocs(
+          query(collection(db, `users/${userId}/notifications`), limit(100))
+        );
+        const alreadyReadAdminIds = new Set<string>();
+        userHistorySnap.forEach(d => {
+          if (d.data().isRead === true) {
+            alreadyReadAdminIds.add(d.id);
+          }
+        });
+
+        adminSnap.forEach(d => {
+          if (!alreadyReadAdminIds.has(d.id) && !unreadDocIds.has(d.id)) {
+            batch.set(doc(db, `users/${userId}/notifications`, d.id), { isRead: true, source: 'admin_notification' }, { merge: true });
+            count++;
+          }
+        });
+      }
     } catch {
       // Intentional: ignore admin query issues if offline
     }

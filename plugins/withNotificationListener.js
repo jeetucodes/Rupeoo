@@ -339,7 +339,7 @@ class RupeoNotificationHeadlessService : HeadlessJsTaskService() {
         return HeadlessJsTaskConfig(
             "RupeoNotificationTask",
             Arguments.fromBundle(extras),
-            10000, // 10 seconds timeout
+            5000, // 5 seconds timeout (quick execute, parse & close)
             true   // allowedInForeground
         )
     }

@@ -8,6 +8,7 @@
 import { Platform } from 'react-native';
 import * as SQLite from 'expo-sqlite';
 import { warn, log } from '@/lib/logger';
+import { withTimeout } from '@/lib/safeStorage';
 
 let sqliteDbInstance: SQLite.SQLiteDatabase | null = null;
 
@@ -25,6 +26,24 @@ export function getAutoAddDatabase(): SQLite.SQLiteDatabase | null {
     }
   }
   return sqliteDbInstance;
+}
+
+/**
+ * Closes the SQLite database connection immediately and releases all locks.
+ * Must be called after background headless tasks finish and when the app enters background.
+ */
+export function closeAutoAddDatabase(): void {
+  if (Platform.OS === 'web') return;
+  if (sqliteDbInstance) {
+    try {
+      sqliteDbInstance.closeSync();
+      log('[SQLite] Database connection closed cleanly.');
+    } catch (err) {
+      warn('[SQLite] Error closing SQLite database:', err);
+    } finally {
+      sqliteDbInstance = null;
+    }
+  }
 }
 
 /**
@@ -48,12 +67,31 @@ export function withSqliteTimeout<T>(
   }
 }
 
+/**
+ * Non-blocking Asynchronous SQLite SafePool wrapper with strict 1000ms timeout
+ */
+export async function withSqliteTimeoutAsync<T>(
+  operation: (db: SQLite.SQLiteDatabase) => Promise<T>,
+  fallback: T,
+  timeoutMs: number = 1000
+): Promise<T> {
+  if (Platform.OS === 'web') return fallback;
+  try {
+    const db = getAutoAddDatabase();
+    if (!db) return fallback;
+    return await withTimeout(operation(db), timeoutMs, fallback);
+  } catch (err: any) {
+    warn(`[SQLite SafePool Async] Contention/error (${err?.message || 'unknown'}), auto-unlock fallback used:`, err);
+    return fallback;
+  }
+}
+
 function initDatabaseSchema(db: SQLite.SQLiteDatabase): void {
   try {
-    // Enable WAL (Write-Ahead Logging) and 5s busy timeout to allow non-blocking concurrent reads & background writes
+    // Enable WAL (Write-Ahead Logging) and strict 1000ms busy timeout to allow non-blocking concurrent reads & background writes
     db.execSync(`
       PRAGMA journal_mode = WAL;
-      PRAGMA busy_timeout = 5000;
+      PRAGMA busy_timeout = 1000;
       PRAGMA synchronous = NORMAL;
 
       CREATE TABLE IF NOT EXISTS auto_added_transactions (

@@ -32,6 +32,7 @@ import { useTranslation } from '@/lib/i18n';
 import { ConfirmDialogModal } from '@/components/confirm-dialog-modal';
 import Skeleton from '@/components/Skeleton';
 import { warn, error as logError } from '@/lib/logger';
+import { SelfHealingWatchdog } from '@/lib/selfHealing/SelfHealingWatchdog';
 
 type FilterTab = 'all' | 'unread' | 'budget' | 'tip';
 
@@ -60,6 +61,7 @@ export default function NotificationsScreen() {
     } finally {
       setLoading(false);
       setRefreshing(false);
+      SelfHealingWatchdog.notifyScreenRendered('notifications');
     }
   };
 
@@ -74,14 +76,16 @@ export default function NotificationsScreen() {
     return unsubscribe;
   }, [user]);
 
-  // Auto-mark notifications as read when screen is viewed
+  const hasAutoMarkedReadRef = React.useRef(false);
+
+  // Auto-mark notifications as read once per visit when unread notifications are present
   useEffect(() => {
-    if (!user?.uid || notifications.length === 0) return;
+    if (!user?.uid || notifications.length === 0 || hasAutoMarkedReadRef.current) return;
 
     const hasUnread = notifications.some(n => !n.isRead);
     if (!hasUnread) return;
 
-    // Small delay (800ms) so user can visibly see what was newly received before unread dots/pill clear
+    hasAutoMarkedReadRef.current = true;
     const timer = setTimeout(async () => {
       try {
         await markNotificationsAsRead(user.uid);
@@ -93,8 +97,6 @@ export default function NotificationsScreen() {
 
     return () => {
       clearTimeout(timer);
-      // If user navigates away before timer ends, mark as read immediately
-      markNotificationsAsRead(user.uid).catch(() => {});
     };
   }, [user?.uid, notifications]);
 
@@ -110,14 +112,8 @@ export default function NotificationsScreen() {
   useFocusEffect(
     React.useCallback(() => {
       refreshPermissionStatus();
-      if (user?.uid) {
-        // Auto mark read on screen focus
-        const focusTimer = setTimeout(() => {
-          markNotificationsAsRead(user.uid).catch(() => {});
-        }, 1200);
-        return () => clearTimeout(focusTimer);
-      }
-    }, [user?.uid])
+      hasAutoMarkedReadRef.current = false;
+    }, [])
   );
 
   const handleEnableNotifications = async () => {

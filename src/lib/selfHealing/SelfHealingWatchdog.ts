@@ -100,17 +100,20 @@ class SelfHealingWatchdogService {
     // 3. Start lightweight UI heartbeat monitor
     this.startHeartbeat();
 
-    // 4. Listen to AppState transitions for onResume / foreground watchdog
+    // 4. Listen to AppState transitions for onResume / foreground transitions
     getAppState()?.addEventListener?.('change', (nextState: string) => {
       const wasBackground = this.appState === 'background' || this.appState === 'inactive';
       this.appState = nextState;
 
       if (nextState === 'active' && wasBackground) {
-        log('[SelfHealingWatchdog] App resumed to foreground. Arming 1.5s resume watchdog.');
+        log('[SelfHealingWatchdog] App resumed to foreground. Heartbeat refreshed, disarming watchdog.');
         this.lastHeartbeatTick = Date.now();
-        this.armWatchdog('resume');
+        this.disarmWatchdog();
+        hideSplash();
+        this.startHeartbeat();
       } else if (nextState !== 'active') {
         this.disarmWatchdog();
+        this.stopHeartbeat();
       }
     });
 
@@ -251,6 +254,16 @@ class SelfHealingWatchdogService {
   }
 
   /**
+   * Called when any primary app screen (e.g. notifications, add, budget, daily report, transaction)
+   * renders, cleanly disarming the startup watchdog to avoid false-positive timeout recoveries.
+   */
+  public notifyScreenRendered(screenName: string = 'screen'): void {
+    this.isHomeRendered = true;
+    this.disarmWatchdog();
+    hideSplash();
+  }
+
+  /**
    * Triggers automatic healing when watchdog expires (>1.5s).
    * Bypasses hung loaders, force-renders cached state, and notifies listeners.
    */
@@ -366,6 +379,17 @@ class SelfHealingWatchdogService {
         this.triggerWatchdogRecovery('event_loop_stalled');
       }
     }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  /**
+   * Stops the UI thread heartbeat monitor when app is in the background
+   * to allow CPU to enter deep dormant sleep (0% CPU / battery).
+   */
+  public stopHeartbeat(): void {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
   }
 
   /**

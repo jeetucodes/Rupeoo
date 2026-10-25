@@ -63,9 +63,14 @@ async function hasDirtyChanges(userId: string): Promise<boolean> {
 }
 
 function startDirtyRetryLoop(userId: string) {
+  // Never start retry loops in background, headless, or dormant states
+  if (typeof AppState !== 'undefined' && AppState.currentState !== 'active') return;
   if (dirtyRetryTimer || !userId) return;
   dirtyRetryTimer = setInterval(async () => {
-    if (typeof AppState !== 'undefined' && AppState.currentState !== 'active') return;
+    if (typeof AppState !== 'undefined' && AppState.currentState !== 'active') {
+      stopDirtyRetryLoop();
+      return;
+    }
     const dirty = await hasDirtyChanges(userId);
     if (!dirty) {
       stopDirtyRetryLoop();
@@ -133,9 +138,11 @@ export async function syncNow(userId: string, force = false): Promise<boolean> {
     if (__DEV__) {
       metrics.totalSkipped++;
     }
-    const dirty = await hasDirtyChanges(userId);
-    if (dirty) {
-      startDirtyRetryLoop(userId);
+    if (typeof AppState !== 'undefined' && AppState.currentState === 'active') {
+      const dirty = await hasDirtyChanges(userId);
+      if (dirty) {
+        startDirtyRetryLoop(userId);
+      }
     }
     return false;
   }
@@ -170,11 +177,13 @@ export async function syncNow(userId: string, force = false): Promise<boolean> {
     }
     warn('[SyncEngine] Sync error caught:', err);
 
-    // Exponential backoff capped at 60 seconds
+    // Exponential backoff capped at 60 seconds (foreground active only)
     backoffDelayMs = Math.min(backoffDelayMs * 2, MAX_BACKOFF_MS);
-    const dirty = await hasDirtyChanges(userId);
-    if (dirty) {
-      startDirtyRetryLoop(userId);
+    if (typeof AppState !== 'undefined' && AppState.currentState === 'active') {
+      const dirty = await hasDirtyChanges(userId);
+      if (dirty) {
+        startDirtyRetryLoop(userId);
+      }
     }
     return false;
   } finally {
@@ -233,6 +242,7 @@ export function initSyncEngine(userId: string): () => void {
         });
       }, 2000);
     } else {
+      stopDirtyRetryLoop();
       if (resumeTimer) {
         clearTimeout(resumeTimer);
         resumeTimer = null;

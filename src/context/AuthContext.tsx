@@ -300,18 +300,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  // 2-second hard safety timeout: If auth hydration has not resolved within 2s,
-  // unblock UI to prevent white screen of death / freeze
+  // 1.5-second hard safety timeout: If auth hydration has not resolved within 1.5s,
+  // unblock UI to prevent white/black screen of death or freeze
   useEffect(() => {
     const timer = setTimeout(() => {
       setLoading((prev) => {
         if (prev) {
-          warn('[AuthContext] Auth hydration fallback timeout triggered (2s). Releasing loading state.');
+          warn('[AuthContext] Auth hydration fallback timeout triggered (1.5s). Releasing loading state.');
           return false;
         }
         return prev;
       });
-    }, 2000);
+    }, 1500);
     return () => clearTimeout(timer);
   }, []);
 

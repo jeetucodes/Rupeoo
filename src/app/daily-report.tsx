@@ -21,6 +21,7 @@ import { getNotificationSettings } from '@/features/notifications/settings';
 import { DaySpendingStats } from '@/features/notifications/types';
 import { getOfflineTransactions } from '@/lib/offlineSync';
 import CategoryIcon from '@/components/CategoryIcon';
+import { SelfHealingWatchdog } from '@/lib/selfHealing/SelfHealingWatchdog';
 
 interface DayTransaction {
   id: string;
@@ -100,6 +101,7 @@ export default function DailyReportScreen() {
     } finally {
       setLoading(false);
       setRefreshing(false);
+      SelfHealingWatchdog.notifyScreenRendered('daily_report');
     }
   }, [user?.displayName, user?.uid]);
 

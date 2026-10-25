@@ -36,6 +36,7 @@ import {
   markBillPaidInSQLite,
   insertNotifLog,
   updateTransactionInSQLite,
+  closeAutoAddDatabase,
 } from './sqliteStorage';
 import {
   insertTransaction,
@@ -65,7 +66,6 @@ import {
   sendAutoAddedTransactionNotification,
   sendPendingInboxNotification,
   triggerBudgetAlertIfNeeded,
-  scheduleNext48h,
 } from '@/features/notifications';
 import { formatCurrency } from '@/utils/formatCurrency';
 import { log, warn } from '@/lib/logger';
@@ -144,9 +144,21 @@ export async function setupAutoAddNotificationChannel(): Promise<void> {
 
 /**
  * Main headless task executor.
- * Wrapped entirely in try/catch with diagnostic logging to notif_log on every branch.
+ * Quick Execute, Parse & Close architecture:
+ * 1. Instantly wakes up on incoming Android OS notification intent.
+ * 2. Parses and persists to local database.
+ * 3. Immediately closes SQLite database connection and releases locks in finally.
+ * 4. Resolves promise so HeadlessJsTaskService releases WakeLock and process enters dormant sleep.
  */
 export async function handleNotificationTask(taskData: NotificationTaskPayload): Promise<void> {
+  try {
+    await processNotificationTask(taskData);
+  } finally {
+    closeAutoAddDatabase();
+  }
+}
+
+async function processNotificationTask(taskData: NotificationTaskPayload): Promise<void> {
   if (!taskData || !taskData.packageName) {
     insertNotifLog({
       timestamp: Date.now(),
@@ -502,30 +514,31 @@ export async function handleNotificationTask(taskData: NotificationTaskPayload):
         created_at: Date.now(),
       });
 
-      // Save to Rupeo main local database
-      insertTransaction(activeUserId, {
-        id: txId,
-        amount: parsed.amount,
-        type: 'debit',
-        category: finalCategory,
-        merchant_name: matchedBill.title,
-        description: formattedNote,
-        payment_mode: 'UPI',
-        paymentMode: 'UPI',
-        ref_no: parsed.refNo,
-        utr: parsed.refNo,
-        date: dateStr,
-        source: 'notification_listener',
-        sourceHash: notifHash,
-        billId: matchedBill.id,
-        importedAt: Date.now(),
-        sources: [initialSourceRecord],
-        accountLast4: parsed.accountLast4,
-      }).then(() => {
+      // Save to Rupeo main local database & await write to guarantee completion before DB close
+      try {
+        await insertTransaction(activeUserId, {
+          id: txId,
+          amount: parsed.amount,
+          type: 'debit',
+          category: finalCategory,
+          merchant_name: matchedBill.title,
+          description: formattedNote,
+          payment_mode: 'UPI',
+          paymentMode: 'UPI',
+          ref_no: parsed.refNo,
+          utr: parsed.refNo,
+          date: dateStr,
+          source: 'notification_listener',
+          sourceHash: notifHash,
+          billId: matchedBill.id,
+          importedAt: Date.now(),
+          sources: [initialSourceRecord],
+          accountLast4: parsed.accountLast4,
+        });
         registerUnmatchedTransaction(txId, incomingMatcherEvent).catch(() => {});
-      }).catch((err) => {
+      } catch (err) {
         warn('[HeadlessTask] Error inserting bill transaction into Rupeo database:', err);
-      });
+      }
 
       // Record for cross-channel deduplication
       await recordRecentPayment(
@@ -679,29 +692,30 @@ export async function handleNotificationTask(taskData: NotificationTaskPayload):
         created_at: Date.now(),
       });
 
-      // Save to Rupeo main local database
-      insertTransaction(activeUserId, {
-        id: txId,
-        amount: parsed.amount,
-        type: parsed.type === 'income' ? 'credit' : 'debit',
-        category: parsed.category,
-        merchant_name: merchantDisplay,
-        description: formattedNote,
-        payment_mode: 'UPI',
-        paymentMode: 'UPI',
-        ref_no: parsed.refNo,
-        utr: parsed.refNo,
-        date: dateStr,
-        source: 'notification_listener',
-        sourceHash: notifHash,
-        importedAt: Date.now(),
-        sources: [initialSourceRecord],
-        accountLast4: parsed.accountLast4,
-      }).then(() => {
+      // Save to Rupeo main local database & await write to guarantee completion before DB close
+      try {
+        await insertTransaction(activeUserId, {
+          id: txId,
+          amount: parsed.amount,
+          type: parsed.type === 'income' ? 'credit' : 'debit',
+          category: parsed.category,
+          merchant_name: merchantDisplay,
+          description: formattedNote,
+          payment_mode: 'UPI',
+          paymentMode: 'UPI',
+          ref_no: parsed.refNo,
+          utr: parsed.refNo,
+          date: dateStr,
+          source: 'notification_listener',
+          sourceHash: notifHash,
+          importedAt: Date.now(),
+          sources: [initialSourceRecord],
+          accountLast4: parsed.accountLast4,
+        });
         registerUnmatchedTransaction(txId, incomingMatcherEvent).catch(() => {});
-      }).catch((err) => {
+      } catch (err) {
         warn('[HeadlessTask] Error inserting transaction into Rupeo database:', err);
-      });
+      }
 
       // Record for cross-channel deduplication
       await recordRecentPayment(
@@ -737,8 +751,6 @@ export async function handleNotificationTask(taskData: NotificationTaskPayload):
         if (parsed.type === 'expense') {
           triggerBudgetAlertIfNeeded(parsed.amount, activeUserId).catch(() => {});
         }
-
-        scheduleNext48h(activeUserId).catch(() => {});
       } catch (notifErr) {
         warn('[HeadlessTask] Failed to post local notification:', notifErr);
       }

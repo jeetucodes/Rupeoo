@@ -134,18 +134,19 @@ export function useAutoAdd(): UseAutoAddReturn {
     };
   }, [refresh]);
 
-  // 30-second interval: automatically refreshes countdown & checks pause expiry
+  // 30-second interval: automatically refreshes countdown & checks pause expiry ONLY when pause is active
   useEffect(() => {
+    if (pausedUntil <= 0) return; // Completely dormant when not paused
+
     const timer = setInterval(() => {
-      if (pausedUntil > 0) {
-        if (Date.now() >= pausedUntil) {
-          // Pause period expired!
-          setPausedUntil(0);
-          notifyAutoAddListeners();
-        } else {
-          // Force re-render to update countdown label
-          setTick((t) => t + 1);
-        }
+      if (typeof AppState !== 'undefined' && AppState.currentState !== 'active') return;
+      if (Date.now() >= pausedUntil) {
+        // Pause period expired!
+        setPausedUntil(0);
+        notifyAutoAddListeners();
+      } else {
+        // Force re-render to update countdown label
+        setTick((t) => t + 1);
       }
     }, 30000);
     return () => clearInterval(timer);

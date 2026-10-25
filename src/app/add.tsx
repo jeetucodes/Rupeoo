@@ -239,6 +239,7 @@ export default function AddExpenseScreen() {
   useFocusEffect(
     useCallback(() => {
       isScreenFocusedRef.current = true;
+      SelfHealingWatchdog.notifyScreenRendered('add');
       if (isLowEndDevice()) {
         cursorOpacity.setValue(1);
         return;

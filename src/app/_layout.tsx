@@ -4,6 +4,13 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as SplashScreen from 'expo-splash-screen';
 
 SplashScreen.preventAutoHideAsync().catch(() => { });
+
+// Global fallback safety timer (max 1.5s): guarantees splash screen NEVER hangs indefinitely under any circumstances
+if (Platform.OS !== 'web') {
+  setTimeout(() => {
+    SplashScreen.hideAsync().catch(() => {});
+  }, 1500);
+}
 import {
   useColorScheme,
   View,
@@ -119,6 +126,14 @@ import {
   setupNotificationChannels,
   scheduleNext48h,
 } from '@/lib/notifications';
+import {
+  getNotificationTargetRoute,
+  setPendingNotificationRoute,
+  consumePendingNotificationRoute,
+  isNotificationResponseHandled,
+  markNotificationResponseHandled,
+} from '@/lib/notificationNavigation';
+import { closeAutoAddDatabase } from '@/features/autoAdd/sqliteStorage';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
@@ -160,10 +175,10 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    // Safety timer to prevent splash screen hanging
+    // Safety timer to prevent splash screen hanging (max 1.5s fallback)
     const timer = setTimeout(() => {
       SplashScreen.hideAsync().catch(() => { });
-    }, 3500);
+    }, 1500);
 
     if (!loading) {
       SplashScreen.hideAsync().catch(() => { });
@@ -221,23 +236,33 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     // Initialize single-flight, battery-friendly sync engine
     const stopSyncEngine = initSyncEngine(user.uid);
 
-    // Lifecycle triggers for local non-sync notifications & widget (deferred after interactions)
+    // Lifecycle triggers on resume: do NOT rebind 24/7 background listeners; throttle routines to background
     let resumeTask: any = null;
+    let lastResumeScheduleTime = 0;
     const appStateSub = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') {
-        resumeTask = InteractionManager.runAfterInteractions(() => {
-          scheduleNext48h(user.uid).catch(() => {});
-          if (Platform.OS === 'android') {
-            requestRebind().catch(() => {});
-            isListenerEnabled().catch(() => {});
-          }
-        });
+        const now = Date.now();
+        if (now - lastResumeScheduleTime > 4 * 60 * 60 * 1000) {
+          lastResumeScheduleTime = now;
+          resumeTask = setTimeout(() => {
+            InteractionManager.runAfterInteractions(() => {
+              scheduleNext48h(user.uid).catch(() => {});
+            });
+          }, 3000);
+        }
+      } else {
+        if (resumeTask) {
+          clearTimeout(resumeTask);
+          resumeTask = null;
+        }
+        // Release SQLite connection and locks immediately when leaving foreground
+        closeAutoAddDatabase();
       }
     });
 
     return () => {
       stopSyncEngine();
-      if (resumeTask?.cancel) resumeTask.cancel();
+      if (resumeTask) clearTimeout(resumeTask);
       appStateSub.remove();
     };
   }, [user?.uid]);
@@ -257,8 +282,32 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const handleNotificationResponse = (response: Notifications.NotificationResponse) => {
       if (!response) return;
-      const data = response?.notification?.request?.content?.data as any;
+      const notifId = response?.notification?.request?.identifier || '';
       const action = response.actionIdentifier;
+      const data = response?.notification?.request?.content?.data as any;
+      const responseDate = (response.notification as any)?.date || 0;
+      const dedupeKey = `${notifId}_${action}_${responseDate}`;
+
+      if (isNotificationResponseHandled(dedupeKey)) {
+        return;
+      }
+      markNotificationResponseHandled(dedupeKey);
+
+      // Disarm watchdog so entering non-dashboard screen doesn't cause false positive freeze reset
+      SelfHealingWatchdog.disarmWatchdog();
+      SplashScreen.hideAsync().catch(() => {});
+
+      const navigateToTarget = (route: string) => {
+        if (loading) {
+          setPendingNotificationRoute(route);
+        } else {
+          try {
+            router.push(route as any);
+          } catch {
+            setPendingNotificationRoute(route);
+          }
+        }
+      };
 
       // 1. Interactive Button Actions
       if (action === 'ADD_INBOX_ACTION') {
@@ -335,27 +384,27 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
       if (action === 'CHANGE_CATEGORY_ACTION') {
         if (data?.transactionId) {
-          router.push(`/transaction/${data.transactionId}?openCategory=true` as any);
+          navigateToTarget(`/transaction/${data.transactionId}?openCategory=true`);
         } else if (data?.pendingId) {
-          router.push('/pending-inbox');
+          navigateToTarget('/pending-inbox');
         } else {
-          router.push('/(tabs)/dashboard');
+          navigateToTarget('/(tabs)/dashboard');
         }
         return;
       }
 
       if (action === 'VIEW_DETAILS_ACTION') {
-        router.push('/daily-report');
+        navigateToTarget('/daily-report');
         return;
       }
 
       if (action === 'SEE_SPENDING_ACTION') {
-        router.push('/budget');
+        navigateToTarget('/budget');
         return;
       }
 
       if (action === 'ADD_EXPENSE_ACTION') {
-        router.push('/add');
+        navigateToTarget('/add');
         return;
       }
 
@@ -370,40 +419,8 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       }
 
       // 2. Notification Body Tap Navigation
-      const type = data?.type || data?.typeKey;
-      if (type === 'PENDING_INBOX_ALERT') {
-        router.push('/pending-inbox');
-      } else if (type === 'daily_report' || type === 'report' || data?.typeKey === 'daily_report') {
-        router.push('/daily-report');
-      } else if (
-        type === 'budget_over' ||
-        type === 'budget_80' ||
-        type === 'budget_alert' ||
-        type === 'budget'
-      ) {
-        router.push('/budget');
-      } else if (type === 'AUTO_ADD_TRANSACTION' || type === 'transaction_added') {
-        if (data?.transactionId) {
-          const shouldOpenCat = data?.category === 'Uncategorized';
-          router.push(`/transaction/${data.transactionId}${shouldOpenCat ? '?openCategory=true' : ''}` as any);
-        } else {
-          router.push('/(tabs)/dashboard');
-        }
-      } else if (
-        type === 'welcome_notification' ||
-        data?.route === '/add' ||
-        type === 'morning' ||
-        type === 'morning_with_budget' ||
-        type === 'lunch' ||
-        type === 'lunch_spent' ||
-        type === 'teatime' ||
-        type === 'evening' ||
-        type === 'reminder'
-      ) {
-        router.push('/add');
-      } else {
-        router.push('/notifications');
-      }
+      const targetRoute = getNotificationTargetRoute(data);
+      navigateToTarget(targetRoute);
     };
 
     // Check if app was opened from killed state by tapping notification
@@ -476,6 +493,15 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     if (loading) return;
 
     try {
+      // Check if a pending notification route exists that needs to be consumed
+      const pendingNotification = consumePendingNotificationRoute();
+      if (pendingNotification && user) {
+        SelfHealingWatchdog.disarmWatchdog();
+        SplashScreen.hideAsync().catch(() => {});
+        router.replace(pendingNotification as any);
+        return;
+      }
+
       const currentSegment = segments[0] as string | undefined;
       const isPublicRoute =
         !currentSegment ||
@@ -531,15 +557,27 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     }
   }, [user, loading, settings, segments]);
 
-  // Sync widgets on App foreground
+  // Sync widgets on App foreground (debounced and deferred after interactions)
   useEffect(() => {
+    let widgetTimer: any = null;
     const handleAppStateChange = (nextAppState: string) => {
       if (nextAppState === 'active' && user?.uid) {
-        syncWidgetWithTransactions(user.uid).catch(() => {});
+        if (widgetTimer) clearTimeout(widgetTimer);
+        widgetTimer = setTimeout(() => {
+          InteractionManager.runAfterInteractions(() => {
+            syncWidgetWithTransactions(user.uid).catch(() => {});
+          });
+        }, 1500);
+      } else if (widgetTimer) {
+        clearTimeout(widgetTimer);
+        widgetTimer = null;
       }
     };
     const sub = AppState.addEventListener('change', handleAppStateChange);
-    return () => sub.remove();
+    return () => {
+      if (widgetTimer) clearTimeout(widgetTimer);
+      sub.remove();
+    };
   }, [user?.uid]);
 
   useEffect(() => {
@@ -592,6 +630,10 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   if (loading || (migrationStatus?.needsProgressOverlay && migrationStatus.inProgress)) {
     if (startupTimeout) {
       SplashScreen.hideAsync().catch(() => {});
+      // If user session is already present, render cached Home screen immediately
+      if (user) {
+        return <>{children}</>;
+      }
       return (
         <StartupRecoveryScreen
           onRetry={() => {
