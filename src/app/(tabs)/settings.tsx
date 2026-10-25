@@ -1126,7 +1126,7 @@ export default function SettingsScreen() {
         iconBg: '#ECFDF5',
         iconColor: '#059669',
         action: () => router.push('/settings/about'),
-        keywords: ['about', 'version', 'rupeo', 'info', 'v2.2.1', 'developer'],
+        keywords: ['about', 'version', 'rupeo', 'info', `v${APP_VERSION}`, 'developer'],
       },
       {
         id: 'logout',

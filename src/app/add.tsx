@@ -32,6 +32,7 @@ import Toast from 'react-native-toast-message';
 import {
   insertTransaction,
   getAllTransactions,
+  getOfflineTransactions,
   getUserCategories,
   addCustomCategory,
   CategoryItem,
@@ -704,7 +705,7 @@ export default function AddExpenseScreen() {
       try {
         const alreadyPrompted = await hasUserBeenPromptedForReview(user.uid);
         if (!alreadyPrompted) {
-          const existingTxs = await getAllTransactions(user.uid);
+          const existingTxs = await getOfflineTransactions(user.uid);
           isFirstTransaction = !existingTxs || existingTxs.length === 0;
         }
       } catch (reviewErr) {

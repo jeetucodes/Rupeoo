@@ -36,6 +36,7 @@ import {
   RemoteTransaction,
   normalizePaymentMode,
   validateRemotePayload,
+  parseAmount,
 } from './dataMinimization';
 import {
   getOfflineTransactions,
@@ -681,7 +682,8 @@ export interface PushResult {
 function isValidLocalRow(tx: any): boolean {
   if (!tx || typeof tx !== 'object') return false;
   if (!tx.id || typeof tx.id !== 'string') return false;
-  if (typeof tx.amount !== 'number' || isNaN(tx.amount) || tx.amount < 0) return false;
+  const amt = parseAmount(tx.amount);
+  if (amt < 0) return false;
   if (!tx.date || typeof tx.date !== 'string') return false;
   return true;
 }

@@ -252,5 +252,59 @@ Paid Rs. 20.00 to CHAI POINT on A/C *9876 via UPI/629584729104.`;
     assert.strictEqual(restored.userNote, 'Auto rickshaw ride');
     assert.strictEqual(restored.note, 'Auto rickshaw ride');
   });
+
+  await t.test('12. parseAmount safely handles numbers, strings with commas/currency, and fallbacks', async () => {
+    const { parseAmount } = await import('../dataMinimization.ts');
+    assert.strictEqual(parseAmount(1200), 1200);
+    assert.strictEqual(parseAmount('1,500.50'), 1500.5);
+    assert.strictEqual(parseAmount('₹ 2,000'), 2000);
+    assert.strictEqual(parseAmount(' -450 '), 450);
+    assert.strictEqual(parseAmount(null), 0);
+    assert.strictEqual(parseAmount(undefined), 0);
+    assert.strictEqual(parseAmount('abc'), 0);
+  });
+
+  await t.test('13. fromRemote NEVER overwrites a valid local transaction amount with 0 or missing remote amount', () => {
+    const local = {
+      id: 'tx_keep_amount',
+      amount: 1500,
+      type: 'debit',
+      category: 'Rent',
+      date: '2026-10-25',
+      merchant_name: 'Landlord',
+    };
+
+    // Remote doc missing amount or having 0
+    const remoteWithZero = {
+      id: 'tx_keep_amount',
+      amount: 0,
+      type: 'debit',
+      category: 'Rent',
+      date: '2026-10-25',
+    };
+    const restoredZero = fromRemote(remoteWithZero, local);
+    assert.strictEqual(restoredZero.amount, 1500, 'Must preserve local amount 1500 when remote is 0');
+
+    const remoteMissingAmt = {
+      id: 'tx_keep_amount',
+      type: 'debit',
+      category: 'Rent',
+      date: '2026-10-25',
+    };
+    const restoredMissing = fromRemote(remoteMissingAmt, local);
+    assert.strictEqual(restoredMissing.amount, 1500, 'Must preserve local amount 1500 when remote is missing');
+  });
+
+  await t.test('14. toRemote correctly parses string and formatted amounts without turning them into 0', () => {
+    const txWithFormattedAmount = {
+      id: 'tx_formatted_amt',
+      amount: '2,500.00',
+      type: 'debit',
+      category: 'Shopping',
+      date: '2026-10-25',
+    };
+    const remote = toRemote(txWithFormattedAmount);
+    assert.strictEqual(remote.amount, 2500, 'toRemote must parse formatted string amount 2,500.00 into number 2500');
+  });
 });
 

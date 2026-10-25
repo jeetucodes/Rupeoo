@@ -168,6 +168,24 @@ function normalizeDateString(dateStr?: string | null): string {
 }
 
 /**
+ * Safely parses an amount value into a positive finite number.
+ * Handles numbers, strings with commas (e.g. '1,500.50'), currency symbols (₹, $), spaces, etc.
+ */
+export function parseAmount(val: any): number {
+  if (typeof val === 'number') {
+    return !isNaN(val) && isFinite(val) ? Math.abs(val) : 0;
+  }
+  if (!val) return 0;
+  if (typeof val === 'string') {
+    const clean = val.replace(/[^0-9.-]/g, '');
+    if (!clean) return 0;
+    const num = parseFloat(clean);
+    return !isNaN(num) && isFinite(num) ? Math.abs(num) : 0;
+  }
+  return 0;
+}
+
+/**
  * Canonical toRemote mapper.
  * Transforms any internal transaction object into a strictly minimized RemoteTransaction.
  * Under NO circumstances will forbidden keys or un-sanitized strings pass through.
@@ -182,7 +200,8 @@ export function toRemote(rawTx: Record<string, any>): RemoteTransaction {
     throw new Error('Transaction must have an id before syncing to remote');
   }
 
-  const amount = Math.abs(Number(rawTx.amount) || 0);
+  const rawAmt = rawTx.amount !== undefined ? rawTx.amount : (rawTx.amt !== undefined ? rawTx.amt : rawTx.rawAmount);
+  const amount = parseAmount(rawAmt);
 
   const rawType = String(rawTx.type || 'debit').toLowerCase();
   const type: 'debit' | 'credit' = rawType === 'credit' || rawType === 'income' ? 'credit' : 'debit';
@@ -261,7 +280,7 @@ export function toRemote(rawTx: Record<string, any>): RemoteTransaction {
  * Canonical fromRemote mapper.
  * Restores a remote Firestore document into local representation, adhering to:
  * - Missing remote paymentMode -> "unknown", never silently "cash"
- * - NEVER overwrite a good local value with a missing remote value
+ * - NEVER overwrite a good local value with a missing remote value (including amount!)
  * - Reads both userNote, description and note (for backwards compatibility)
  * - Restores payee name into both merchant_name and payee
  * - Preserves on-device only originalMessage if present in local record
@@ -275,7 +294,33 @@ export function fromRemote(
   }
 
   const id = String(remoteDoc.id || '').trim();
-  const amount = Number(remoteDoc.amount) || 0;
+
+  // Resolve amount safely:
+  // 1. Try remote document amount (with aliases)
+  const rawRemoteAmt =
+    remoteDoc.amount !== undefined
+      ? remoteDoc.amount
+      : (remoteDoc.amt !== undefined ? remoteDoc.amt : remoteDoc.rawAmount);
+  const parsedRemoteAmt = parseAmount(rawRemoteAmt);
+
+  // 2. Try local existing amount (with aliases)
+  const rawLocalAmt =
+    localExisting?.amount !== undefined
+      ? localExisting.amount
+      : (localExisting?.amt !== undefined ? localExisting.amt : localExisting?.rawAmount);
+  const parsedLocalAmt = parseAmount(rawLocalAmt);
+
+  // 3. Selection:
+  // If remote has valid positive amount, use it.
+  // If remote amount is 0/missing but local existing has a valid positive amount, PRESERVE local amount!
+  let amount = 0;
+  if (parsedRemoteAmt > 0) {
+    amount = parsedRemoteAmt;
+  } else if (parsedLocalAmt > 0) {
+    amount = parsedLocalAmt;
+  } else {
+    amount = parsedRemoteAmt;
+  }
   const type = String(remoteDoc.type || 'debit').toLowerCase();
   const category = remoteDoc.category || 'Others';
   const date = normalizeDateString(remoteDoc.date);

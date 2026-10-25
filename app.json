@@ -2,7 +2,7 @@
   "expo": {
     "name": "Rupeo",
     "slug": "PaiseWaise",
-    "version": "2.2.1",
+    "version": "2.2.2",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "rupeo",
@@ -14,7 +14,7 @@
     "ios": {
       "icon": "./assets/images/icon.png",
       "bundleIdentifier": "com.innovatexlabs.paisewaise",
-      "buildNumber": "38",
+      "buildNumber": "40",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSContactsUsageDescription": "Rupeo needs access to your contacts to quickly add friends and track loans.",
@@ -27,7 +27,7 @@
         "backgroundColor": "#0F0F11",
         "foregroundImage": "./assets/images/icon.png"
       },
-      "versionCode": 39,
+      "versionCode": 40,
       "permissions": [
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.VIBRATE",

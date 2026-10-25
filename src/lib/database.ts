@@ -33,7 +33,7 @@ import {
   syncRemoteTransactions,
   checkIsOnline,
 } from './offlineSync';
-import { toRemote, fromRemote, normalizePaymentMode, formatPaymentModeDisplay } from './dataMinimization';
+import { toRemote, fromRemote, normalizePaymentMode, formatPaymentModeDisplay, parseAmount } from './dataMinimization';
 import { isCloudSyncEnabled, pullFromCloud, pullRemainingHistoryFromCloud, uploadLocalDataToCloud } from './cloudSync';
 export { pullRemainingHistoryFromCloud };
 import { syncWidgetWithTransactions } from './widgetSync';
@@ -311,6 +311,9 @@ export async function insertTransaction(userId: string, tx: any, statementId?: n
     payment_mode = 'upi';
   }
 
+  const rawAmt = tx.amount !== undefined ? tx.amount : (tx.amt !== undefined ? tx.amt : tx.rawAmount);
+  const cleanAmount = parseAmount(rawAmt);
+
   const userNote = tx.userNote || tx.user_note || tx.description || tx.note || null;
   const originalMessage = tx.originalMessage || tx.rawText || null;
   const nowMs = Date.now();
@@ -320,7 +323,7 @@ export async function insertTransaction(userId: string, tx: any, statementId?: n
     id: txId,
     date: normalizeDate(tx.date),
     time: tx.time ? formatTime12Hour(tx.time) : currentTime12,
-    amount: Number(tx.amount) || 0,
+    amount: cleanAmount,
     type: (tx.type || 'debit').toLowerCase(),
     merchant_name: rawPayee,
     payee: rawPayee,
@@ -365,58 +368,63 @@ export async function insertTransaction(userId: string, tx: any, statementId?: n
     if (t?.id) txMap.set(t.id, t);
   }
 
-  // If local & memory cache were both completely empty, attempt remote fetch before saving
-  if (txMap.size === 0) {
-    try {
-      const isOnline = await checkIsOnline();
-      if (isOnline) {
-        const q = query(collection(db, `users/${userId}/transactions`), orderBy('date', 'desc'), limit(100));
-        let snap;
-        try {
-          snap = await getDocs(q);
-        } catch {
-          snap = await getDocs(query(collection(db, `users/${userId}/transactions`), limit(100)));
-        }
-        for (const d of snap.docs) {
-          txMap.set(d.id, fromRemote({ id: d.id, ...d.data() }));
-        }
-      }
-    } catch {
-      // Intentional: offline fallback to local persistent cache
-    }
-  }
-
   // If transaction with deterministic ID already exists, return existing ID without duplicate write
   if (txMap.has(txId)) {
     return txId;
   }
 
-  // Add the newly created transaction
+  // 3. LOCAL-FIRST SAVE: Immediately save to local persistent storage (AsyncStorage + SQLite) and memory cache
   txMap.set(txId, txPayload);
 
   const updatedLocal = sortTransactionsRecentFirst(Array.from(txMap.values()));
-  await saveOfflineTransactions(userId, updatedLocal);
+  // immediate = true guarantees immediate disk write without 400ms debounce
+  await saveOfflineTransactions(userId, updatedLocal, true);
   memoryCache.transactions.set(userId, { data: updatedLocal, timestamp: Date.now() });
+
+  // Save to SQLite locally for offline-first resilience
+  try {
+    const { saveTransactionToSQLite } = require('../features/autoAdd/sqliteStorage.ts');
+    saveTransactionToSQLite({
+      id: txId,
+      amount: cleanAmount,
+      type: txPayload.type,
+      merchant: txPayload.merchant_name,
+      category: txPayload.category,
+      timestamp: txPayload.created_at,
+      channel: txPayload.payment_mode,
+      status: 'pending',
+      userNote: txPayload.userNote,
+      payment_mode: txPayload.payment_mode,
+      updatedAt: txPayload.updatedAt,
+      deleted: 0,
+      userId,
+      created_at: txPayload.created_at,
+    });
+  } catch {
+    // Non-blocking SQLite write
+  }
+
+  // 4. Notify UI listeners immediately so UI updates with exact amount in 0ms!
   notifyTransactionsListeners(updatedLocal);
 
   // Sync with Android widget
   syncWidgetWithTransactions(userId, updatedLocal).catch(() => { });
 
-  // 3. Queue offline sync action for Firebase
+  // 5. CLOUD QUEUE & SYNC: Queue offline sync action for Firebase
   await enqueueSyncAction(userId, {
     type: 'ADD_TRANSACTION',
     targetId: txId,
     payload: txPayload,
   });
 
-  // 4. Foreground fire-and-forget sync & notification lookahead (only when app is active)
+  // 6. Foreground fire-and-forget sync & notification lookahead (only when app is active)
   if (typeof AppState !== 'undefined' && AppState.currentState === 'active') {
     triggerDebouncedSync(userId, 1500);
 
     if ((tx.type || 'debit').toLowerCase() === 'debit') {
       checkAndTriggerBudgetAlert(userId).catch(() => { });
       import('@/features/notifications').then(({ triggerBudgetAlertIfNeeded, scheduleNext48h }) => {
-        triggerBudgetAlertIfNeeded(Number(tx.amount) || 0, userId).catch(() => { });
+        triggerBudgetAlertIfNeeded(cleanAmount, userId).catch(() => { });
         scheduleNext48h(userId).catch(() => { });
       }).catch(() => { });
     } else {
@@ -444,7 +452,10 @@ export async function updateTransaction(userId: string, txId: string, txData: an
 
   if (txData.date !== undefined) dataToUpdate.date = normalizeDate(txData.date);
   if (txData.time !== undefined) dataToUpdate.time = txData.time;
-  if (txData.amount !== undefined) dataToUpdate.amount = Number(txData.amount) || 0;
+  if (txData.amount !== undefined || txData.amt !== undefined) {
+    const rawAmt = txData.amount !== undefined ? txData.amount : txData.amt;
+    dataToUpdate.amount = parseAmount(rawAmt);
+  }
   if (txData.type !== undefined) dataToUpdate.type = (txData.type || 'debit').toLowerCase();
   if (txData.merchant_name !== undefined || txData.payee !== undefined) {
     const val = txData.merchant_name !== undefined ? txData.merchant_name : txData.payee;
@@ -488,7 +499,7 @@ export async function updateTransaction(userId: string, txId: string, txData: an
   }
 
   const updatedLocal = sortTransactionsRecentFirst(Array.from(txMap.values()));
-  await saveOfflineTransactions(userId, updatedLocal);
+  await saveOfflineTransactions(userId, updatedLocal, true);
   memoryCache.transactions.set(userId, { data: updatedLocal, timestamp: Date.now() });
   notifyTransactionsListeners(updatedLocal);
 
@@ -570,7 +581,7 @@ export async function insertTransactionsBatch(
 
   for (const tx of transactions) {
     const normDate = normalizeDate(tx.date);
-    const amount = Number(tx.amount) || 0;
+    const amount = parseAmount(tx.amount);
     const ref = tx.ref_no || tx.utr;
 
     const isDuplicate = existingTxs.some((e: any) => {
@@ -657,7 +668,7 @@ export async function insertTransactionsBatch(
   // Ensure offline local storage and memory cache are immediately updated with all imported records
   if (newLocalTxs.length > 0) {
     const combined = sortTransactionsRecentFirst([...existingTxs, ...newLocalTxs]);
-    await saveOfflineTransactions(userId, combined);
+    await saveOfflineTransactions(userId, combined, true);
     memoryCache.transactions.set(userId, { data: combined, timestamp: Date.now() });
     notifyTransactionsListeners(combined);
   } else {
