@@ -15,12 +15,14 @@
       }
     },
     "production": {
+      "credentialsSource": "local",
       "android": {
         "buildType": "app-bundle",
         "autoIncrement": false
       }
     },
     "playstore": {
+      "credentialsSource": "local",
       "android": {
         "buildType": "app-bundle",
         "autoIncrement": false

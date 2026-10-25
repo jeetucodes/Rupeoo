@@ -279,10 +279,11 @@
     },
     "extra": {
       "router": {},
+      "notificationListenerEnabled": true,
       "eas": {
-        "projectId": "cb31241e-b1c9-4392-96a1-31db17645d8d"
+        "projectId": "ee85d637-f831-461b-ac14-651b7b9bd30b"
       }
     },
-    "owner": "jeetukeapp"
+    "owner": "jeetucodesapps"
   }
 }

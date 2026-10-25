@@ -19,4 +19,6 @@ ios/
 *service-account*.json
 service-account.json
 credentials.json
+*.keystore
+*.jks
 assets/images/tabIcons/
