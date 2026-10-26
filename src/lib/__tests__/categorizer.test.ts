@@ -135,16 +135,18 @@ describe('Layered Explainable Categorizer Suite', () => {
 
   // 3. History Voting Thresholds
   describe('History Voting Logic', () => {
-    it('requires >= 2 consistent entries to classify via history', () => {
-      // Only 1 entry -> should NOT use history
+    it('remembers merchant category even after setting it once (1 entry memory)', () => {
+      // 1 past categorized entry -> remembers and auto-assigns!
       const resSingle = classifyTransaction('Gupta General Trading', {
         historyTransactions: [
           { merchant_name: 'Gupta General Trading', category: 'Shopping' },
         ],
       });
-      assert.notStrictEqual(resSingle.source, 'history');
+      assert.strictEqual(resSingle.category, 'Shopping');
+      assert.strictEqual(resSingle.source, 'history');
+      assert.strictEqual(resSingle.isAutoAssigned, true);
 
-      // 2 consistent entries -> qualifies as history!
+      // 2 consistent entries -> qualifies as history with high confidence!
       const resTwo = classifyTransaction('Gupta General Trading', {
         historyTransactions: [
           { merchant_name: 'Gupta General Trading', category: 'Shopping' },
@@ -153,6 +155,7 @@ describe('Layered Explainable Categorizer Suite', () => {
       });
       assert.strictEqual(resTwo.category, 'Shopping');
       assert.strictEqual(resTwo.source, 'history');
+      assert.ok(resTwo.confidence >= 0.92);
     });
 
     it('does not match history if categories are split (1 vs 1 tie)', () => {
@@ -170,10 +173,31 @@ describe('Layered Explainable Categorizer Suite', () => {
         historyTransactions: [
           { merchant_name: 'Gupta General Trading', category: 'Uncategorized' },
           { merchant_name: 'Gupta General Trading', category: 'Others' },
-          { merchant_name: 'Gupta General Trading', category: 'Shopping' },
         ],
       });
       assert.notStrictEqual(res.source, 'history');
+    });
+
+    it('auto-categorizes Indian shops like Vaibhav Dairy and Arun Tea Stall', () => {
+      const dairy1 = classifyTransaction('Vaibhav Dairy');
+      assert.strictEqual(dairy1.category, 'Groceries');
+      assert.strictEqual(dairy1.isAutoAssigned, true);
+
+      const dairyCompound = classifyTransaction('vaibhavdairy');
+      assert.strictEqual(dairyCompound.category, 'Groceries');
+      assert.strictEqual(dairyCompound.isAutoAssigned, true);
+
+      const tea1 = classifyTransaction('Arun Tea Stall');
+      assert.strictEqual(tea1.category, 'Food');
+      assert.strictEqual(tea1.isAutoAssigned, true);
+
+      const teaCompound = classifyTransaction('arunteastall');
+      assert.strictEqual(teaCompound.category, 'Food');
+      assert.strictEqual(teaCompound.isAutoAssigned, true);
+
+      const teaCleaned = classifyTransaction('Arun Tea Stall Successful For Rs 20');
+      assert.strictEqual(teaCleaned.category, 'Food');
+      assert.strictEqual(teaCleaned.isAutoAssigned, true);
     });
   });
 

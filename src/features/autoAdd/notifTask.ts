@@ -37,6 +37,7 @@ import {
   insertNotifLog,
   updateTransactionInSQLite,
   closeAutoAddDatabase,
+  getPastCategoryForMerchantFromSQLite,
 } from './sqliteStorage';
 import {
   insertTransaction,
@@ -271,12 +272,23 @@ async function processNotificationTask(taskData: NotificationTaskPayload): Promi
     }
     await markNotifProcessed(notifHash);
 
-    // 4. Parse with existing high-accuracy parseAlert
     const friendlySender = getFriendlySenderName(packageName, title);
     const parsed: ParsedAlert = parseAlert(fullText, {
       sender: friendlySender,
       timestamp: postTime,
     });
+
+    // Check remembered category from previous transactions or user rules
+    if (!parsed.category || parsed.category === 'Uncategorized' || parsed.category === 'Others') {
+      const cleanM = parsed.merchantNormalized || parsed.merchant;
+      if (cleanM) {
+        const rememberedCat = getPastCategoryForMerchantFromSQLite(cleanM);
+        if (rememberedCat && rememberedCat !== 'Uncategorized') {
+          parsed.category = rememberedCat;
+          parsed.confidence = 0.95;
+        }
+      }
+    }
 
     if (parsed.amount === null || parsed.amount <= 0 || parsed.isOtpOrPromo) {
       const reasonText = parsed.isOtpOrPromo

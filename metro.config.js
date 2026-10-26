@@ -6,7 +6,13 @@ config.resolver.assetExts.push('wasm');
 
 const originalResolveRequest = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform) => {
-  if (platform === 'web' && (moduleName === 'react-native-android-widget' || moduleName.startsWith('react-native-android-widget/'))) {
+  if (
+    platform === 'web' &&
+    (moduleName === 'react-native-android-widget' ||
+      moduleName.startsWith('react-native-android-widget/') ||
+      moduleName === 'sp-react-native-in-app-updates' ||
+      moduleName.startsWith('sp-react-native-in-app-updates/'))
+  ) {
     return {
       type: 'empty',
     };

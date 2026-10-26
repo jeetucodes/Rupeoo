@@ -749,6 +749,8 @@ export default function RootLayout() {
       })
       .catch((e) => logError('Database init error:', e));
 
+    import('@/lib/categorizer').then((m) => m.initUserRules().catch(() => {}));
+
     // Clear any stale migration lock left behind if app was previously killed
     AsyncStorage.removeItem('@rupeo_migration_in_progress').catch(() => {});
 

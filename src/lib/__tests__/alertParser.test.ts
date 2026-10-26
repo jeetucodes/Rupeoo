@@ -177,4 +177,69 @@ test('Alert Parser - Comprehensive Suite', async (t) => {
     const cat = categorizeTransaction('Myntra', 'card', 'expense', false, customRules);
     assert.strictEqual(cat, 'Gifts');
   });
+
+  await t.test('15. Received money from Kotak SMS and UPI apps is strictly classified as Income (credit)', () => {
+    // Exact user Kotak Bank SMS
+    const kotakSms = 'Received Rs.3000.00 in your Kotak Bank AC 0741 from AKASH on 26-10-26.UPI Ref:********3882';
+    const parsedKotak = parseAlert(kotakSms, { sender: 'BP-KOTAKB' });
+    assert.strictEqual(parsedKotak.amount, 3000);
+    assert.strictEqual(parsedKotak.type, 'income');
+    assert.strictEqual(parsedKotak.merchantNormalized, 'Akash');
+    assert.strictEqual(parsedKotak.category, 'Income');
+    assert.strictEqual(parsedKotak.accountLast4, '0741');
+    assert.strictEqual(parsedKotak.isOtpOrPromo, false);
+
+    // Notification title + body combined (e.g. "Akash paid you ₹3,000" + Kotak SMS body)
+    const combinedGpay = 'Akash paid you ₹3,000 Received Rs.3000.00 in your Kotak Bank AC 0741 from AKASH on 26-10-26.UPI Ref:********3882';
+    const parsedCombined = parseAlert(combinedGpay);
+    assert.strictEqual(parsedCombined.amount, 3000);
+    assert.strictEqual(parsedCombined.type, 'income');
+    assert.strictEqual(parsedCombined.category, 'Income');
+    assert.strictEqual(parsedCombined.merchantNormalized, 'Akash');
+
+    // Standalone UPI app notification: "AKASH paid you ₹3,000"
+    const paidYou = parseAlert('AKASH paid you ₹3,000');
+    assert.strictEqual(paidYou.amount, 3000);
+    assert.strictEqual(paidYou.type, 'income');
+    assert.strictEqual(paidYou.category, 'Income');
+    assert.strictEqual(paidYou.merchantNormalized, 'Akash');
+
+    // "Money sent to you by AKASH Rs 3000"
+    const sentToYou = parseAlert('Money sent to you by AKASH Rs 3000');
+    assert.strictEqual(sentToYou.amount, 3000);
+    assert.strictEqual(sentToYou.type, 'income');
+    assert.strictEqual(sentToYou.category, 'Income');
+    assert.strictEqual(sentToYou.merchantNormalized, 'Akash');
+
+    // Contrast with genuine outgoing expense: "Paid Rs 3000 to AKASH"
+    const paidToAkash = parseAlert('Paid Rs 3000 to AKASH from A/C 0741');
+    assert.strictEqual(paidToAkash.amount, 3000);
+    assert.strictEqual(paidToAkash.type, 'expense');
+    assert.strictEqual(paidToAkash.merchantNormalized, 'Akash');
+  });
+
+  await t.test('16. AutoPay setup, addition, cancellation, and deletion notifications are completely rejected', () => {
+    const testCases = [
+      'UPI AutoPay of Rs. 3000.00 has been set up successfully on your A/C XX0741',
+      'AutoPay set up for Rs. 499 towards NETFLIX',
+      'Mandate created for Rs. 5000 on account ending 0741',
+      'AutoPay deleted: Mandate for Rs. 199.00 has been deleted',
+      'Mandate for Rs. 1,000.00 has been cancelled successfully',
+      'Auto pay cancel: Mandate for Rs. 500 on account ending 1234 has been cancelled',
+      'Auto pay lgya Rs 500',
+      'Auto pay lagaya Rs 299 for Hotstar',
+      'Auto pay delete kiya Rs 199 mandate',
+      'eNACH mandate registered for Rs. 1500',
+      'SI set up successfully on your credit card for Rs. 1000',
+      'AutoPay mandate revoked for Rs. 1500.00',
+    ];
+
+    for (const text of testCases) {
+      const parsed = parseAlert(text);
+      assert.strictEqual(parsed.isOtpOrPromo, true, `Expected isOtpOrPromo=true for: "${text}"`);
+      assert.strictEqual(parsed.amount, null, `Expected amount=null for: "${text}"`);
+      assert.strictEqual(parsed.confidence, 0, `Expected confidence=0 for: "${text}"`);
+    }
+  });
 });
+

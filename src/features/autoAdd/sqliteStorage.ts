@@ -180,6 +180,13 @@ function initDatabaseSchema(db: SQLite.SQLiteDatabase): void {
         rawSnippet TEXT,
         created_at INTEGER NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS user_merchant_rules (
+        merchant_norm TEXT PRIMARY KEY,
+        category TEXT NOT NULL,
+        user_id TEXT,
+        updated_at INTEGER NOT NULL
+      );
     `);
 
     // Run safe migrations for existing tables
@@ -935,4 +942,113 @@ export function clearNotifLogs(): void {
     warn('[SQLite] Error clearing notif_log:', err);
   }
 }
+
+/**
+ * Saves a user merchant category rule to SQLite.
+ */
+export function saveUserRuleToSQLite(normalizedMerchant: string, category: string, userId?: string): void {
+  if (Platform.OS === 'web' || !normalizedMerchant || !category) return;
+  try {
+    const db = getAutoAddDatabase();
+    if (!db) return;
+    db.runSync(
+      `INSERT OR REPLACE INTO user_merchant_rules (merchant_norm, category, user_id, updated_at) VALUES (?, ?, ?, ?);`,
+      [normalizedMerchant.trim().toLowerCase(), category.trim(), userId || 'local', Date.now()]
+    );
+  } catch (err) {
+    warn('[SQLite] Error saving user merchant rule:', err);
+  }
+}
+
+/**
+ * Retrieves a single user rule category for a normalized merchant from SQLite.
+ */
+export function getUserRuleFromSQLite(normalizedMerchant: string): string | null {
+  if (Platform.OS === 'web' || !normalizedMerchant) return null;
+  try {
+    const db = getAutoAddDatabase();
+    if (!db) return null;
+    const norm = normalizedMerchant.trim().toLowerCase();
+    const row = db.getFirstSync<{ category: string }>(
+      `SELECT category FROM user_merchant_rules WHERE merchant_norm = ? LIMIT 1;`,
+      [norm]
+    );
+    return row?.category || null;
+  } catch (err) {
+    warn('[SQLite] Error querying user merchant rule:', err);
+    return null;
+  }
+}
+
+/**
+ * Retrieves all user merchant rules from SQLite.
+ */
+export function getAllUserRulesFromSQLite(): Record<string, string> {
+  const result: Record<string, string> = {};
+  if (Platform.OS === 'web') return result;
+  try {
+    const db = getAutoAddDatabase();
+    if (!db) return result;
+    const rows = db.getAllSync<{ merchant_norm: string; category: string }>(
+      `SELECT merchant_norm, category FROM user_merchant_rules;`
+    );
+    for (const r of rows) {
+      if (r.merchant_norm && r.category) {
+        result[r.merchant_norm] = r.category;
+      }
+    }
+  } catch (err) {
+    warn('[SQLite] Error querying all user merchant rules:', err);
+  }
+  return result;
+}
+
+/**
+ * Finds the remembered category for a merchant.
+ * Checks user_merchant_rules first, then past auto_added_transactions in SQLite.
+ */
+export function getPastCategoryForMerchantFromSQLite(merchantNormalized: string): string | null {
+  if (Platform.OS === 'web' || !merchantNormalized) return null;
+  try {
+    const db = getAutoAddDatabase();
+    if (!db) return null;
+    const norm = merchantNormalized.trim().toLowerCase();
+
+    // 1. Direct user rule match
+    const ruleRow = db.getFirstSync<{ category: string }>(
+      `SELECT category FROM user_merchant_rules WHERE merchant_norm = ? LIMIT 1;`,
+      [norm]
+    );
+    if (ruleRow?.category && ruleRow.category !== 'Uncategorized' && ruleRow.category !== 'Others') {
+      return ruleRow.category;
+    }
+
+    // 2. Partial/contains user rule match
+    const partialRuleRow = db.getFirstSync<{ category: string }>(
+      `SELECT category FROM user_merchant_rules WHERE ? LIKE '%' || merchant_norm || '%' OR merchant_norm LIKE '%' || ? || '%' LIMIT 1;`,
+      [norm, norm]
+    );
+    if (partialRuleRow?.category && partialRuleRow.category !== 'Uncategorized' && partialRuleRow.category !== 'Others') {
+      return partialRuleRow.category;
+    }
+
+    // 3. Past transaction match in auto_added_transactions
+    const txRow = db.getFirstSync<{ category: string }>(
+      `SELECT category FROM auto_added_transactions 
+       WHERE (LOWER(merchant) = ? OR LOWER(merchant) LIKE ? OR ? LIKE '%' || LOWER(merchant) || '%')
+         AND category IS NOT NULL 
+         AND category != 'Uncategorized' 
+         AND category != 'Others'
+       ORDER BY timestamp DESC LIMIT 1;`,
+      [norm, `%${norm}%`, norm]
+    );
+    if (txRow?.category && txRow.category !== 'Uncategorized' && txRow.category !== 'Others') {
+      return txRow.category;
+    }
+  } catch (err) {
+    warn('[SQLite] Error looking up past category for merchant:', err);
+  }
+  return null;
+}
+
 

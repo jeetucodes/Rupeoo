@@ -535,7 +535,17 @@ export async function updateTransaction(userId: string, txId: string, txData: an
   }
 
   if (txMap.has(txId)) {
-    txMap.set(txId, { ...txMap.get(txId), ...dataToUpdate });
+    const existing = txMap.get(txId);
+    const merged = { ...existing, ...dataToUpdate };
+    txMap.set(txId, merged);
+
+    // Automatically learn merchant category when user sets or updates it
+    if (merged.category && merged.category !== 'Uncategorized' && merged.category !== 'Others' && (merged.merchant_name || merged.payee)) {
+      try {
+        const { saveUserRule } = require('./categorizer.ts');
+        saveUserRule(merged.merchant_name || merged.payee, merged.category, userId).catch(() => {});
+      } catch {}
+    }
   }
 
   const updatedLocal = sortTransactionsRecentFirst(Array.from(txMap.values()));

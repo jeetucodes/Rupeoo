@@ -120,6 +120,19 @@ export function normalizeMerchant(rawMerchant: string | null | undefined): strin
   // Strip trailing "on <date>" if accidentally matched
   m = m.replace(/\s+on\s+\d{1,2}[-/\s]+[a-zA-Z0-9]+.*$/i, '');
 
+  // Strip trailing "for Rs X", "of Rs X", "Rs X", "INR X", "₹ X"
+  m = m.replace(/\s+(?:for\s+|of\s+)?(?:rs\.?|inr|₹)\s*[0-9,.]*.*$/i, '');
+  m = m.replace(/\s+(?:for|of)\s+[0-9,.]+(?:\s*(?:rs\.?|inr|₹))?.*$/i, '');
+
+  // Strip trailing transaction status / outcome words
+  m = m.replace(/\s+(?:successful(?:ly)?|completed|done|failed|debited|credited|declined|sent|paid|transfer(?:red)?).*$/i, '');
+
+  // Strip trailing "via/using/through/from/with"
+  m = m.replace(/\s+(?:via|using|through|from|with)\s+.*$/i, '');
+
+  // Strip trailing reference / UTR / RRN / A/C
+  m = m.replace(/\s+(?:ref(?:\s*no\.?)?|utr|rrn|txn(?:\s*id)?|upi\s*ref|a\/c|account)\b.*$/i, '');
+
   // Strip common corporate entity suffixes, but leave domain-specific keywords
   m = m.replace(/(?<!air\s+)\b(?:pvt\.?\s*ltd\.?|private\s+limited|limited|ltd\.?|llp|inc\.?|corp\.?|services|india|order|purchase|subscription|booking)\b/gi, ' ');
 
@@ -141,16 +154,44 @@ export function normalizeMerchant(rawMerchant: string | null | undefined): strin
   return tokens.join(' ');
 }
 
+const COMPOUND_KEYWORDS = [
+  'dairy', 'doodh', 'teastall', 'chaistall', 'chaiwala', 'teawala', 'kirana',
+  'kiranastore', 'sweetmart', 'mithaiwala', 'fastfood', 'foodcourt', 'bhojanalaya'
+];
+
 /**
  * Extracts discrete lower-case word tokens from normalized merchant name
  */
 export function getMerchantTokens(normalized: string): string[] {
   if (!normalized) return [];
-  return normalized
+  const rawTokens = normalized
     .toLowerCase()
     .split(/\s+/)
     .map(t => t.replace(/[^a-z0-9]/g, ''))
     .filter(t => t.length > 0);
+
+  const tokens: string[] = [];
+  for (const t of rawTokens) {
+    tokens.push(t);
+    for (const kw of COMPOUND_KEYWORDS) {
+      if (t.length > kw.length && (t.endsWith(kw) || t.startsWith(kw) || t.includes(kw))) {
+        if (kw === 'teastall') {
+          if (!tokens.includes('tea')) tokens.push('tea');
+          if (!tokens.includes('stall')) tokens.push('stall');
+        } else if (kw === 'chaistall') {
+          if (!tokens.includes('chai')) tokens.push('chai');
+          if (!tokens.includes('stall')) tokens.push('stall');
+        } else if (kw === 'kiranastore') {
+          if (!tokens.includes('kirana')) tokens.push('kirana');
+          if (!tokens.includes('store')) tokens.push('store');
+        } else {
+          if (!tokens.includes(kw)) tokens.push(kw);
+        }
+      }
+    }
+  }
+
+  return tokens;
 }
 
 // ---------------------------------------------------------------------------
@@ -428,7 +469,12 @@ export const KEYWORD_RULES: KeywordRule[] = [
       'restaurant', 'hotel', 'juice', 'sweets', 'sweet', 'mithai', 'bhojanalaya',
       'tiffin', 'canteen', 'kitchen', 'bistro', 'bar', 'pub', 'eatery', 'pizza',
       'burger', 'biryani', 'chai', 'tea', 'coffee', 'shawarma', 'rolls', 'dosa',
-      'idli', 'chole', 'samosa', 'paratha', 'momos', 'icecream', 'nashta', 'rasoi'
+      'idli', 'chole', 'samosa', 'paratha', 'momos', 'icecream', 'nashta', 'rasoi',
+      'stall', 'corner', 'tapri', 'thela', 'point', 'fastfood', 'foodcourt', 'food',
+      'dining', 'snack', 'snacks', 'refreshment', 'refreshments', 'mess', 'bhojan',
+      'bhojnalay', 'thali', 'namkeen', 'farsan', 'halwai', 'mithaiwala', 'chaiwala',
+      'teawala', 'cake', 'cakes', 'pastry', 'pastries', 'baker', 'kulfi', 'falooda',
+      'shake', 'shakes', 'sandwich', 'momo', 'panipuri', 'golgappa', 'poha', 'kachori', 'paan'
     ],
   },
   // Health & Medicine
@@ -437,7 +483,8 @@ export const KEYWORD_RULES: KeywordRule[] = [
     tokens: [
       'medical', 'medicals', 'pharmacy', 'clinic', 'hospital', 'chemist', 'pathology',
       'diagnostics', 'labs', 'doctor', 'healthcare', 'meds', 'dispensary', 'dental',
-      'eyecare', 'optical', 'opticals', 'druggist', 'ayurveda', 'homeopathy'
+      'eyecare', 'optical', 'opticals', 'druggist', 'ayurveda', 'homeopathy',
+      'dawa', 'dawakhana', 'medico', 'medicos', 'pharma', 'wellness'
     ],
   },
   // Lifestyle / Personal Care (Mapped to Shopping per app's category list)
@@ -446,7 +493,7 @@ export const KEYWORD_RULES: KeywordRule[] = [
     tokens: [
       'salon', 'saloon', 'studio', 'parlour', 'parlor', 'spa', 'barber', 'hair',
       'beauty', 'makeover', 'tattoo', 'boutique', 'tailor', 'fashion', 'jewellers',
-      'jeweller', 'jewellery', 'apparel', 'garments', 'footwear'
+      'jeweller', 'jewellery', 'apparel', 'garments', 'footwear', 'clothing', 'dresses'
     ],
   },
   // Fuel
@@ -462,7 +509,9 @@ export const KEYWORD_RULES: KeywordRule[] = [
     tokens: [
       'kirana', 'mart', 'supermarket', 'fresh', 'provision', 'provisions', 'bazaar',
       'bazar', 'hypermarket', 'dairy', 'doodh', 'vegetables', 'fruits', 'sabzi',
-      'mandi', 'ration', 'grocery'
+      'mandi', 'ration', 'grocery', 'milk', 'milkbooth', 'paneer', 'curd', 'lassi',
+      'butter', 'ghee', 'sabji', 'bhaji', 'vegetable', 'fruit', 'tarkari', 'meat',
+      'chicken', 'mutton', 'fish', 'egg', 'eggs', 'masala', 'spices', 'dryfruits', 'dailyneeds'
     ],
   },
   // Bills & Utilities
@@ -619,23 +668,69 @@ export async function saveUserRule(
   userId?: string
 ): Promise<void> {
   const normalized = normalizeMerchant(rawMerchant);
-  if (!normalized || !category) return;
+  if (!normalized || !category || category === UNCATEGORIZED_LABEL) return;
 
   const uid = userId || 'local';
-  const current = await getUserRules(uid);
-  current[normalized] = category;
-
   inMemoryUserRules.set(normalized, category);
   inMemoryUserRulesUserId = uid;
 
   try {
+    const current = await getUserRules(uid);
+    current[normalized] = category;
     await AsyncStorage.setItem(
       `${USER_RULES_STORAGE_PREFIX}${uid}`,
+      JSON.stringify(current)
+    );
+    await AsyncStorage.setItem(
+      `${USER_RULES_STORAGE_PREFIX}global`,
       JSON.stringify(current)
     );
   } catch (e) {
     warn('Failed to persist user rule to AsyncStorage:', e);
   }
+
+  try {
+    const { saveUserRuleToSQLite } = require('../features/autoAdd/sqliteStorage.ts');
+    saveUserRuleToSQLite(normalized, category, uid);
+  } catch {}
+}
+
+/**
+ * Initializes and hydrates in-memory user rules from AsyncStorage and SQLite.
+ */
+export async function initUserRules(userId?: string): Promise<void> {
+  const uid = userId || 'local';
+  try {
+    const rulesKey = `${USER_RULES_STORAGE_PREFIX}${uid}`;
+    const raw = await AsyncStorage.getItem(rulesKey);
+    if (raw) {
+      const parsed = safeJsonParse<Record<string, string>>(raw, {}, rulesKey, (v) => typeof v === 'object' && v !== null);
+      for (const [k, v] of Object.entries(parsed)) {
+        inMemoryUserRules.set(k, v);
+      }
+    }
+    const globalRaw = await AsyncStorage.getItem(`${USER_RULES_STORAGE_PREFIX}global`);
+    if (globalRaw) {
+      const parsed = safeJsonParse<Record<string, string>>(globalRaw, {}, 'global_rules', (v) => typeof v === 'object' && v !== null);
+      for (const [k, v] of Object.entries(parsed)) {
+        if (!inMemoryUserRules.has(k)) {
+          inMemoryUserRules.set(k, v);
+        }
+      }
+    }
+  } catch (e) {
+    warn('Failed to load user rules from AsyncStorage:', e);
+  }
+
+  try {
+    const { getAllUserRulesFromSQLite } = require('../features/autoAdd/sqliteStorage.ts');
+    const sqliteRules = getAllUserRulesFromSQLite();
+    for (const [k, v] of Object.entries(sqliteRules)) {
+      if (!inMemoryUserRules.has(k)) {
+        inMemoryUserRules.set(k, v);
+      }
+    }
+  } catch {}
 }
 
 export async function deleteUserRule(
@@ -735,51 +830,103 @@ export function classifyTransaction(
   }
 
   // LAYER 1: User Rules (Highest Priority)
-  if (normalized && inMemoryUserRules.has(normalized)) {
-    const cat = inMemoryUserRules.get(normalized)!;
-    return {
-      category: cat,
-      confidence: 1.0,
-      source: 'user_rule',
-      ruleMatched: `user_rule:${normalized}`,
-      isAutoAssigned: true,
-      suggestions: [cat, ...defaultSuggestions.filter(s => s !== cat)].slice(0, 5),
-    };
-  }
-
-  // LAYER 2: History (>= 2 consistent past entries)
-  if (normalized && context?.historyTransactions && context.historyTransactions.length > 0) {
-    const counts = new Map<string, number>();
-    let totalMatches = 0;
-
-    for (const tx of context.historyTransactions) {
-      const txNorm = normalizeMerchant(tx.merchant_name || tx.merchant);
-      if (txNorm === normalized && tx.category && tx.category !== UNCATEGORIZED_LABEL && tx.category !== 'Others') {
-        counts.set(tx.category, (counts.get(tx.category) || 0) + 1);
-        totalMatches++;
+  if (normalized) {
+    let cat = inMemoryUserRules.get(normalized);
+    if (!cat) {
+      // Substring / partial match on user rules
+      for (const [ruleMerchant, ruleCat] of inMemoryUserRules.entries()) {
+        if (ruleMerchant && (normalized === ruleMerchant || normalized.includes(ruleMerchant) || ruleMerchant.includes(normalized))) {
+          cat = ruleCat;
+          break;
+        }
       }
     }
+    // Also try SQLite user rules if not in memory
+    if (!cat) {
+      try {
+        const { getUserRuleFromSQLite } = require('../features/autoAdd/sqliteStorage.ts');
+        cat = getUserRuleFromSQLite(normalized) || undefined;
+      } catch {}
+    }
 
-    if (totalMatches >= 2) {
-      let topCategory = '';
-      let topCount = 0;
-      counts.forEach((count, cat) => {
-        if (count > topCount) {
-          topCount = count;
-          topCategory = cat;
+    if (cat) {
+      return {
+        category: cat,
+        confidence: 1.0,
+        source: 'user_rule',
+        ruleMatched: `user_rule:${normalized}`,
+        isAutoAssigned: true,
+        suggestions: [cat, ...defaultSuggestions.filter(s => s !== cat)].slice(0, 5),
+      };
+    }
+  }
+
+  // LAYER 2: History (>= 1 consistent past entry)
+  if (normalized) {
+    let historyList = context?.historyTransactions;
+    if (!historyList || historyList.length === 0) {
+      try {
+        const { getAutoAddDatabase } = require('../features/autoAdd/sqliteStorage.ts');
+        const db = getAutoAddDatabase();
+        if (db) {
+          const rows = db.getAllSync<{ merchant: string; category: string }>(
+            `SELECT merchant, category FROM auto_added_transactions 
+             WHERE (LOWER(merchant) = ? OR LOWER(merchant) LIKE ? OR ? LIKE '%' || LOWER(merchant) || '%')
+               AND category IS NOT NULL 
+               AND category != ? 
+               AND category != 'Others'
+             ORDER BY timestamp DESC LIMIT 10;`,
+            [normalized, `%${normalized}%`, normalized, UNCATEGORIZED_LABEL]
+          );
+          if (rows && rows.length > 0) {
+            historyList = rows.map((r: { merchant: string; category: string }) => ({ merchant_name: r.merchant, category: r.category }));
+          }
         }
-      });
+      } catch {}
+    }
 
-      // Require at least 2 consistent entries and at least 60% agreement
-      if (topCount >= 2 && topCount / totalMatches >= 0.6) {
-        return {
-          category: topCategory,
-          confidence: 0.92,
-          source: 'history',
-          ruleMatched: `history:${topCount}/${totalMatches}`,
-          isAutoAssigned: true,
-          suggestions: [topCategory, ...defaultSuggestions.filter(s => s !== topCategory)].slice(0, 5),
-        };
+    if (historyList && historyList.length > 0) {
+      const counts = new Map<string, number>();
+      let totalMatches = 0;
+
+      for (const tx of historyList) {
+        const txNorm = normalizeMerchant(tx.merchant_name || tx.merchant);
+        if (
+          txNorm &&
+          (txNorm === normalized || normalized.includes(txNorm) || txNorm.includes(normalized)) &&
+          tx.category &&
+          tx.category !== UNCATEGORIZED_LABEL &&
+          tx.category !== 'Others'
+        ) {
+          counts.set(tx.category, (counts.get(tx.category) || 0) + 1);
+          totalMatches++;
+        }
+      }
+
+      if (totalMatches >= 1) {
+        let topCategory = '';
+        let topCount = 0;
+        counts.forEach((count, cat) => {
+          if (count > topCount) {
+            topCount = count;
+            topCategory = cat;
+          }
+        });
+
+        // If single entry: 100% agreement -> confidence 0.90.
+        // If >= 2 entries: require strict majority (> 50%) -> confidence 0.92.
+        const hasMajority = totalMatches === 1 || topCount / totalMatches > 0.5;
+        if (topCount >= 1 && hasMajority) {
+          const conf = totalMatches >= 2 ? 0.92 : 0.90;
+          return {
+            category: topCategory,
+            confidence: conf,
+            source: 'history',
+            ruleMatched: `history:${topCount}/${totalMatches}`,
+            isAutoAssigned: true,
+            suggestions: [topCategory, ...defaultSuggestions.filter(s => s !== topCategory)].slice(0, 5),
+          };
+        }
       }
     }
   }

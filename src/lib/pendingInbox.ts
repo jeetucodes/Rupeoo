@@ -151,6 +151,14 @@ export async function confirmPendingAlert(
   const createdId = await insertTransaction(userId, txPayload);
   const finalTxId = createdId || deterministicId;
 
+  // Learn merchant category for future auto-adds
+  if (finalMerchant && finalCategory && finalCategory !== 'Uncategorized' && finalCategory !== 'Others') {
+    try {
+      const { saveUserRule } = await import('./categorizer.ts');
+      saveUserRule(finalMerchant, finalCategory, userId).catch(() => {});
+    } catch {}
+  }
+
   // 1.1 If bill matched, mark bill as paid, advance due date & record history
   if (chosenBillId && matchedBillObj) {
     try {

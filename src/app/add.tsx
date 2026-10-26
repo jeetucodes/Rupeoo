@@ -715,6 +715,8 @@ export default function AddExpenseScreen() {
       const now = new Date();
       const timeStr = formatTime12Hour(now);
 
+      const assignedCategory = type === 'credit' && category === 'Food' ? 'Income' : category;
+
       await insertTransaction(user.uid, {
         date: date || todayStr,
         time: timeStr,
@@ -722,10 +724,17 @@ export default function AddExpenseScreen() {
         type: type,
         merchant_name: finalMerchant,
         description: description.trim() || undefined,
-        category: type === 'credit' && category === 'Food' ? 'Income' : category,
+        category: assignedCategory,
         payment_mode: paymentMode,
         receipt_image: receiptImage || null,
       });
+
+      if (finalMerchant && assignedCategory && assignedCategory !== 'Uncategorized' && assignedCategory !== 'Others') {
+        try {
+          const { saveUserRule } = require('@/lib/categorizer');
+          saveUserRule(finalMerchant, assignedCategory, user.uid).catch(() => {});
+        } catch {}
+      }
 
       if (isFirstTransaction) {
         await markFirstTransactionReviewPending(user.uid);

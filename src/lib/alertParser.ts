@@ -102,6 +102,12 @@ const MERCHANT_CATEGORY_MAP: Record<string, string> = {
   behrouz: 'Food',
   faasos: 'Food',
   eatclub: 'Food',
+  stall: 'Food',
+  teastall: 'Food',
+  chaiwala: 'Food',
+  sweets: 'Food',
+  bakery: 'Food',
+  dhaba: 'Food',
 
   // Groceries
   blinkit: 'Groceries',
@@ -115,6 +121,8 @@ const MERCHANT_CATEGORY_MAP: Record<string, string> = {
   countrydelight: 'Groceries',
   milk: 'Groceries',
   motherdairy: 'Groceries',
+  dairy: 'Groceries',
+  kirana: 'Groceries',
 
   // Travel & Commute
   uber: 'Travel',
@@ -269,17 +277,18 @@ const MANDATE_AND_SCHEDULED_PATTERNS = [
   /\bis\s+scheduled\s+for\b/i,
   /\bupcoming\s+auto[ -]?pay\b/i,
 
-  // Autopay / Mandate / Auto-debit / SI Cancellation & Revocation (cancel, revoke, pause, delete, stop)
-  /\b(?:auto[ -]?pay|mandate|e-?mandate|auto[ -]?debit|standing\s+instruction)\b[\s\S]{0,100}?\b(?:cancel(?:led|ed|lation|ling)?|revok(?:ed|e)?|revocation|paus(?:ed|e|ing)?|stop(?:ped|e|ping)?|delet(?:ed|e|ing)?|remov(?:ed|e|al|ing)?|deactivat(?:ed|e|ion)?|terminat(?:ed|e|ion)?|disabled?|hata|rok|band)\b/i,
-  /\b(?:cancel(?:led|ed|lation|ling)?|revok(?:ed|e)?|revocation|paus(?:ed|e|ing)?|stop(?:ped|e|ping)?|delet(?:ed|e|ing)?|remov(?:ed|e|al|ing)?|deactivat(?:ed|e|ion)?|terminat(?:ed|e|ion)?|disabled?)\b[\s\S]{0,100}?\b(?:auto[ -]?pay|mandate|e-?mandate|auto[ -]?debit|standing\s+instruction)\b/i,
+  // Autopay / Mandate / Auto-debit / SI / eNACH Cancellation & Revocation (cancel, revoke, pause, delete, stop, hata, band)
+  /\b(?:auto[ -]?pay|mandate|e-?mandate|auto[ -]?debit|standing\s+instruction|\bsi\b|enach|e-nach|nach)\b[\s\S]*?\b(?:cancel(?:led|ed|lation|ling)?|revok(?:ed|e)?|revocation|paus(?:ed|e|ing)?|stop(?:ped|e|ping)?|delet(?:ed|e|ing)?|remov(?:ed|e|al|ing)?|deactivat(?:ed|e|ion)?|terminat(?:ed|e|ion)?|disabled?|hata(?:ya|ye|diya)?|rok(?:a|i)?|band|delete\s+kiya|cancel\s+kiya|unlink(?:ed)?|failed|rejected|expired)\b/i,
+  /\b(?:cancel(?:led|ed|lation|ling)?|revok(?:ed|e)?|revocation|paus(?:ed|e|ing)?|stop(?:ped|e|ping)?|delet(?:ed|e|ing)?|remov(?:ed|e|al|ing)?|deactivat(?:ed|e|ion)?|terminat(?:ed|e|ion)?|disabled?|hata(?:ya|ye|diya)?|rok(?:a|i)?|band|delete\s+kiya|cancel\s+kiya|unlink(?:ed)?)\b[\s\S]*?\b(?:auto[ -]?pay|mandate|e-?mandate|auto[ -]?debit|standing\s+instruction|\bsi\b|enach|e-nach|nach)\b/i,
 
-  // Autopay / Mandate / Auto-debit / SI Creation, Registration, Setup, Addition (add, create, set up, register)
-  /\b(?:auto[ -]?pay|mandate|e-?mandate|auto[ -]?debit|standing\s+instruction)\b[\s\S]{0,100}?\b(?:creat(?:ed|e|ion)?|register(?:ed)?|registration|set\s*up|add(?:ed|ing)?|activat(?:ed|e|ion)?|schedul(?:ed|e)?|approv(?:ed|al)?|confirm(?:ed|ation)?|enabl(?:ed|e)?|initiat(?:ed|e|ion)?|shuru|jod)\b/i,
-  /\b(?:creat(?:ed|e|ion)?|register(?:ed)?|registration|set\s*up|add(?:ed|ing)?|activat(?:ed|e|ion)?|schedul(?:ed|e)?|approv(?:ed|al)?|confirm(?:ed|ation)?|enabl(?:ed|e)?|initiat(?:ed|e|ion)?)\b[\s\S]{0,100}?\b(?:auto[ -]?pay|mandate|e-?mandate|auto[ -]?debit|standing\s+instruction)\b/i,
+  // Autopay / Mandate / Auto-debit / SI / eNACH Creation, Registration, Setup, Addition (add, create, set up, register, lgya, lagaya)
+  /\b(?:auto[ -]?pay|mandate|e-?mandate|auto[ -]?debit|standing\s+instruction|\bsi\b|enach|e-nach|nach)\b[\s\S]*?\b(?:creat(?:ed|e|ion)?|register(?:ed)?|registration|set\s*up|setup|add(?:ed|ing)?|activat(?:ed|e|ion)?|schedul(?:ed|e)?|approv(?:ed|al)?|confirm(?:ed|ation)?|enabl(?:ed|e)?|initiat(?:ed|e|ion)?|shuru|jod|lagay(?:a|e)|lgya|laga\s+diya|link(?:ed)?)\b/i,
+  /\b(?:creat(?:ed|e|ion)?|register(?:ed)?|registration|set\s*up|setup|add(?:ed|ing)?|activat(?:ed|e|ion)?|schedul(?:ed|e)?|approv(?:ed|al)?|confirm(?:ed|ation)?|enabl(?:ed|e)?|initiat(?:ed|e|ion)?|lagay(?:a|e)|lgya|laga\s+diya|link(?:ed)?)\b[\s\S]*?\b(?:auto[ -]?pay|mandate|e-?mandate|auto[ -]?debit|standing\s+instruction|\bsi\b|enach|e-nach|nach)\b/i,
 
   // Standalone Autopay request & setup notifications
-  /\bauto[ -]?pay\s+(?:request|setup|mandate)\b/i,
+  /\bauto[ -]?pay\s+(?:request|setup|mandate|alert|notification|authorized|authorization)\b/i,
   /\b(?:setup|registration)\s+successful\b/i,
+  /\b(?:mandate|autopay|si)\s+(?:id|ref|status|details)\b/i,
 ];
 
 const BALANCE_ONLY_PATTERNS = [
@@ -505,28 +514,49 @@ function extractTypeAndCategory(text: string): {
     return { type: 'transfer', isReversal: false, isTransfer: true, isAtm: false };
   }
 
-  // Explicit Debit triggers
-  const isDebit =
-    /\b(?:debited|spent|paid|sent|withdrawn|withdrew|purchase\s+of|dr\.?)\b/i.test(text) ||
-    /\b(?:dr\b|a\/c\s+se\s+kat|kat\s+gaye|bhej\s+diye|se\s+debit\s+hua)\b/i.test(text);
+  // Words like "paid you", "paid to you", "sent you", "sent to you", "paid into your account" are incoming money (credits)
+  const isIncomingP2P =
+    /\b(?:paid\s+(?:to\s+)?you|has\s+paid\s+you|sent\s+(?:to\s+)?you|bhej\s+diye\s+(?:aapko|apko)|paid\s+in(?:to)?\s+your)\b/i.test(text);
 
-  // Explicit Credit triggers
-  const isCredit =
-    /\b(?:credited|received|deposited|cashback|cr\.?)\b/i.test(text) ||
-    /\b(?:cr\b|aaya|mila|jama\s+hua)\b/i.test(text);
+  // Strong Credit Signals (Incoming funds into user's account)
+  const isCreditSignal =
+    isIncomingP2P ||
+    /\b(?:received\s+(?:rs\.?|inr|₹)?\s*[0-9,.]*\s*in\s+(?:your\s+)?(?:[a-z]+\s+)?(?:a\/c|ac|account)|received\s+in\s+(?:your\s+)?(?:[a-z]+\s+)?(?:a\/c|ac|account))\b/i.test(text) ||
+    /\b(?:received\s+(?:rs\.?|inr|₹)?\s*[0-9,.]*\s*from|received\s+from|payment\s+received|money\s+received|amount\s+received|funds?\s+received)\b/i.test(text) ||
+    /\b(?:credited\s+to\s+(?:your\s+)?(?:[a-z]+\s+)?(?:a\/c|ac|account)|credited\s+to|credited\s+with|credited\s+in|credited\s+by)\b/i.test(text) ||
+    /\b(?:transferred\s+(?:rs\.?|inr|₹)?\s*[0-9,.]*\s*to\s+your\s+(?:[a-z]+\s+)?(?:a\/c|ac|account)|transferred\s+to\s+your\s+(?:[a-z]+\s+)?(?:a\/c|ac|account)|transferred\s+to\s+you)\b/i.test(text) ||
+    /\b(?:deposited\s+(?:to|in|into)\s+(?:your\s+)?(?:[a-z]+\s+)?(?:a\/c|ac|account))\b/i.test(text) ||
+    /\b(?:credited|received|deposited|cashback)\b/i.test(text) ||
+    /\b(?:cr\b|cr\.?|aaya|mila|jama\s+hua|prapt\s+hue)\b/i.test(text);
 
-  if (isDebit && !isCredit) {
+  // Strong Debit Signals (Outgoing funds from user's account)
+  const isDebitSignal =
+    /\b(?:debited\s+from\s+(?:your\s+)?(?:[a-z]+\s+)?(?:a\/c|ac|account)|debited\s+by|withdrawn\s+from)\b/i.test(text) ||
+    /\b(?:paid\s+to\s+(?!you\b)[A-Za-z0-9]|paid\s+for\s+[A-Za-z0-9]|sent\s+(?:rs\.?|inr|₹)?\s*[0-9,.]*\s*to\s+(?!you\b)[A-Za-z0-9])\b/i.test(text) ||
+    /\b(?:spent\s+(?:on|at)|purchase\s+(?:at|of)|charged\s+to)\b/i.test(text) ||
+    /\b(?:debited|spent|withdrawn|withdrew|purchase\s+of)\b/i.test(text) ||
+    /\b(?:dr\b|dr\.?|a\/c\s+se\s+kat|kat\s+gaye|se\s+debit\s+hua)\b/i.test(text) ||
+    (/\b(?:paid|sent|bhej\s+diye)\b/i.test(text) && !isIncomingP2P);
+
+  if (isCreditSignal && !isDebitSignal) {
+    return { type: 'income', isReversal: false, isTransfer: false, isAtm: false };
+  }
+  if (isDebitSignal && !isCreditSignal) {
     return { type: 'expense', isReversal: false, isTransfer: false, isAtm };
   }
-  if (isCredit && !isDebit) {
+
+  // When both match, check account-level directional phrase:
+  if (
+    /\b(?:received\s+in\s+(?:your\s+)?(?:[a-z]+\s+)?(?:a\/c|ac|account)|received\s+(?:rs\.?|inr|₹)?\s*[0-9,.]*\s*in\s+(?:your\s+)?(?:[a-z]+\s+)?(?:a\/c|ac|account))\b/i.test(text) ||
+    /\b(?:credited\s+to\s+(?:your\s+)?(?:[a-z]+\s+)?(?:a\/c|ac|account)|credited\s+with|credited\s+in)\b/i.test(text) ||
+    /\b(?:received\s+(?:rs\.?|inr|₹)?\s*[0-9,.]*\s*from|received\s+from|payment\s+received\s+from)\b/i.test(text) ||
+    isIncomingP2P
+  ) {
     return { type: 'income', isReversal: false, isTransfer: false, isAtm: false };
   }
 
-  if (/debited\s+from\s+(?:your\s+)?a\/c/i.test(text) || /debited\s+by/i.test(text)) {
+  if (/\b(?:debited\s+from\s+(?:your\s+)?(?:[a-z]+\s+)?(?:a\/c|ac|account)|debited\s+by|withdrawn\s+from)\b/i.test(text)) {
     return { type: 'expense', isReversal: false, isTransfer: false, isAtm };
-  }
-  if (/credited\s+to\s+(?:your\s+)?a\/c/i.test(text) || /credited\s+with/i.test(text)) {
-    return { type: 'income', isReversal: false, isTransfer: false, isAtm: false };
   }
 
   return { type: 'expense', isReversal: false, isTransfer: false, isAtm };
@@ -609,6 +639,19 @@ export function normalizeMerchant(rawMerchant: string | null): string | null {
   // Strip trailing "on <date>" if accidentally matched
   m = m.replace(/\s+on\s+\d{1,2}[-/\s]+[a-zA-Z0-9]+.*$/i, '');
 
+  // Strip trailing "for Rs X", "of Rs X", "Rs X", "INR X", "₹ X"
+  m = m.replace(/\s+(?:for\s+|of\s+)?(?:rs\.?|inr|₹)\s*[0-9,.]*.*$/i, '');
+  m = m.replace(/\s+(?:for|of)\s+[0-9,.]+(?:\s*(?:rs\.?|inr|₹))?.*$/i, '');
+
+  // Strip trailing transaction status / outcome words
+  m = m.replace(/\s+(?:successful(?:ly)?|completed|done|failed|debited|credited|declined|sent|paid|transfer(?:red)?).*$/i, '');
+
+  // Strip trailing "via/using/through/from/with"
+  m = m.replace(/\s+(?:via|using|through|from|with)\s+.*$/i, '');
+
+  // Strip trailing reference / UTR / RRN / A/C
+  m = m.replace(/\s+(?:ref(?:\s*no\.?)?|utr|rrn|txn(?:\s*id)?|upi\s*ref|a\/c|account)\b.*$/i, '');
+
   // Strip common corporate entity suffixes
   m = m.replace(/\b(?:pvt\.?\s*ltd\.?|private\s+limited|limited|ltd\.?|llp|inc\.?|corp\.?|services|india|order|purchase|subscription|flight|booking|premium)\b/gi, '');
 
@@ -639,6 +682,10 @@ function extractMerchant(text: string, type: 'expense' | 'income' | 'transfer', 
   }
 
   const patterns = [
+    // "Money sent to you by AKASH", "Payment received from AKASH", "sent to you by AKASH"
+    /(?:payment\s+from|payment\s+received\s+from|money\s+received\s+from|money\s+sent\s+(?:to\s+you\s+)?by|sent\s+(?:to\s+you\s+)?by)\s+([A-Za-z0-9\s&'.-]{2,35}?)(?:\s+(?:on|with|ref|rrn|utr|using|via|avail|bal|for|of|rs\.?|inr|₹)|\.|\n|$)/i,
+    // P2P Incoming payment patterns: "AKASH paid you", "AKASH has paid you", "AKASH sent you"
+    /(?:^|\b)(?!money\b|payment\b|funds?\b)([A-Za-z0-9\s&'.-]{2,35}?)\s+(?:has\s+)?(?:paid|sent)\s+(?:you|to\s+you)\b/i,
     // NPCI UPI Credit: "UPI/CR/628719284910/PRIYA SHARMA"
     /upi\/(?:cr|p2[am])\/[0-9]+\/([a-zA-Z0-9\s&'.-]{2,35})/i,
     // "through UPI: upi-tea-stall@sbi"
@@ -648,7 +695,7 @@ function extractMerchant(text: string, type: 'expense' | 'income' | 'transfer', 
     // "towards cashback from <merchant>"
     /towards\s+cashback\s+from\s+([A-Za-z0-9\s&'.-]{2,35}?)(?:\s+(?:on|with|ref|rrn|utr|using|via|avail|bal)|\.|\n|$)/i,
     // "paid to <merchant> on/ref/at/bal/."
-    /(?:paid\s+to|sent\s+(?:rs\.?|inr|₹)?\s*[0-9,.]*\s*to|transferred\s+(?:rs\.?|inr|₹)?\s*[0-9,.]*\s*to|bhej\s+diye\s+to)\s+([A-Za-z0-9\s&'.-]{2,40}?)(?:\s+(?:on|with|ref|rrn|utr|using|via|avail|bal|a\/c|from|upi)|\.|\n|$)/i,
+    /(?:paid\s+to|payment\s+to|payment\s+of\s+[^.]+?\s+to|sent\s+(?:rs\.?|inr|₹)?\s*[0-9,.]*\s*to|transferred\s+(?:rs\.?|inr|₹)?\s*[0-9,.]*\s*to|bhej\s+diye\s+to)\s+([A-Za-z0-9\s&'.-]{2,40}?)(?:\s+(?:on|with|ref|rrn|utr|using|via|avail|bal|a\/c|from|upi|for|of|rs|inr|₹|successful)|\.|\n|$)/i,
     // "debited ... to <merchant>"
     /(?:debited|spent|paid)\s+.*?\s+to\s+([A-Za-z0-9\s&'.-]{2,40}?)(?:\s+(?:on|with|ref|rrn|utr|using|via|avail|bal|from|upi)|\.|\n|$)/i,
     // "spent on card XX1234 at <merchant> on/ref" or "spent at <merchant>"
@@ -677,7 +724,7 @@ function extractMerchant(text: string, type: 'expense' | 'income' | 'transfer', 
       const candidate = match[1].trim();
       // Skip false candidates
       if (
-        /^(?:your|the|a\/c|account|bank|branch|inr|rs|card|pos|atm|upi|paytm\s+wallet)$/i.test(candidate) ||
+        /^(?:your|the|a\/c|account|bank|branch|inr|rs|card|pos|atm|upi|paytm\s+wallet|money|payment|funds?)$/i.test(candidate) ||
         /^(?:rs\.?|inr|₹)?\s*[0-9,.]+(?:\s*(?:rs|inr))?$/i.test(candidate) ||
         /^(?:hdfc|sbi|icici|axis|kotak|pnb|canara)\s+(?:card|bank|a\/c)/i.test(candidate)
       ) {
