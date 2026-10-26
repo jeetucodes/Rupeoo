@@ -9,8 +9,8 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { getGoogleAccessToken } from '../_shared/google-auth.ts';
 
-const BREVO_API_KEY = Deno.env.get('BREVO_API_KEY') ?? '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';
-const FIREBASE_API_KEY = Deno.env.get('FIREBASE_WEB_API_KEY') ?? 'AIzaSyAy0P_i2ywT_jpF_leDU-oo3juR1Pu9VJE';
+const BREVO_API_KEY = Deno.env.get('BREVO_API_KEY') ?? '';
+const FIREBASE_API_KEY = Deno.env.get('FIREBASE_WEB_API_KEY') ?? '';
 const FIREBASE_PROJECT = Deno.env.get('FIREBASE_PROJECT_ID') ?? 'paisewaise-e545e';
 const OTP_SECRET = Deno.env.get('OTP_SECRET') ?? BREVO_API_KEY;
 const SA_EMAIL = Deno.env.get('GOOGLE_SA_EMAIL') ?? '';

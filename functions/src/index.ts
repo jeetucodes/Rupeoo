@@ -374,7 +374,7 @@ export const sendEmailOtp = onCall(
       // DefineSecret may throw if not set in cloud functions environment
     }
     if (!brevoKey) {
-      brevoKey = process.env.BREVO_API_KEY || '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';
+      brevoKey = process.env.BREVO_API_KEY || '';
     }
     brevoKey = brevoKey ? brevoKey.trim() : '';
 

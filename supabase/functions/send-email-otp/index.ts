@@ -7,10 +7,10 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 
-const BREVO_API_KEY = Deno.env.get('BREVO_API_KEY') ?? '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';
+const BREVO_API_KEY = Deno.env.get('BREVO_API_KEY') ?? '';
 const BREVO_SENDER_EMAIL = Deno.env.get('BREVO_SENDER_EMAIL') ?? 'innovatexlab.services@gmail.com';
 const BREVO_SENDER_NAME = Deno.env.get('BREVO_SENDER_NAME') ?? 'Rupeo';
-const FIREBASE_API_KEY = Deno.env.get('FIREBASE_WEB_API_KEY') ?? 'AIzaSyAy0P_i2ywT_jpF_leDU-oo3juR1Pu9VJE';
+const FIREBASE_API_KEY = Deno.env.get('FIREBASE_WEB_API_KEY') ?? '';
 const OTP_SECRET = Deno.env.get('OTP_SECRET') ?? BREVO_API_KEY;
 
 const CORS = {
