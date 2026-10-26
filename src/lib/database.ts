@@ -32,6 +32,7 @@ import {
   flushSyncQueue,
   syncRemoteTransactions,
   checkIsOnline,
+  recordDeletedTxId,
 } from './offlineSync';
 import { toRemote, fromRemote, normalizePaymentMode, formatPaymentModeDisplay, parseAmount } from './dataMinimization';
 import { isCloudSyncEnabled, pullFromCloud, pullRemainingHistoryFromCloud, uploadLocalDataToCloud } from './cloudSync';
@@ -49,9 +50,11 @@ import {
   deleteRecurringBillFromSQLite,
   markBillPaidInSQLite,
   undoBillPaymentInSQLite,
+  deleteTransactionFromSQLite,
 } from '@/features/autoAdd/sqliteStorage';
 import { log, warn, error } from '@/lib/logger';
 import { SelfHealingWatchdog } from './selfHealing/SelfHealingWatchdog';
+import { saveHomeSnapshot } from './selfHealing/HomeSnapshotCache';
 
 export {
   getOfflineTransactions,
@@ -241,6 +244,43 @@ export function notifyTransactionsListeners(txs: Transaction[]) {
       warn('Tx listener error:', e);
     }
   });
+}
+
+// Bills Listeners for Instant UI Updates
+type BillsListener = (bills: RecurringBill[]) => void;
+const billsListeners = new Set<BillsListener>();
+
+export function subscribeBills(listener: BillsListener): () => void {
+  billsListeners.add(listener);
+  return () => {
+    billsListeners.delete(listener);
+  };
+}
+
+export function notifyBillsListeners(bills: RecurringBill[]) {
+  billsListeners.forEach((listener) => {
+    try {
+      listener(bills);
+    } catch (e) {
+      warn('Bills listener error:', e);
+    }
+  });
+}
+
+/**
+ * Returns cached recurring bills synchronously from memory or local SQLite for 0ms initial render.
+ */
+export function getCachedBillsSync(userId: string): RecurringBill[] | null {
+  if (!userId) return null;
+  const mem = memoryCache.recurringBills.get(userId);
+  if (mem && mem.data && mem.data.length > 0) {
+    return mem.data;
+  }
+  const sqliteBills = getRecurringBillsFromSQLite();
+  if (sqliteBills && sqliteBills.length > 0) {
+    return sqliteBills as RecurringBill[];
+  }
+  return null;
 }
 
 // Helper to normalize date to YYYY-MM-DD
@@ -819,53 +859,88 @@ export async function getTransactionsByMonth(userId: string, monthYear: string):
 
 export async function deleteTransaction(userId: string, txId: string) {
   if (!userId || !txId) return;
+  const targetIdStr = String(txId);
   const endWrite = SelfHealingWatchdog.beginDatabaseWrite();
   try {
-  // 1. Gather all existing transactions from memory cache and offline storage
-  const cachedList = memoryCache.transactions.get(userId)?.data || [];
-  const localTxs = await getOfflineTransactions(userId);
+    // 1. Gather all existing transactions from memory cache and offline storage
+    const cachedList = memoryCache.transactions.get(userId)?.data || [];
+    const localTxs = await getOfflineTransactions(userId);
 
-  const txMap = new Map<string, any>();
-  for (const t of localTxs) {
-    if (t?.id) txMap.set(t.id, t);
-  }
-  for (const t of cachedList) {
-    if (t?.id) txMap.set(t.id, t);
-  }
-
-  const deletedItem = txMap.get(txId);
-  txMap.delete(txId);
-
-  // Layer 4 Dedupe: If deleted transaction was imported from SMS/alerts, record in ignored set so it never re-imports
-  if (deletedItem) {
-    const payKey = deletedItem.payKey || (typeof txId === 'string' && txId.startsWith('sms_') ? txId.replace(/^sms_/, '') : null);
-    if (payKey) {
-      recordIgnoredPayKey(userId, payKey).catch(() => {});
+    const txMap = new Map<string, any>();
+    for (const t of localTxs) {
+      if (t?.id) txMap.set(String(t.id), t);
     }
-  }
+    for (const t of cachedList) {
+      if (t?.id) txMap.set(String(t.id), t);
+    }
 
-  const updatedLocal = sortTransactionsRecentFirst(Array.from(txMap.values()));
-  await saveOfflineTransactions(userId, updatedLocal);
-  memoryCache.transactions.set(userId, { data: updatedLocal, timestamp: Date.now() });
-  notifyTransactionsListeners(updatedLocal);
+    const deletedItem = txMap.get(targetIdStr);
+    txMap.delete(targetIdStr);
 
-  // Sync with Android widget
-  syncWidgetWithTransactions(userId, updatedLocal).catch(() => { });
+    // Layer 4 Dedupe: If deleted transaction was imported from SMS/alerts, record in ignored set so it never re-imports
+    if (deletedItem) {
+      const payKey = deletedItem.payKey || (targetIdStr.startsWith('sms_') ? targetIdStr.replace(/^sms_/, '') : null);
+      if (payKey) {
+        recordIgnoredPayKey(userId, payKey).catch(() => {});
+      }
+    }
 
-  // 2. Queue offline sync action
-  await enqueueSyncAction(userId, {
-    type: 'DELETE_TRANSACTION',
-    targetId: txId,
-  });
+    // Record tombstone so neither cloud pull nor remote sync resurrects this transaction
+    await recordDeletedTxId(userId, targetIdStr);
 
-  if (typeof AppState !== 'undefined' && AppState.currentState === 'active') {
-    // 3. Foreground sync (debounced to protect battery/network)
-    triggerDebouncedSync(userId, 5000);
+    // Remove from SQLite autoAdd storage as well
+    deleteTransactionFromSQLite(targetIdStr);
 
-    import('@/features/notifications').then(({ scheduleNext48h }) => {
-      scheduleNext48h(userId).catch(() => {});
-    }).catch(() => {});
-  }
+    const updatedLocal = sortTransactionsRecentFirst(Array.from(txMap.values()));
+    // Persist immediately to storage so any subsequent screen read or loadData has fresh data
+    await saveOfflineTransactions(userId, updatedLocal, true);
+    memoryCache.transactions.set(userId, { data: updatedLocal, timestamp: Date.now() });
+
+    // Recalculate balances immediately
+    let totalS = 0;
+    let totalC = 0;
+    let curMonthS = 0;
+    const currentMonthKey = getLocalMonthString();
+
+    updatedLocal.forEach((tx: any) => {
+      const amt = Number(tx.amount) || 0;
+      if (tx.type === 'debit') {
+        totalS += amt;
+        if (tx.date && tx.date.startsWith(currentMonthKey)) {
+          curMonthS += amt;
+        }
+      } else {
+        totalC += amt;
+      }
+    });
+
+    // Update HomeSnapshotCache explicitly so 0ms snapshot and UI have updated balance
+    saveHomeSnapshot(userId, {
+      totalSpend: totalS,
+      totalCredit: totalC,
+      thisMonthSpend: curMonthS,
+      recentTransactions: updatedLocal.slice(0, 20),
+    }, true);
+
+    notifyTransactionsListeners(updatedLocal);
+
+    // Sync with Android widget
+    syncWidgetWithTransactions(userId, updatedLocal).catch(() => { });
+
+    // 2. Queue offline sync action
+    await enqueueSyncAction(userId, {
+      type: 'DELETE_TRANSACTION',
+      targetId: targetIdStr,
+    });
+
+    if (typeof AppState !== 'undefined' && AppState.currentState === 'active') {
+      // 3. Foreground sync (debounced to protect battery/network)
+      triggerDebouncedSync(userId, 5000);
+
+      import('@/features/notifications').then(({ scheduleNext48h }) => {
+        scheduleNext48h(userId).catch(() => {});
+      }).catch(() => {});
+    }
   } finally {
     endWrite();
   }
@@ -875,8 +950,16 @@ export async function deleteAllTransactions(userId: string) {
   if (!userId) return;
 
   // 1. Clear local persistent storage & memory cache immediately
-  await saveOfflineTransactions(userId, []);
+  await saveOfflineTransactions(userId, [], true);
   memoryCache.transactions.set(userId, { data: [], timestamp: Date.now() });
+
+  saveHomeSnapshot(userId, {
+    totalSpend: 0,
+    totalCredit: 0,
+    thisMonthSpend: 0,
+    recentTransactions: [],
+  }, true);
+
   notifyTransactionsListeners([]);
 
   // Sync with Android widget
@@ -1186,36 +1269,82 @@ export async function getRecurringBills(userId: string, forceRefresh = false): P
     return cached.data;
   }
 
-  let offlineBills: RecurringBill[] = [];
-  try {
-    const billsKey = OFFLINE_BILLS_KEY(userId);
-    const raw = await AsyncStorage.getItem(billsKey);
-    if (raw) {
-      offlineBills = safeJsonParse<RecurringBill[]>(raw, [], billsKey, (v) => Array.isArray(v));
-    }
-  } catch {}
+  // 1. Read local bills instantly from SQLite / AsyncStorage (0ms latency)
+  let localBills: RecurringBill[] = [];
+  const sqliteBills = getRecurringBillsFromSQLite();
+  if (sqliteBills && sqliteBills.length > 0) {
+    localBills = sqliteBills as RecurringBill[];
+  } else {
+    try {
+      const billsKey = OFFLINE_BILLS_KEY(userId);
+      const raw = (await AsyncStorage.getItem(billsKey)) || (await AsyncStorage.getItem(`@rupeo_bills_${userId}`));
+      if (raw) {
+        localBills = safeJsonParse<RecurringBill[]>(raw, [], billsKey, (v) => Array.isArray(v));
+      }
+    } catch {}
+  }
 
-  try {
-    const billsRef = collection(db, `users/${userId}/recurring_bills`);
-    const snap = await getDocs(billsRef);
-    const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as RecurringBill));
-    const sorted = list.sort((a, b) => (a.nextDueDate || '').localeCompare(b.nextDueDate || ''));
+  // If local bills exist and it's not a forced refresh, return them immediately (0ms) and sync remote in background!
+  if (!forceRefresh && localBills.length > 0) {
+    const sorted = [...localBills].sort((a, b) => (a.nextDueDate || '').localeCompare(b.nextDueDate || ''));
     memoryCache.recurringBills.set(userId, { data: sorted, timestamp: now });
 
-    AsyncStorage.setItem(OFFLINE_BILLS_KEY(userId), JSON.stringify(sorted)).catch(() => {});
-    syncRecurringBillsToSQLite(sorted);
+    // Background sync with Firestore if cloud sync is enabled
+    isCloudSyncEnabled(userId).then(async (enabled) => {
+      if (enabled && (await checkIsOnline())) {
+        try {
+          const billsRef = collection(db, `users/${userId}/recurring_bills`);
+          const snap = await getDocs(billsRef);
+          if (!snap.empty) {
+            const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as RecurringBill));
+            const remoteSorted = list.sort((a, b) => (a.nextDueDate || '').localeCompare(b.nextDueDate || ''));
+            memoryCache.recurringBills.set(userId, { data: remoteSorted, timestamp: Date.now() });
+            await AsyncStorage.setItem(OFFLINE_BILLS_KEY(userId), JSON.stringify(remoteSorted));
+            await AsyncStorage.setItem(`@rupeo_bills_${userId}`, JSON.stringify(remoteSorted));
+            syncRecurringBillsToSQLite(remoteSorted);
+            notifyBillsListeners(remoteSorted);
+          }
+        } catch {}
+      }
+    }).catch(() => {});
 
     return sorted;
+  }
+
+  // 2. Fetch from Firestore if forced or local bills are empty
+  try {
+    const syncEnabled = await isCloudSyncEnabled(userId);
+    if (!syncEnabled) {
+      return localBills;
+    }
+    const isOnline = await checkIsOnline();
+    if (!isOnline) {
+      return localBills;
+    }
+
+    const billsRef = collection(db, `users/${userId}/recurring_bills`);
+    const snap = await getDocs(billsRef);
+    if (!snap.empty) {
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as RecurringBill));
+      const sorted = list.sort((a, b) => (a.nextDueDate || '').localeCompare(b.nextDueDate || ''));
+      memoryCache.recurringBills.set(userId, { data: sorted, timestamp: now });
+
+      AsyncStorage.setItem(OFFLINE_BILLS_KEY(userId), JSON.stringify(sorted)).catch(() => {});
+      AsyncStorage.setItem(`@rupeo_bills_${userId}`, JSON.stringify(sorted)).catch(() => {});
+      syncRecurringBillsToSQLite(sorted);
+      notifyBillsListeners(sorted);
+
+      return sorted;
+    } else if (localBills.length > 0) {
+      // Remote is empty but local has bills -> DO NOT WIPE OUT LOCAL BILLS!
+      return localBills;
+    }
+    return [];
   } catch (err) {
     warn('Error fetching recurring bills:', err);
-    if (offlineBills.length > 0) {
-      memoryCache.recurringBills.set(userId, { data: offlineBills, timestamp: now });
-      syncRecurringBillsToSQLite(offlineBills);
-      return offlineBills;
-    }
-    const sqliteBills = getRecurringBillsFromSQLite();
-    if (sqliteBills.length > 0) {
-      return sqliteBills as RecurringBill[];
+    if (localBills.length > 0) {
+      memoryCache.recurringBills.set(userId, { data: localBills, timestamp: now });
+      return localBills;
     }
     return [];
   }
@@ -1275,7 +1404,16 @@ export async function saveRecurringBill(userId: string, bill: RecurringBill): Pr
   const savedBill = { ...payload, id: resId } as unknown as RecurringBill;
   saveRecurringBillToSQLite(savedBill);
 
-  invalidateBillsCache(userId);
+  // Update memory cache and notify listeners immediately
+  const existingBills = memoryCache.recurringBills.get(userId)?.data || [];
+  const updatedBills = [...existingBills.filter(b => b.id !== resId), savedBill].sort(
+    (a, b) => (a.nextDueDate || '').localeCompare(b.nextDueDate || '')
+  );
+  memoryCache.recurringBills.set(userId, { data: updatedBills, timestamp: Date.now() });
+  AsyncStorage.setItem(OFFLINE_BILLS_KEY(userId), JSON.stringify(updatedBills)).catch(() => {});
+  AsyncStorage.setItem(`@rupeo_bills_${userId}`, JSON.stringify(updatedBills)).catch(() => {});
+  notifyBillsListeners(updatedBills);
+
   syncWidgetWithTransactions(userId).catch(() => { });
   return resId;
 }
@@ -1288,7 +1426,14 @@ export async function deleteRecurringBill(userId: string, billId: string) {
     warn('Error deleting remote recurring bill:', err);
   }
   deleteRecurringBillFromSQLite(billId);
-  invalidateBillsCache(userId);
+
+  const existingBills = memoryCache.recurringBills.get(userId)?.data || [];
+  const updatedBills = existingBills.filter(b => b.id !== billId);
+  memoryCache.recurringBills.set(userId, { data: updatedBills, timestamp: Date.now() });
+  AsyncStorage.setItem(OFFLINE_BILLS_KEY(userId), JSON.stringify(updatedBills)).catch(() => {});
+  AsyncStorage.setItem(`@rupeo_bills_${userId}`, JSON.stringify(updatedBills)).catch(() => {});
+  notifyBillsListeners(updatedBills);
+
   syncWidgetWithTransactions(userId).catch(() => { });
 }
 

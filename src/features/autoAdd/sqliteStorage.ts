@@ -458,6 +458,25 @@ export function updateTransactionInSQLite(
 }
 
 /**
+ * Deletes or marks as deleted an auto-added transaction from SQLite.
+ */
+export function deleteTransactionFromSQLite(txId: string): void {
+  if (Platform.OS === 'web' || !txId) return;
+  try {
+    const db = getAutoAddDatabase();
+    if (!db) return;
+    db.runSync(
+      'UPDATE auto_added_transactions SET deleted = 1, updatedAt = ? WHERE id = ?;',
+      [Date.now(), String(txId)]
+    );
+    db.runSync('DELETE FROM auto_added_transactions WHERE id = ?;', [String(txId)]);
+    log('[SQLite] Successfully deleted transaction from SQLite:', txId);
+  } catch (err) {
+    warn('[SQLite] Error deleting transaction from SQLite:', err);
+  }
+}
+
+/**
  * Saves a pending alert into local SQLite.
  */
 export function savePendingAlertToSQLite(alert: {

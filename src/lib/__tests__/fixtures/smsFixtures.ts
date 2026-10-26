@@ -947,6 +947,42 @@ export const SMS_FIXTURES: SmsFixture[] = [
     text: 'UPI auto-debit of Rs. 199.00 is scheduled for tomorrow from A/c 1234.',
     expected: { isFinancial: false, isOtpOrPromo: true }
   },
+  {
+    id: 'neg_autopay_1',
+    sender: 'AD-HDFCBK',
+    text: 'UPI AutoPay of Rs. 499.00 has been cancelled successfully on your A/C XX1234.',
+    expected: { isFinancial: false, isOtpOrPromo: true }
+  },
+  {
+    id: 'neg_autopay_2',
+    sender: 'VM-ICICIB',
+    text: 'AutoPay cancelled: Mandate for Rs. 199.00 on account XX5678 has been cancelled.',
+    expected: { isFinancial: false, isOtpOrPromo: true }
+  },
+  {
+    id: 'neg_autopay_3',
+    sender: 'AD-HDFCBK',
+    text: 'UPI AutoPay for Rs. 499.00 has been set up successfully on your A/C XX1234.',
+    expected: { isFinancial: false, isOtpOrPromo: true }
+  },
+  {
+    id: 'neg_autopay_4',
+    sender: 'AD-HDFCBK',
+    text: 'AutoPay added successfully for Rs. 199.00 towards NETFLIX.',
+    expected: { isFinancial: false, isOtpOrPromo: true }
+  },
+  {
+    id: 'neg_autopay_5',
+    sender: 'AD-SBIINB',
+    text: 'Auto pay cancel: Mandate for Rs. 500 on account ending 1234 has been cancelled.',
+    expected: { isFinancial: false, isOtpOrPromo: true }
+  },
+  {
+    id: 'neg_autopay_6',
+    sender: 'AD-SBIINB',
+    text: 'Auto pay added for A/c 1234 Rs 500',
+    expected: { isFinancial: false, isOtpOrPromo: true }
+  },
 
   // Balance & Mini-Statement Alerts (27-32)
   {

@@ -90,6 +90,41 @@ test('Alert Parser - Comprehensive Suite', async (t) => {
     assert.strictEqual(parsed.confidence, 0);
   });
 
+  await t.test('8b. Strict Negative Filter: AutoPay cancel or add notifications are rejected', () => {
+    // Autopay cancelled
+    const cancel1 = parseAlert('UPI AutoPay of Rs. 499.00 has been cancelled successfully on your A/C XX1234.', { sender: 'AD-HDFCBK' });
+    assert.strictEqual(cancel1.isOtpOrPromo, true);
+    assert.strictEqual(cancel1.amount, null);
+    assert.strictEqual(cancel1.confidence, 0);
+
+    const cancel2 = parseAlert('AutoPay cancelled: Mandate for Rs. 199.00 on account XX5678 has been cancelled.', { sender: 'VM-ICICIB' });
+    assert.strictEqual(cancel2.isOtpOrPromo, true);
+    assert.strictEqual(cancel2.amount, null);
+
+    const cancel3 = parseAlert('Auto pay cancel: Mandate for Rs. 500 on account ending 1234 has been cancelled.', { sender: 'AD-SBIINB' });
+    assert.strictEqual(cancel3.isOtpOrPromo, true);
+    assert.strictEqual(cancel3.amount, null);
+
+    // Autopay added / setup
+    const add1 = parseAlert('UPI AutoPay for Rs. 499.00 has been set up successfully on your A/C XX1234.', { sender: 'AD-HDFCBK' });
+    assert.strictEqual(add1.isOtpOrPromo, true);
+    assert.strictEqual(add1.amount, null);
+    assert.strictEqual(add1.confidence, 0);
+
+    const add2 = parseAlert('AutoPay added successfully for Rs. 199.00 towards NETFLIX.', { sender: 'AD-HDFCBK' });
+    assert.strictEqual(add2.isOtpOrPromo, true);
+    assert.strictEqual(add2.amount, null);
+
+    const add3 = parseAlert('Auto pay added for A/c 1234 Rs 500', { sender: 'AD-SBIINB' });
+    assert.strictEqual(add3.isOtpOrPromo, true);
+    assert.strictEqual(add3.amount, null);
+
+    // Mandate cancelled
+    const mandateCancel = parseAlert('Mandate for Rs. 1,000.00 has been cancelled successfully.', { sender: 'JD-AXISBK' });
+    assert.strictEqual(mandateCancel.isOtpOrPromo, true);
+    assert.strictEqual(mandateCancel.amount, null);
+  });
+
   await t.test('9. Strict Negative Filter: Balance inquiry only is rejected', () => {
     const text = 'Dear Customer, available balance in your HDFC Bank A/C *1234 is Rs. 14,350.20 as on 22-OCT-26.';
     const parsed = parseAlert(text, { sender: 'AD-HDFCBK' });

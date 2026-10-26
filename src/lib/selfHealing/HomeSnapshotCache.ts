@@ -108,13 +108,16 @@ export async function loadHomeSnapshotAsync(userId?: string): Promise<HomeSnapsh
  */
 export function saveHomeSnapshot(
   userId: string,
-  partialData: Partial<HomeSnapshotData>
+  partialData: Partial<HomeSnapshotData>,
+  isExplicit = false
 ): HomeSnapshotData {
   const targetUid = userId || 'local';
   const base = inMemorySnapshot?.userId === targetUid ? inMemorySnapshot : DEFAULT_HOME_SNAPSHOT;
 
-  // SAFETY GUARD: Never overwrite an existing cached positive balance with ₹0 on fallback
+  // SAFETY GUARD: Never overwrite an existing cached positive balance with ₹0 on fallback,
+  // unless this is an explicit update from user actions (such as deleting transactions)
   const isZeroFallback =
+    !isExplicit &&
     partialData.totalSpend === 0 &&
     partialData.totalCredit === 0 &&
     (base.totalSpend > 0 || base.totalCredit > 0 || base.thisMonthSpend > 0);

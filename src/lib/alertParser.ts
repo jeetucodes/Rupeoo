@@ -257,6 +257,7 @@ const PROMOTION_PATTERNS = [
 ];
 
 const MANDATE_AND_SCHEDULED_PATTERNS = [
+  // Future debits & scheduled reminders
   /\bwill\s+be\s+debited\b/i,
   /\bscheduled\s+to\s+be\s+debited\b/i,
   /\bwill\s+be\s+deducted\b/i,
@@ -266,6 +267,19 @@ const MANDATE_AND_SCHEDULED_PATTERNS = [
   /\breminder\s*:\s*your\s+(?:emi|bill|payment)\s+is\s+due\b/i,
   /\bupcoming\s+debit\b/i,
   /\bis\s+scheduled\s+for\b/i,
+  /\bupcoming\s+auto[ -]?pay\b/i,
+
+  // Autopay / Mandate / Auto-debit / SI Cancellation & Revocation (cancel, revoke, pause, delete, stop)
+  /\b(?:auto[ -]?pay|mandate|e-?mandate|auto[ -]?debit|standing\s+instruction)\b[\s\S]{0,100}?\b(?:cancel(?:led|ed|lation|ling)?|revok(?:ed|e)?|revocation|paus(?:ed|e|ing)?|stop(?:ped|e|ping)?|delet(?:ed|e|ing)?|remov(?:ed|e|al|ing)?|deactivat(?:ed|e|ion)?|terminat(?:ed|e|ion)?|disabled?|hata|rok|band)\b/i,
+  /\b(?:cancel(?:led|ed|lation|ling)?|revok(?:ed|e)?|revocation|paus(?:ed|e|ing)?|stop(?:ped|e|ping)?|delet(?:ed|e|ing)?|remov(?:ed|e|al|ing)?|deactivat(?:ed|e|ion)?|terminat(?:ed|e|ion)?|disabled?)\b[\s\S]{0,100}?\b(?:auto[ -]?pay|mandate|e-?mandate|auto[ -]?debit|standing\s+instruction)\b/i,
+
+  // Autopay / Mandate / Auto-debit / SI Creation, Registration, Setup, Addition (add, create, set up, register)
+  /\b(?:auto[ -]?pay|mandate|e-?mandate|auto[ -]?debit|standing\s+instruction)\b[\s\S]{0,100}?\b(?:creat(?:ed|e|ion)?|register(?:ed)?|registration|set\s*up|add(?:ed|ing)?|activat(?:ed|e|ion)?|schedul(?:ed|e)?|approv(?:ed|al)?|confirm(?:ed|ation)?|enabl(?:ed|e)?|initiat(?:ed|e|ion)?|shuru|jod)\b/i,
+  /\b(?:creat(?:ed|e|ion)?|register(?:ed)?|registration|set\s*up|add(?:ed|ing)?|activat(?:ed|e|ion)?|schedul(?:ed|e)?|approv(?:ed|al)?|confirm(?:ed|ation)?|enabl(?:ed|e)?|initiat(?:ed|e|ion)?)\b[\s\S]{0,100}?\b(?:auto[ -]?pay|mandate|e-?mandate|auto[ -]?debit|standing\s+instruction)\b/i,
+
+  // Standalone Autopay request & setup notifications
+  /\bauto[ -]?pay\s+(?:request|setup|mandate)\b/i,
+  /\b(?:setup|registration)\s+successful\b/i,
 ];
 
 const BALANCE_ONLY_PATTERNS = [

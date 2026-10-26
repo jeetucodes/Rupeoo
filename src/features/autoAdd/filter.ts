@@ -217,8 +217,13 @@ const OTP_AND_PROMO_PATTERNS: RegExp[] = [
   /\b(?:valid\s*for\s*\d+\s*(?:mins|minutes|secs|seconds))\b/i,
   /\b(?:promo|promotion|cashback\s*offer|flat\s*\d+%\s*off|discount\s*coupon|use\s*code)\b/i,
   /\b(?:congratulations|exclusive\s*deal|pre-approved|apply\s*now|claim\s*reward)\b/i,
-  /\b(?:mandate\s*scheduled|will\s*be\s*debited|upcoming\s*autopay)\b/i,
-  /\b(?:login\s*alert|logged\s*in|password\s*reset|profile\s*updated)\b/i,
+  /\b(?:mandate\s*scheduled|will\s*be\s*debited|upcoming\s*auto[ -]?pay)\b/i,
+  /\b(?:auto[ -]?pay|mandate|e-?mandate|auto[ -]?debit|standing\s+instruction)\b[\s\S]{0,100}?\b(?:cancel(?:led|ed|lation|ling)?|revok(?:ed|e)?|revocation|paus(?:ed|e|ing)?|stop(?:ped|e|ping)?|delet(?:ed|e|ing)?|remov(?:ed|e|al|ing)?|deactivat(?:ed|e|ion)?|terminat(?:ed|e|ion)?|disabled?|hata|rok|band)\b/i,
+  /\b(?:cancel(?:led|ed|lation|ling)?|revok(?:ed|e)?|revocation|paus(?:ed|e|ing)?|stop(?:ped|e|ping)?|delet(?:ed|e|ing)?|remov(?:ed|e|al|ing)?|deactivat(?:ed|e|ion)?|terminat(?:ed|e|ion)?|disabled?)\b[\s\S]{0,100}?\b(?:auto[ -]?pay|mandate|e-?mandate|auto[ -]?debit|standing\s+instruction)\b/i,
+  /\b(?:auto[ -]?pay|mandate|e-?mandate|auto[ -]?debit|standing\s+instruction)\b[\s\S]{0,100}?\b(?:creat(?:ed|e|ion)?|register(?:ed)?|registration|set\s*up|add(?:ed|ing)?|activat(?:ed|e|ion)?|schedul(?:ed|e)?|approv(?:ed|al)?|confirm(?:ed|ation)?|enabl(?:ed|e)?|initiat(?:ed|e|ion)?|shuru|jod)\b/i,
+  /\b(?:creat(?:ed|e|ion)?|register(?:ed)?|registration|set\s*up|add(?:ed|ing)?|activat(?:ed|e|ion)?|schedul(?:ed|e)?|approv(?:ed|al)?|confirm(?:ed|ation)?|enabl(?:ed|e)?|initiat(?:ed|e|ion)?)\b[\s\S]{0,100}?\b(?:auto[ -]?pay|mandate|e-?mandate|auto[ -]?debit|standing\s+instruction)\b/i,
+  /\bauto[ -]?pay\s+(?:request|setup|mandate)\b/i,
+  /\blogin\s*alert|logged\s*in|password\s*reset|profile\s*updated\b/i,
 ];
 
 /**

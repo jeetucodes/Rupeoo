@@ -39,6 +39,8 @@ import {
   getUserCategories,
   getUserNotifications,
   getRecurringBills,
+  getCachedBillsSync,
+  subscribeBills,
   saveRecurringBill,
   payRecurringBill,
   deleteRecurringBill,
@@ -516,6 +518,8 @@ export default function DashboardScreen() {
   });
   const [categories, setCategories] = useState<CategoryItem[]>([]);
   const [recurringBills, setRecurringBills] = useState<RecurringBill[]>(() => {
+    const cachedBills = getCachedBillsSync(user?.uid || '');
+    if (cachedBills && cachedBills.length > 0) return cachedBills;
     return (homeSnapshot?.upcomingBills as RecurringBill[]) || [];
   });
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
@@ -601,13 +605,20 @@ export default function DashboardScreen() {
           getCachedTransactionsSync(user.uid) || [],
           [],
           [],
-          [],
+          getCachedBillsSync(user.uid) || (homeSnapshot?.upcomingBills as RecurringBill[]) || [],
         ]
       );
 
       setCategories(userCats);
       setUnreadNotifications(notifs.filter((n: any) => !n.isRead).length);
-      setRecurringBills(bills);
+
+      const effectiveBills =
+        Array.isArray(bills) && bills.length > 0
+          ? bills
+          : getCachedBillsSync(user.uid) ||
+            (Array.isArray(recurringBills) && recurringBills.length > 0 ? recurringBills : []);
+
+      setRecurringBills(effectiveBills);
 
       let totalS = 0;
       let totalC = 0;
@@ -632,30 +643,32 @@ export default function DashboardScreen() {
         setThisMonthSpend(curMonthS);
         setTransactions(sortTransactionsRecentFirst(allTxs));
 
+        const startingBalance = Number((user as any)?.startingBalance) || 0;
+        const currentNetBalance = startingBalance + totalC - totalS;
+
         // Update SWR cache and notify watchdog that Home Screen has rendered
         saveHomeSnapshot(user.uid, {
           totalSpend: totalS,
           totalCredit: totalC,
           thisMonthSpend: curMonthS,
+          netBalance: currentNetBalance,
           recentTransactions: sortTransactionsRecentFirst(allTxs).slice(0, 20),
-          upcomingBills: bills,
-        });
+          upcomingBills: effectiveBills,
+        }, true);
       } else {
-        // SAFETY GUARD: Do not overwrite cached balance with ₹0 on fallback
-        const cachedSnap = getHomeSnapshotSync(user.uid);
-        if (cachedSnap && (cachedSnap.totalSpend > 0 || cachedSnap.totalCredit > 0)) {
-          setTotalSpend(cachedSnap.totalSpend);
-          setTotalCredit(cachedSnap.totalCredit);
-          setThisMonthSpend(cachedSnap.thisMonthSpend);
-          if (cachedSnap.recentTransactions && cachedSnap.recentTransactions.length > 0) {
-            setTransactions(cachedSnap.recentTransactions);
-          }
-        } else {
-          setTotalSpend(0);
-          setTotalCredit(0);
-          setThisMonthSpend(0);
-          setTransactions([]);
-        }
+        const startingBalance = Number((user as any)?.startingBalance) || 0;
+        setTotalSpend(0);
+        setTotalCredit(0);
+        setThisMonthSpend(0);
+        setTransactions([]);
+        saveHomeSnapshot(user.uid, {
+          totalSpend: 0,
+          totalCredit: 0,
+          thisMonthSpend: 0,
+          netBalance: startingBalance,
+          recentTransactions: [],
+          upcomingBills: effectiveBills,
+        }, true);
       }
       SelfHealingWatchdog.notifyHomeRendered();
 
@@ -757,6 +770,9 @@ export default function DashboardScreen() {
   useEffect(() => {
     const unsub = subscribeTransactions((freshTxs) => {
       if (Array.isArray(freshTxs)) {
+        // Reset loadData throttle so returning to dashboard refreshes cleanly
+        lastLoadTimeRef.current = 0;
+
         const sorted = sortTransactionsRecentFirst(freshTxs);
         setTransactions(sorted);
 
@@ -780,10 +796,35 @@ export default function DashboardScreen() {
         setTotalSpend(totalS);
         setTotalCredit(totalC);
         setThisMonthSpend(curMonthS);
+
+        if (user?.uid) {
+          const startingBalance = Number((user as any)?.startingBalance) || 0;
+          const currentNetBalance = startingBalance + totalC - totalS;
+          saveHomeSnapshot(user.uid, {
+            totalSpend: totalS,
+            totalCredit: totalC,
+            thisMonthSpend: curMonthS,
+            netBalance: currentNetBalance,
+            recentTransactions: sorted.slice(0, 20),
+          }, true);
+        }
       }
     });
     return () => unsub();
-  }, []);
+  }, [user?.uid]);
+
+  // Real-time listener for recurring bills updates
+  useEffect(() => {
+    const unsub = subscribeBills((freshBills) => {
+      if (Array.isArray(freshBills) && freshBills.length > 0) {
+        setRecurringBills(freshBills);
+        if (user?.uid) {
+          saveHomeSnapshot(user.uid, { upcomingBills: freshBills }, true);
+        }
+      }
+    });
+    return () => unsub();
+  }, [user?.uid]);
 
   const onRefresh = () => {
     setRefreshing(true);

@@ -52,6 +52,7 @@ import { StartupRecoveryScreen } from '@/components/StartupRecoveryScreen';
 import { withTimeout } from '@/lib/safeStorage';
 import { SelfHealingWatchdog } from '@/lib/selfHealing/SelfHealingWatchdog';
 import { SelfHealingErrorBoundary } from '@/components/SelfHealingErrorBoundary';
+import { startBackgroundUpdateCheck } from '@/lib/inAppUpdate';
 
 const startupStartTime = Date.now();
 let dbOpenDuration = 0;
@@ -276,6 +277,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       requestRebind().catch(() => {});
       isListenerEnabled().catch(() => {});
       setupAutoAddNotificationChannel().catch(() => {});
+      startBackgroundUpdateCheck();
     }
   }, [user?.uid]);
 

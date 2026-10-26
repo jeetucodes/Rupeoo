@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   Image,
   Linking,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,10 +17,12 @@ import * as Haptics from 'expo-haptics';
 import Toast from 'react-native-toast-message';
 import { APP_VERSION, APP_VERSION_CODE, APP_VERSION_DISPLAY, APP_PLATFORM } from '@/constants/version';
 import { safeGoBack } from '@/lib/navigation';
+import { checkForInAppUpdate } from '@/lib/inAppUpdate';
 
 export default function AboutScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
 
   const handleOpenPlayStore = () => {
     try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
@@ -31,6 +34,34 @@ export default function AboutScreen() {
         text2: 'Play Store link is available on release.',
       });
     });
+  };
+
+  const handleCheckUpdate = async () => {
+    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+    if (checkingUpdate) return;
+    setCheckingUpdate(true);
+    Toast.show({
+      type: 'info',
+      text1: 'Checking for updates...',
+      text2: 'Connecting with Google Play Store.',
+      visibilityTime: 2000,
+    });
+
+    try {
+      const res = await checkForInAppUpdate(true);
+      if (!res.updateAvailable) {
+        Toast.show({
+          type: 'success',
+          text1: 'Rupeo is Up to Date 🎉',
+          text2: `You are running the latest version (${APP_VERSION}).`,
+          visibilityTime: 3000,
+        });
+      }
+    } catch {
+      handleOpenPlayStore();
+    } finally {
+      setCheckingUpdate(false);
+    }
   };
 
   const handleOpenPrivacy = () => {
@@ -160,6 +191,23 @@ export default function AboutScreen() {
         <View style={styles.actionsCard}>
           <TouchableOpacity
             style={styles.actionBtn}
+            onPress={handleCheckUpdate}
+            activeOpacity={0.8}
+            disabled={checkingUpdate}
+          >
+            <Ionicons name="cloud-download-outline" size={18} color="#10B981" />
+            <Text style={styles.actionBtnText}>
+              {checkingUpdate ? 'Checking for updates...' : 'Check for Updates'}
+            </Text>
+            {checkingUpdate ? (
+              <ActivityIndicator size="small" color="#10B981" />
+            ) : (
+              <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.actionBtn, { borderTopWidth: 1, borderColor: '#F1F5F9' }]}
             onPress={handleOpenPlayStore}
             activeOpacity={0.8}
           >

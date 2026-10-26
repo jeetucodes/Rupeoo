@@ -31,6 +31,54 @@ const getTxsKey = (userId: string) => `@rupeo_offline_txs_${userId}`;
 const getCategoriesKey = (userId: string) => `@rupeo_offline_categories_${userId}`;
 const getQueueKey = (userId: string) => `@rupeo_sync_queue_${userId}`;
 const getLastSyncKey = (userId: string) => `@rupeo_last_sync_${userId}`;
+const getDeletedTxsKey = (userId: string) => `@rupeo_deleted_txs_${userId}`;
+
+const deletedTxIdCache = new Map<string, Set<string>>();
+
+/**
+ * Record a deleted transaction ID tombstone so sync and cloud pull never resurrect it.
+ */
+export async function recordDeletedTxId(userId: string, txId: string): Promise<void> {
+  if (!userId || !txId) return;
+  const idStr = String(txId);
+  let idSet = deletedTxIdCache.get(userId);
+  if (!idSet) {
+    idSet = new Set<string>();
+    deletedTxIdCache.set(userId, idSet);
+  }
+  idSet.add(idStr);
+
+  try {
+    const raw = await AsyncStorage.getItem(getDeletedTxsKey(userId));
+    const stored: string[] = raw ? safeJsonParse<string[]>(raw, [], getDeletedTxsKey(userId), (v) => Array.isArray(v)) : [];
+    if (!stored.includes(idStr)) {
+      stored.push(idStr);
+      // Keep last 1000 tombstones to prevent unlimited memory/storage growth
+      const capped = stored.slice(-1000);
+      await AsyncStorage.setItem(getDeletedTxsKey(userId), JSON.stringify(capped));
+    }
+  } catch (err) {
+    warn('Failed to record deleted tx id:', err);
+  }
+}
+
+/**
+ * Get all deleted transaction ID tombstones for a user.
+ */
+export async function getDeletedTxIds(userId: string): Promise<Set<string>> {
+  if (!userId) return new Set();
+  const cached = deletedTxIdCache.get(userId);
+  if (cached && cached.size > 0) return cached;
+  try {
+    const raw = await AsyncStorage.getItem(getDeletedTxsKey(userId));
+    const stored: string[] = raw ? safeJsonParse<string[]>(raw, [], getDeletedTxsKey(userId), (v) => Array.isArray(v)) : [];
+    const set = new Set(stored.map(String));
+    deletedTxIdCache.set(userId, set);
+    return set;
+  } catch {
+    return new Set();
+  }
+}
 
 let isSyncInProgress = false;
 
@@ -425,10 +473,20 @@ export async function syncRemoteTransactions(
         return await getOfflineTransactions(userId);
       }
 
-      // 1. Flush any pending outgoing changes first
+      // 1. Gather all pending delete IDs and tombstones BEFORE flushing queue
+      const queueBeforeFlush = await getSyncQueue(userId);
+      const pendingDeleteIds = new Set<string>(
+        queueBeforeFlush.filter((qItem) => qItem.type === 'DELETE_TRANSACTION').map((qItem) => String(qItem.targetId))
+      );
+      const tombstones = await getDeletedTxIds(userId);
+      for (const id of tombstones) {
+        pendingDeleteIds.add(String(id));
+      }
+
+      // 2. Flush any pending outgoing changes
       await flushSyncQueue(userId, db);
 
-      // 2. Fetch fresh data from Firestore (limited to 500 recent transactions)
+      // 3. Fetch fresh data from Firestore (limited to 500 recent transactions)
       const txsRef = collection(db, `users/${userId}/transactions`);
       const q = query(txsRef, orderBy('date', 'desc'), limit(500));
       let snapshot;
@@ -447,30 +505,27 @@ export async function syncRemoteTransactions(
         ...d.data({ serverTimestamps: 'estimate' }),
       }));
 
-      // 3. Merge remote items with local items:
+      // 4. Merge remote items with local items:
       // Any existing local transactions NOT marked for deletion should NEVER be discarded!
       // Remote items provide server truth for fields, while preserving any recently added local transactions.
-      const queue = await getSyncQueue(userId);
-      const pendingDeleteIds = new Set(
-        queue.filter((qItem) => qItem.type === 'DELETE_TRANSACTION').map((qItem) => qItem.targetId)
-      );
-
       const localList = await getOfflineTransactions(userId);
       const mergedMap = new Map<string, any>();
 
-      // 1. Add all local transactions (excluding items pending deletion)
+      // 4a. Add all local transactions (excluding items pending deletion or tombstoned)
       for (const tx of localList) {
-        if (tx?.id && !pendingDeleteIds.has(tx.id)) {
-          mergedMap.set(tx.id, tx);
+        const idStr = String(tx?.id || '');
+        if (idStr && !pendingDeleteIds.has(idStr)) {
+          mergedMap.set(idStr, tx);
         }
       }
 
-      // 2. Overlay / add remote transactions (excluding items pending deletion)
+      // 4b. Overlay / add remote transactions (excluding items pending deletion or tombstoned)
       for (const tx of remoteList) {
-        if (tx?.id && !pendingDeleteIds.has(tx.id)) {
-          const existing = mergedMap.get(tx.id);
+        const idStr = String(tx?.id || '');
+        if (idStr && !pendingDeleteIds.has(idStr)) {
+          const existing = mergedMap.get(idStr);
           const mapped = fromRemote(tx, existing);
-          mergedMap.set(tx.id, mapped);
+          mergedMap.set(idStr, mapped);
         }
       }
 

@@ -44,6 +44,8 @@ import {
   checkIsOnline,
   getOfflineCategories,
   saveOfflineCategories,
+  getDeletedTxIds,
+  getSyncQueue,
 } from './offlineSync';
 import {
   invalidateAllUserCache,
@@ -336,20 +338,38 @@ export async function pullFromCloud(
     }
 
     // 6. Merge remote transactions with existing local transactions
+    const tombstones = await getDeletedTxIds(userId);
+    const syncQueue = await getSyncQueue(userId);
+    const pendingDeleteIds = new Set<string>(
+      syncQueue.filter((q) => q.type === 'DELETE_TRANSACTION').map((q) => String(q.targetId))
+    );
+    for (const tid of tombstones) {
+      pendingDeleteIds.add(String(tid));
+    }
+
     const localTxs = await getOfflineTransactions(userId);
     const localMap = new Map<string, any>();
     for (const t of localTxs) {
-      if (t?.id) localMap.set(t.id, t);
+      const idStr = String(t?.id || '');
+      if (idStr && !pendingDeleteIds.has(idStr)) {
+        localMap.set(idStr, t);
+      }
     }
 
     for (const remoteDoc of remoteTxDocs) {
-      const localExisting = localMap.get(remoteDoc.id);
+      const docIdStr = String(remoteDoc.id || '');
+      if (!docIdStr || pendingDeleteIds.has(docIdStr)) {
+        // Never resurrect transactions marked for deletion or tombstoned
+        continue;
+      }
+
+      const localExisting = localMap.get(docIdStr);
       if (!localExisting) {
         // New remote transaction -> map and insert
         const mapped = fromRemote(remoteDoc);
         mapped.syncStatus = 'synced';
         mapped.syncedAt = Date.now();
-        localMap.set(remoteDoc.id, mapped);
+        localMap.set(docIdStr, mapped);
       } else {
         // Conflict resolution: compare updatedAt (latest wins)
         const localUpdated = Number(localExisting.updatedAt || localExisting.updated_at || localExisting.created_at) || 0;
@@ -360,11 +380,11 @@ export async function pullFromCloud(
           const mapped = fromRemote(remoteDoc, localExisting);
           mapped.syncStatus = 'synced';
           mapped.syncedAt = Date.now();
-          localMap.set(remoteDoc.id, mapped);
+          localMap.set(docIdStr, mapped);
         } else {
           // Local is newer -> keep local, leave syncStatus as pending
           localExisting.syncStatus = 'pending';
-          localMap.set(remoteDoc.id, localExisting);
+          localMap.set(docIdStr, localExisting);
         }
       }
     }
@@ -433,6 +453,7 @@ export async function pullFromCloud(
     if (remoteBills.length > 0) {
       try {
         syncRecurringBillsToSQLite(remoteBills);
+        await AsyncStorage.setItem(`@rupeo_offline_bills_${userId}`, JSON.stringify(remoteBills));
         await AsyncStorage.setItem(`@rupeo_bills_${userId}`, JSON.stringify(remoteBills));
       } catch (saveBillErr) {
         warn('Error saving pulled recurring bills:', saveBillErr);
@@ -580,18 +601,34 @@ export async function pullRemainingHistoryFromCloud(
       }
 
       if (newlyFetchedDocs.length > 0) {
+        const tombstones = await getDeletedTxIds(userId);
+        const syncQueue = await getSyncQueue(userId);
+        const pendingDeleteIds = new Set<string>(
+          syncQueue.filter((q) => q.type === 'DELETE_TRANSACTION').map((q) => String(q.targetId))
+        );
+        for (const tid of tombstones) {
+          pendingDeleteIds.add(String(tid));
+        }
+
         const localTxs = await getOfflineTransactions(userId);
         const localMap = new Map<string, any>();
         for (const t of localTxs) {
-          if (t?.id) localMap.set(t.id, t);
+          const idStr = String(t?.id || '');
+          if (idStr && !pendingDeleteIds.has(idStr)) {
+            localMap.set(idStr, t);
+          }
         }
 
         for (const remoteDoc of newlyFetchedDocs) {
-          const localExisting = localMap.get(remoteDoc.id);
+          const docIdStr = String(remoteDoc.id || '');
+          if (!docIdStr || pendingDeleteIds.has(docIdStr)) {
+            continue;
+          }
+          const localExisting = localMap.get(docIdStr);
           const mapped = fromRemote(remoteDoc, localExisting);
           mapped.syncStatus = 'synced';
           mapped.syncedAt = Date.now();
-          localMap.set(remoteDoc.id, mapped);
+          localMap.set(docIdStr, mapped);
         }
 
         const mergedTxs = sortTransactionsRecentFirst(Array.from(localMap.values()));

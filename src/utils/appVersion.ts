@@ -22,14 +22,14 @@ try {
   rnPlatform = require('react-native')?.Platform;
 } catch {}
 
-export const CANONICAL_VERSION = '2.2.2';
-export const CANONICAL_BUILD = '40';
+export const CANONICAL_VERSION = '2.2.3';
+export const CANONICAL_BUILD = '41';
 
 /**
  * Returns canonical app version information.
  * Uses native Application values with graceful fallbacks.
  * Prevents stale bundler/dev server caches (e.g. 2.1.9) from leaking.
- * Canonical label format: "v{version} ({build})" -> e.g. "v2.2.2 (40)"
+ * Canonical label format: "v{version} ({build})" -> e.g. "v2.2.3 (41)"
  */
 export function getAppVersion(): AppVersionInfo {
   const constants = expoConstants?.default || expoConstants;
@@ -45,7 +45,7 @@ export function getAppVersion(): AppVersionInfo {
       : constants?.expoConfig?.ios?.buildNumber);
 
   // If a native binary version exists and is >= CANONICAL_VERSION, use it.
-  // Otherwise enforce CANONICAL_VERSION ('2.2.2') so stale dev-server manifests (e.g. 2.1.9) never leak.
+  // Otherwise enforce CANONICAL_VERSION ('2.2.3') so stale dev-server manifests (e.g. 2.1.9) never leak.
   const version = (nativeVer && nativeVer >= CANONICAL_VERSION)
     ? nativeVer
     : (expoVer && expoVer >= CANONICAL_VERSION)
