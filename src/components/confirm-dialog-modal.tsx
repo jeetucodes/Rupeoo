@@ -42,6 +42,8 @@ export function ConfirmDialogModal({
   const iconName: keyof typeof Ionicons.glyphMap = icon || (isDanger ? 'trash-outline' : type === 'warning' ? 'alert-circle-outline' : 'information-circle-outline');
   const iconColor = isDanger ? '#EF4444' : type === 'warning' ? '#F59E0B' : '#2563EB';
   const iconBg = isDanger ? '#FEE2E2' : type === 'warning' ? '#FEF3C7' : '#EFF6FF';
+  const confirmTextColor = isDanger ? '#FFFFFF' : '#0F172A';
+  const spinnerColor = isDanger ? '#FFFFFF' : '#0F172A';
 
   return (
     <Modal
@@ -63,11 +65,10 @@ export function ConfirmDialogModal({
 
           {/* Actions */}
           {secondaryText && onSecondary ? (
-            <View style={{ width: '100%', marginTop: 20 }}>
+            <View style={styles.verticalActionList}>
               <TouchableOpacity
                 style={[
-                  styles.confirmBtn,
-                  { width: '100%', marginBottom: 10 },
+                  styles.verticalBtn,
                   isDanger ? styles.confirmBtnDanger : styles.confirmBtnPrimary,
                 ]}
                 onPress={onConfirm}
@@ -75,28 +76,27 @@ export function ConfirmDialogModal({
                 activeOpacity={0.85}
               >
                 {loading ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
+                  <ActivityIndicator size="small" color={spinnerColor} />
                 ) : (
-                  <Text style={styles.confirmBtnText}>{confirmText}</Text>
+                  <Text style={[styles.btnText, { color: confirmTextColor }]}>
+                    {confirmText}
+                  </Text>
                 )}
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[
-                  styles.cancelBtn,
-                  { width: '100%', marginBottom: 10, borderColor: '#FCA5A5', backgroundColor: '#FEF2F2' },
-                ]}
+                style={[styles.verticalBtn, styles.secondaryBtn]}
                 onPress={onSecondary}
                 disabled={loading}
                 activeOpacity={0.85}
               >
-                <Text style={[styles.cancelBtnText, { color: '#DC2626', fontWeight: '700' }]}>
+                <Text style={styles.secondaryBtnText}>
                   {secondaryText}
                 </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.cancelBtn, { width: '100%' }]}
+                style={[styles.verticalBtn, styles.cancelBtn]}
                 onPress={onCancel}
                 disabled={loading}
                 activeOpacity={0.7}
@@ -107,7 +107,7 @@ export function ConfirmDialogModal({
           ) : (
             <View style={styles.actionRow}>
               <TouchableOpacity
-                style={styles.cancelBtn}
+                style={[styles.cancelBtn, styles.rowCancelBtn]}
                 onPress={onCancel}
                 disabled={loading}
                 activeOpacity={0.7}
@@ -118,6 +118,7 @@ export function ConfirmDialogModal({
               <TouchableOpacity
                 style={[
                   styles.confirmBtn,
+                  styles.rowConfirmBtn,
                   isDanger ? styles.confirmBtnDanger : styles.confirmBtnPrimary,
                 ]}
                 onPress={onConfirm}
@@ -125,9 +126,11 @@ export function ConfirmDialogModal({
                 activeOpacity={0.85}
               >
                 {loading ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
+                  <ActivityIndicator size="small" color={spinnerColor} />
                 ) : (
-                  <Text style={styles.confirmBtnText}>{confirmText}</Text>
+                  <Text style={[styles.btnText, { color: confirmTextColor }]}>
+                    {confirmText}
+                  </Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -186,27 +189,61 @@ const styles = StyleSheet.create({
     marginBottom: 22,
     paddingHorizontal: 8,
   },
+  verticalActionList: {
+    width: '100%',
+    marginTop: 20,
+    gap: 10,
+  },
+  verticalBtn: {
+    width: '100%',
+    minHeight: 48,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   actionRow: {
     flexDirection: 'row',
     gap: 10,
     width: '100%',
   },
-  cancelBtn: {
+  rowCancelBtn: {
     flex: 1,
+  },
+  rowConfirmBtn: {
+    flex: 1.2,
+  },
+  cancelBtn: {
     backgroundColor: '#F1F5F9',
+    minHeight: 48,
     paddingVertical: 13,
+    paddingHorizontal: 14,
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   cancelBtnText: {
     fontSize: 14,
-    fontWeight: '800',
-    color: '#64748B',
+    fontWeight: '700',
+    color: '#475569',
+  },
+  secondaryBtn: {
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+  },
+  secondaryBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#DC2626',
   },
   confirmBtn: {
-    flex: 1.2,
+    minHeight: 48,
     paddingVertical: 13,
+    paddingHorizontal: 14,
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
@@ -223,9 +260,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFD740',
     shadowColor: '#F59E0B',
   },
+  btnText: {
+    fontSize: 14,
+    fontWeight: '800',
+  },
   confirmBtnText: {
     fontSize: 14,
-    fontWeight: '900',
-    color: '#FFFFFF',
+    fontWeight: '800',
+    color: '#0F172A',
   },
 });
